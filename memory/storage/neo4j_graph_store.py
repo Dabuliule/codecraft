@@ -51,6 +51,15 @@ class InvalidRelationTypeError(GraphStoreError):
 class Neo4jGraphStore:
     """Neo4j 图存储实现，封装会话生命周期与 Cypher 访问。"""
 
+    RELATION_USES = "USES"
+    RELATION_DEPENDS_ON = "DEPENDS_ON"
+    RELATION_STORES_IN = "STORES_IN"
+    RELATION_RETRIEVES_FROM = "RETRIEVES_FROM"
+    RELATION_CAUSES = "CAUSES"
+    RELATION_SOLVES = "SOLVES"
+    RELATION_IMPLEMENTS = "IMPLEMENTS"
+    RELATION_RELATED_TO = "RELATED_TO"
+
     # 统一管理核心 Cypher，避免业务代码分散拼接。
     _QUERY_CREATE_ENTITY_CONSTRAINT = (
         "CREATE CONSTRAINT entity_entity_id_unique IF NOT EXISTS "
@@ -168,6 +177,69 @@ class Neo4jGraphStore:
     RETURN type(r) AS relation_type
     """
 
+    _QUERY_LINK_ENTITY_USES = """
+    MATCH (s:Entity {entity_id: $source_entity_id})
+    MATCH (t:Entity {entity_id: $target_entity_id})
+    MERGE (s)-[r:USES]->(t)
+    ON CREATE SET r.created_at = $now
+    SET r.updated_at = $now, r.weight = $weight
+    RETURN type(r) AS relation_type
+    """
+
+    _QUERY_LINK_ENTITY_DEPENDS_ON = """
+    MATCH (s:Entity {entity_id: $source_entity_id})
+    MATCH (t:Entity {entity_id: $target_entity_id})
+    MERGE (s)-[r:DEPENDS_ON]->(t)
+    ON CREATE SET r.created_at = $now
+    SET r.updated_at = $now, r.weight = $weight
+    RETURN type(r) AS relation_type
+    """
+
+    _QUERY_LINK_ENTITY_STORES_IN = """
+    MATCH (s:Entity {entity_id: $source_entity_id})
+    MATCH (t:Entity {entity_id: $target_entity_id})
+    MERGE (s)-[r:STORES_IN]->(t)
+    ON CREATE SET r.created_at = $now
+    SET r.updated_at = $now, r.weight = $weight
+    RETURN type(r) AS relation_type
+    """
+
+    _QUERY_LINK_ENTITY_RETRIEVES_FROM = """
+    MATCH (s:Entity {entity_id: $source_entity_id})
+    MATCH (t:Entity {entity_id: $target_entity_id})
+    MERGE (s)-[r:RETRIEVES_FROM]->(t)
+    ON CREATE SET r.created_at = $now
+    SET r.updated_at = $now, r.weight = $weight
+    RETURN type(r) AS relation_type
+    """
+
+    _QUERY_LINK_ENTITY_CAUSES = """
+    MATCH (s:Entity {entity_id: $source_entity_id})
+    MATCH (t:Entity {entity_id: $target_entity_id})
+    MERGE (s)-[r:CAUSES]->(t)
+    ON CREATE SET r.created_at = $now
+    SET r.updated_at = $now, r.weight = $weight
+    RETURN type(r) AS relation_type
+    """
+
+    _QUERY_LINK_ENTITY_SOLVES = """
+    MATCH (s:Entity {entity_id: $source_entity_id})
+    MATCH (t:Entity {entity_id: $target_entity_id})
+    MERGE (s)-[r:SOLVES]->(t)
+    ON CREATE SET r.created_at = $now
+    SET r.updated_at = $now, r.weight = $weight
+    RETURN type(r) AS relation_type
+    """
+
+    _QUERY_LINK_ENTITY_IMPLEMENTS = """
+    MATCH (s:Entity {entity_id: $source_entity_id})
+    MATCH (t:Entity {entity_id: $target_entity_id})
+    MERGE (s)-[r:IMPLEMENTS]->(t)
+    ON CREATE SET r.created_at = $now
+    SET r.updated_at = $now, r.weight = $weight
+    RETURN type(r) AS relation_type
+    """
+
     _QUERY_MARK_SUPERSEDED = """
     MATCH (old:Fact {fact_id: $old_fact_id})
     MATCH (new:Fact {fact_id: $new_fact_id})
@@ -178,7 +250,8 @@ class Neo4jGraphStore:
     """
 
     _QUERY_GET_NEIGHBORS = """
-    MATCH (e:Entity {entity_id: $entity_id})-[r:RELATED_TO]-(n:Entity)
+    MATCH (e:Entity {entity_id: $entity_id})-[r]-(n:Entity)
+    WHERE type(r) IN $relation_types
     RETURN
         n.entity_id AS entity_id,
         n.name AS name,
@@ -227,7 +300,14 @@ class Neo4jGraphStore:
     }
 
     _ENTITY_RELATION_QUERIES: Dict[str, str] = {
-        "RELATED_TO": _QUERY_LINK_ENTITY_RELATED_TO,
+        RELATION_USES: _QUERY_LINK_ENTITY_USES,
+        RELATION_DEPENDS_ON: _QUERY_LINK_ENTITY_DEPENDS_ON,
+        RELATION_STORES_IN: _QUERY_LINK_ENTITY_STORES_IN,
+        RELATION_RETRIEVES_FROM: _QUERY_LINK_ENTITY_RETRIEVES_FROM,
+        RELATION_CAUSES: _QUERY_LINK_ENTITY_CAUSES,
+        RELATION_SOLVES: _QUERY_LINK_ENTITY_SOLVES,
+        RELATION_IMPLEMENTS: _QUERY_LINK_ENTITY_IMPLEMENTS,
+        RELATION_RELATED_TO: _QUERY_LINK_ENTITY_RELATED_TO,
     }
 
     _QUERY_MULTI_HOP_BY_DEPTH: Dict[int, str] = {
@@ -343,7 +423,11 @@ class Neo4jGraphStore:
             return []
 
         self._assert_entity_exists(entity_id)
-        params = {"entity_id": entity_id, "max_results": int(max_results)}
+        params = {
+            "entity_id": entity_id,
+            "max_results": int(max_results),
+            "relation_types": list(self._ENTITY_RELATION_QUERIES.keys()),
+        }
         records = self._execute_read(self._QUERY_GET_NEIGHBORS, params)
         return [
             {
