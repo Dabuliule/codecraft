@@ -1,5 +1,13 @@
 from .embedding_service import EmbeddingService
 from .models import Action, Episode
+from .neo4j_graph_store import (
+    Entity,
+    GraphStoreError,
+    InvalidRelationTypeError,
+    Neo4jGraphStore,
+    NodeNotFoundError,
+    SemanticFact,
+)
 from .postgres_episode_store import EpisodeNotFoundError, PostgresEpisodeStore
 from .qdrant_episode_vector_store import QdrantEpisodeVectorStore
 
@@ -10,4 +18,10 @@ __all__ = [
     "QdrantEpisodeVectorStore",
     "PostgresEpisodeStore",
     "EpisodeNotFoundError",
+    "Entity",
+    "SemanticFact",
+    "Neo4jGraphStore",
+    "GraphStoreError",
+    "NodeNotFoundError",
+    "InvalidRelationTypeError",
 ]
