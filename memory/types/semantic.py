@@ -37,6 +37,8 @@ class SemanticMemory(MemoryBase):
     # Entity 抽取的正则规则
     _ENGLISH_WORD_PATTERN = re.compile(r"[A-Za-z]{2,}")
     _CHINESE_WORD_PATTERN = re.compile(r"[\u4e00-\u9fff]{2,4}")
+    _HAS_CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
+    _HAS_LATIN_PATTERN = re.compile(r"[A-Za-z]")
 
     _RELATION_SCHEMA: set[str] = {
         "USES",
@@ -277,24 +279,21 @@ class SemanticMemory(MemoryBase):
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> List[Entity]:
-        """轻量级实体抽取：优先 metadata，然后启发式抽取。"""
+        """实体抽取：优先 metadata，其次 spaCy/HanLP，最后回退到启发式规则。"""
         names: set[str] = set()
 
-        # 优先从 metadata 获取显式实体
+        # metadata 显式实体优先
         if metadata and "entities" in metadata:
             explicit = metadata["entities"]
             if isinstance(explicit, list):
                 names.update(str(e).strip() for e in explicit if str(e).strip())
 
-        # 英文连续词
-        for match in self._ENGLISH_WORD_PATTERN.finditer(content):
-            word = match.group(0)
-            if len(word) >= 3 and word.lower() != "the":
-                names.add(word)
+        model_names = self._extract_entities_by_models(content=content)
+        names.update(model_names)
 
-        # 中文 2~4 字词组
-        for match in self._CHINESE_WORD_PATTERN.finditer(content):
-            names.add(match.group(0))
+        # 模型不可用或未抽到时，回退到现有启发式规则。
+        if not names:
+            names.update(self._extract_entities_heuristic(content=content))
 
         entities: List[Entity] = []
         for name in list(names)[:20]:
@@ -308,6 +307,110 @@ class SemanticMemory(MemoryBase):
                 )
             )
         return entities
+
+    def _extract_entities_by_models(self, content: str) -> List[str]:
+        """按语言优先级执行模型实体抽取：中文优先 HanLP，英文优先 spaCy，混合文本双跑。"""
+        names: set[str] = set()
+        has_cjk = bool(self._HAS_CJK_PATTERN.search(content))
+        has_latin = bool(self._HAS_LATIN_PATTERN.search(content))
+
+        if has_cjk and has_latin:
+            names.update(self._extract_entities_hanlp(content))
+            names.update(self._extract_entities_spacy(content))
+        elif has_cjk:
+            names.update(self._extract_entities_hanlp(content))
+            if not names:
+                names.update(self._extract_entities_spacy(content))
+        elif has_latin:
+            names.update(self._extract_entities_spacy(content))
+            if not names:
+                names.update(self._extract_entities_hanlp(content))
+        else:
+            names.update(self._extract_entities_spacy(content))
+            names.update(self._extract_entities_hanlp(content))
+
+        return [name for name in names if name]
+
+    def _extract_entities_spacy(self, content: str) -> List[str]:
+        """使用 spaCy NER 抽取英文实体，不可用时返回空列表。"""
+        try:
+            import spacy
+        except ImportError:
+            return []
+
+        model = getattr(self, "_spacy_ner", None)
+        if model is None:
+            try:
+                model = spacy.load("en_core_web_sm")
+                setattr(self, "_spacy_ner", model)
+            except OSError:
+                return []
+
+        doc = model(content)
+        names: set[str] = set()
+        for ent in doc.ents:
+            text = ent.text.strip()
+            if len(text) >= 2:
+                names.add(text)
+        return list(names)
+
+    def _extract_entities_hanlp(self, content: str) -> List[str]:
+        """使用 HanLP NER 抽取中文实体，不可用时返回空列表。"""
+        try:
+            import hanlp
+        except ImportError:
+            return []
+
+        pipeline = getattr(self, "_hanlp_ner", None)
+        if pipeline is None:
+            try:
+                pipeline = hanlp.load(hanlp.pretrained.ner.MSRA_NER_ELECTRA_SMALL_ZH)
+                setattr(self, "_hanlp_ner", pipeline)
+            except (AttributeError, OSError):
+                return []
+
+        try:
+            parsed = pipeline(content)
+        except (TypeError, ValueError):
+            return []
+
+        names: set[str] = set()
+
+        # 兼容多种 HanLP 返回格式。
+        if isinstance(parsed, list):
+            for item in parsed:
+                if isinstance(item, (list, tuple)) and item:
+                    name = str(item[0]).strip()
+                    if len(name) >= 2:
+                        names.add(name)
+                elif isinstance(item, str):
+                    text = item.strip()
+                    if len(text) >= 2:
+                        names.add(text)
+        elif isinstance(parsed, dict):
+            for value in parsed.values():
+                if isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, (list, tuple)) and item:
+                            name = str(item[0]).strip()
+                            if len(name) >= 2:
+                                names.add(name)
+
+        return list(names)
+
+    def _extract_entities_heuristic(self, content: str) -> List[str]:
+        """回退策略：沿用已有正则启发式实体抽取。"""
+        names: set[str] = set()
+
+        for match in self._ENGLISH_WORD_PATTERN.finditer(content):
+            word = match.group(0)
+            if len(word) >= 3 and word.lower() != "the":
+                names.add(word)
+
+        for match in self._CHINESE_WORD_PATTERN.finditer(content):
+            names.add(match.group(0))
+
+        return list(names)
 
     def _extract_relations(self, content: str, entities: List[Entity]) -> List[Tuple[str, str, str]]:
         """抽取实体关系：规则优先，依存分析增强，输出归一化 schema。"""
