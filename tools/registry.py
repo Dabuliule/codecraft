@@ -74,6 +74,23 @@ class ToolRegistry:
         """导出所有工具的 schema 描述。"""
         return [self._tools[name].to_dict() for name in self.names()]
 
+    def export_openai_tools(self) -> list[dict[str, Any]]:
+        """导出 OpenAI tool calling 格式的工具定义。"""
+        tools: list[dict[str, Any]] = []
+        for name in self.names():
+            tool = self._tools[name]
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.params_model.model_json_schema(),
+                    },
+                }
+            )
+        return tools
+
     def execute(self, name: str, params: dict[str, Any] | None = None) -> Any:
         """按工具名执行工具。"""
         tool = self.get(name)

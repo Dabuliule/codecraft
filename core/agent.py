@@ -60,14 +60,22 @@ class Agent(ABC):
         """返回可用工具名称。"""
         return self.tool_registry.names()
 
-    def call_tool(self, name: str, params: dict[str, Any] | None = None) -> Any:
+    def call_tool(
+            self,
+            name: str,
+            params: dict[str, Any] | None = None,
+            tool_call_id: str | None = None,
+    ) -> Any:
         """执行工具并写入工具消息历史。"""
         result = self.tool_registry.execute(name, params)
+        metadata = {"tool": name, "params": params or {}}
+        if tool_call_id:
+            metadata["tool_call_id"] = tool_call_id
         self.add_message(
             Message(
                 role="tool",
                 content=f"{name}: {result}",
-                metadata={"tool": name, "params": params or {}},
+                metadata=metadata,
             )
         )
         return result

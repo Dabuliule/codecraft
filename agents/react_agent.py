@@ -48,14 +48,37 @@ class ReActAgent(Agent):
 
     def _reasoning_loop(self, **kwargs: Any) -> str:
         for _ in range(self.max_iterations):
-            response = self._invoke_llm(**kwargs)
+            tool_result = self._invoke_with_tools(**kwargs)
+            if tool_result["used_tool_calling"]:
+                content = tool_result["content"].strip()
+                tool_calls = tool_result["tool_calls"]
+                if tool_calls:
+                    self.add_message(
+                        Message(
+                            role="assistant",
+                            content=content,
+                            metadata={"tool_calls": tool_calls},
+                        )
+                    )
+                    self._execute_tool_calls(tool_calls)
+                    continue
+                if content:
+                    self.add_message(Message(role="assistant", content=content))
+                    return content
+                raise AgentException("ReActAgent 未收到有效内容或工具调用。")
+
+            response = tool_result["content"].strip()
+            if not response:
+                continue
             self.add_message(Message(role="assistant", content=response))
 
-            final_answer = self._extract_final_answer(response)
-            if final_answer is not None:
-                return final_answer
+            parsed = self._parse_json_response(response)
+            if parsed.get("type") == "final":
+                return parsed["final"]
 
-            tool_name, tool_params = self._extract_action(response)
+            action = parsed.get("action") or {}
+            tool_name = action.get("name")
+            tool_params = action.get("params") or {}
             if not tool_name:
                 raise AgentException("ReActAgent 未提供可执行的动作。")
 
@@ -65,9 +88,32 @@ class ReActAgent(Agent):
 
     def _reasoning_loop_stream(self, **kwargs: Any) -> Iterator[str]:
         for _ in range(self.max_iterations):
+            tool_result = self._invoke_with_tools(**kwargs)
+            if tool_result["used_tool_calling"]:
+                content = tool_result["content"].strip()
+                tool_calls = tool_result["tool_calls"]
+                if tool_calls:
+                    self.add_message(
+                        Message(
+                            role="assistant",
+                            content=content,
+                            metadata={"tool_calls": tool_calls},
+                        )
+                    )
+                    if content:
+                        yield content
+                    for result in self._execute_tool_calls(tool_calls):
+                        yield f"\n观察结果: {result}\n"
+                    continue
+                if content:
+                    self.add_message(Message(role="assistant", content=content))
+                    yield content
+                    return
+                raise AgentException("ReActAgent 未收到有效内容或工具调用。")
+
             chunks: list[str] = []
             try:
-                for chunk in self.llm.stream_invoke(self._build_messages(), **kwargs):
+                for chunk in self.llm.stream_invoke(self._build_messages(tool_calling=False), **kwargs):
                     if not chunk:
                         continue
                     chunks.append(chunk)
@@ -81,11 +127,13 @@ class ReActAgent(Agent):
 
             self.add_message(Message(role="assistant", content=response))
 
-            final_answer = self._extract_final_answer(response)
-            if final_answer is not None:
+            parsed = self._parse_json_response(response)
+            if parsed.get("type") == "final":
                 return
 
-            tool_name, tool_params = self._extract_action(response)
+            action = parsed.get("action") or {}
+            tool_name = action.get("name")
+            tool_params = action.get("params") or {}
             if not tool_name:
                 raise AgentException("ReActAgent 未提供可执行的动作。")
 
@@ -94,77 +142,123 @@ class ReActAgent(Agent):
 
         raise AgentException("ReActAgent 超过最大迭代次数仍未给出最终答案。")
 
-    def _invoke_llm(self, **kwargs: Any) -> str:
+    def _invoke_with_tools(self, **kwargs: Any) -> dict[str, Any]:
         try:
-            return self.llm.invoke(self._build_messages(), **kwargs) or ""
+            tools = self.tool_registry.export_openai_tools()
+            return self.llm.invoke_with_tools(
+                self._build_messages(tool_calling=True),
+                tools,
+                **kwargs,
+            )
         except HelloAgentsException as exc:
             raise AgentException(f"ReActAgent 调用 LLM 失败: {exc}") from exc
 
-    def _build_messages(self) -> list[dict[str, str]]:
-        messages: list[dict[str, str]] = []
+    def _build_messages(self, tool_calling: bool) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
         system_blocks: list[str] = []
 
         if self.system_prompt:
             system_blocks.append(self.system_prompt)
 
-        system_blocks.append(self._react_format_hint())
+        if tool_calling:
+            system_blocks.append("你可以使用可用工具获取信息或执行操作。")
+        else:
+            system_blocks.append(self._json_format_hint())
 
         if system_blocks:
             messages.append({"role": "system", "content": "\n\n".join(system_blocks)})
 
-        # TODO: tool 角色不适配当前调用方式，转为 assistant 的 Observation
         for message in self.get_history():
-            if message.role == "tool":
-                messages.append({"role": "assistant", "content": f"Observation: {message.content}"})
-            else:
+            if tool_calling:
                 messages.append(message.to_dict())
+            else:
+                # TODO: tool 角色不适配当前调用方式，转为 assistant 的 Observation
+                if message.role == "tool":
+                    messages.append({"role": "assistant", "content": f"Observation: {message.content}"})
+                else:
+                    messages.append(message.to_dict())
 
         return messages
 
-    def _react_format_hint(self) -> str:
+    def _json_format_hint(self) -> str:
         tool_section = f"\n\n【可用工具】\n{self._build_tool_hint()}\n"
         return (
-            "你必须严格按照 ReAct 规范进行推理与工具调用，所有输出必须遵循以下规则：\n\n"
-
-            "【基本规则】\n"
-            "1. 每一轮输出只能包含以下两种结构之一：\n"
-            "   (A) Thought + Action + Action Input\n"
-            "   (B) Final Answer\n"
-            "2. 除 Final Answer 外，必须同时包含 Thought、Action 和 Action Input，缺一不可\n"
-            "3. 严禁输出多余字段（如 Observation、Explanation 等）\n"
-            "4. 严禁在同一轮中调用多个工具（只能有一个 Action）\n"
+            "你必须严格输出 JSON，且只能输出 JSON 对象，不要包含额外文本或代码块。\n\n"
+            "响应必须符合以下 JSON Schema：\n"
+            "{\n"
+            "  \"type\": \"action\" | \"final\",\n"
+            "  \"action\": {\n"
+            "    \"name\": \"<工具名称>\",\n"
+            "    \"params\": { <工具参数> }\n"
+            "  },\n"
+            "  \"final\": \"<最终答案>\"\n"
+            "}\n\n"
+            "规则：\n"
+            "- 当 type=action 时，必须提供 action.name 和 action.params\n"
+            "- 当 type=final 时，必须提供 final 且禁止提供 action\n"
+            "- 只输出 JSON（使用双引号），不得包含注释或 trailing comma\n"
             f"{tool_section}\n"
-            "【格式要求】\n"
-            "严格按照以下格式输出（大小写敏感，字段名不可更改）：\n\n"
-            "Thought: <你的思考过程，简洁但清晰>\n"
-            "Action: <工具名称，必须是已提供的工具之一>\n"
-            "Action Input: <JSON字符串，必须是合法JSON>\n\n"
-
-            "示例：\n"
-            "Thought: 需要查询用户信息\n"
-            "Action: get_user_info\n"
-            "Action Input: {\"user_id\": \"123\"}\n\n"
-
-            "【Final Answer 规则】\n"
-            "当你已经获得足够信息，可以直接回答用户问题时，必须输出：\n\n"
-            "Final Answer: <最终答案>\n\n"
-
-            "注意：\n"
-            "- 输出 Final Answer 时，不得再包含 Thought / Action / Action Input\n"
-            "- Final Answer 应直接回答用户问题，不要包含额外格式\n\n"
-
-            "【JSON 规范】\n"
-            "- Action Input 必须是严格合法的 JSON（使用双引号）\n"
-            "- 不允许使用单引号、注释或 trailing comma\n"
-            "- 参数必须与工具定义完全匹配\n\n"
-
-            "【错误处理】\n"
-            "- 如果你不确定使用哪个工具，请先在 Thought 中分析，再选择最合适的工具\n"
-            "- 如果上一步工具结果不正确，请重新思考并调用工具\n"
-            "- 不要假造工具结果，必须依赖真实 Observation（系统返回）\n\n"
-
             "请严格遵守以上规则进行输出。"
         )
+
+    def _execute_tool_calls(self, tool_calls: list[Any]) -> list[Any]:
+        results: list[Any] = []
+        for call in tool_calls:
+            function = getattr(call, "function", None)
+            if function is None:
+                function = call.get("function") if isinstance(call, dict) else None
+            if function is None:
+                raise AgentException("工具调用缺少 function 字段。")
+
+            name = getattr(function, "name", None) or function.get("name")
+            arguments = getattr(function, "arguments", None) or function.get("arguments") or "{}"
+            tool_call_id = getattr(call, "id", None) or call.get("id") if isinstance(call, dict) else None
+
+            try:
+                params = json.loads(arguments)
+            except json.JSONDecodeError as exc:
+                raise AgentException(f"工具调用参数 JSON 解析失败: {exc}") from exc
+
+            if not isinstance(params, dict):
+                raise AgentException("工具调用参数必须是 JSON 对象。")
+
+            results.append(self.call_tool(name, params, tool_call_id=tool_call_id))
+        return results
+
+    @staticmethod
+    def _parse_json_response(response: str) -> dict[str, Any]:
+        text = response.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-zA-Z0-9]*", "", text).strip()
+            text = re.sub(r"```$", "", text).strip()
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            raise AgentException("模型未返回合法 JSON 对象。")
+
+        snippet = text[start:end + 1]
+        try:
+            payload = json.loads(snippet)
+        except json.JSONDecodeError as exc:
+            raise AgentException(f"JSON 解析失败: {exc}") from exc
+
+        if not isinstance(payload, dict):
+            raise AgentException("响应必须是 JSON 对象。")
+
+        response_type = payload.get("type")
+        if response_type not in {"action", "final"}:
+            raise AgentException("JSON 响应必须包含 type=action 或 type=final。")
+
+        if response_type == "final":
+            if "final" not in payload:
+                raise AgentException("type=final 时必须提供 final 字段。")
+            return {"type": "final", "final": str(payload["final"])}
+
+        action = payload.get("action")
+        if not isinstance(action, dict):
+            raise AgentException("type=action 时必须提供 action 对象。")
+        return {"type": "action", "action": action}
 
     @staticmethod
     def _normalize_input(input_text: str) -> str:
@@ -173,36 +267,3 @@ class ReActAgent(Agent):
             raise AgentException("input_text 不能为空")
         return text
 
-    @staticmethod
-    def _extract_final_answer(response: str) -> str | None:
-        match = re.search(r"Final Answer:\s*(.+)$", response, re.IGNORECASE | re.DOTALL)
-        if not match:
-            return None
-        return match.group(1).strip()
-
-    @staticmethod
-    def _extract_action(response: str) -> tuple[str | None, dict[str, Any]]:
-        if re.search(r"^\s*Observation:\s*", response, re.IGNORECASE | re.MULTILINE):
-            raise AgentException("模型输出包含 Observation，违反格式要求。")
-
-        action_match = re.search(r"Action:\s*(.+)$", response, re.IGNORECASE | re.MULTILINE)
-        if not action_match:
-            return None, {}
-
-        action_line = action_match.group(1).strip()
-        if action_line.lower().startswith("final answer"):
-            return None, {}
-
-        tool_name = action_line.split()[0].strip()
-        input_match = re.search(r"Action Input:\s*(\{.+})", response, re.IGNORECASE | re.DOTALL)
-        raw_input = input_match.group(1).strip() if input_match else "{}"
-
-        try:
-            params = json.loads(raw_input)
-        except json.JSONDecodeError as exc:
-            raise AgentException(f"动作输入的 JSON 格式无效: {exc}") from exc
-
-        if not isinstance(params, dict):
-            raise AgentException("动作输入必须是 JSON 对象。")
-
-        return tool_name, params

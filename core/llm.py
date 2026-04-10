@@ -1,6 +1,6 @@
 """HelloAgents统一LLM接口 - 基于OpenAI原生API"""
 import os
-from typing import Iterator, Literal, Optional, cast
+from typing import Any, Iterator, Literal, Optional, cast
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
@@ -140,6 +140,7 @@ class HelloAgentsLLM:
 
         # 创建OpenAI客户端
         self._client = self._create_client()
+        self._tool_calling_supported: Optional[bool] = None
 
     @staticmethod
     def _normalize_messages(messages: list[dict[str, str]]) -> list[ChatCompletionMessageParam]:
@@ -293,6 +294,52 @@ class HelloAgentsLLM:
             return response.choices[0].message.content
         except Exception as e:
             raise HelloAgentsException(f"LLM调用失败: {str(e)}")
+
+    def invoke_with_tools(
+            self,
+            messages: list[dict[str, Any]],
+            tools: list[dict[str, Any]],
+            tool_choice: str = "auto",
+            **kwargs
+    ) -> dict[str, Any]:
+        """使用 tool calling 调用模型；若不支持则自动降级为普通调用。"""
+        if self._tool_calling_supported is False:
+            content = self.invoke(messages, **kwargs) or ""
+            return {"content": content, "tool_calls": [], "used_tool_calling": False}
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model,
+                messages=self._normalize_messages(messages),
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=kwargs.get("temperature", self.temperature),
+                max_tokens=kwargs.get("max_tokens", self.max_tokens),
+                **{k: v for k, v in kwargs.items() if k not in ["temperature", "max_tokens"]}
+            )
+            message = response.choices[0].message
+            tool_calls = getattr(message, "tool_calls", None) or []
+            self._tool_calling_supported = True
+            return {
+                "content": message.content or "",
+                "tool_calls": tool_calls,
+                "used_tool_calling": True,
+            }
+        except Exception as exc:
+            if self._is_tool_calling_unsupported(exc):
+                self._tool_calling_supported = False
+                content = self.invoke(messages, **kwargs) or ""
+                return {"content": content, "tool_calls": [], "used_tool_calling": False}
+            raise HelloAgentsException(f"LLM调用失败: {str(exc)}") from exc
+
+    @staticmethod
+    def _is_tool_calling_unsupported(exc: Exception) -> bool:
+        message = str(exc).lower()
+        if not message:
+            return False
+        has_param = any(key in message for key in ("tools", "tool_choice", "functions", "function"))
+        has_unsupported = any(key in message for key in ("unsupported", "unrecognized", "unknown", "not allowed"))
+        return has_param and has_unsupported
 
     def stream_invoke(self, messages: list[dict[str, str]], **kwargs) -> Iterator[str]:
         """

@@ -18,10 +18,15 @@ class Message(BaseModel):
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式（OpenAI API格式）"""
-        return {
+        data: Dict[str, Any] = {
             "role": self.role,
-            "content": self.content
+            "content": self.content,
         }
+        if self.role == "assistant" and "tool_calls" in self.metadata:
+            data["tool_calls"] = self.metadata["tool_calls"]
+        if self.role == "tool" and "tool_call_id" in self.metadata:
+            data["tool_call_id"] = self.metadata["tool_call_id"]
+        return data
 
     def __str__(self) -> str:
         return f"{self.role}: {self.content}"
