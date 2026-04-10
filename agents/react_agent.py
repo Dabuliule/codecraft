@@ -5,7 +5,7 @@ import re
 from typing import Any, Iterable, Iterator
 
 from core.agent import Agent
-from core.exceptions import AgentException, HelloAgentsException
+from core.exceptions import AgentException, HelloAgentsException, ToolException
 from core.message import Message
 from tools.base import Tool
 from tools.registry import ToolRegistry
@@ -23,6 +23,7 @@ class ReActAgent(Agent):
             tools: Iterable[Tool] | None = None,
             tool_registry: ToolRegistry | None = None,
             max_iterations: int = 8,
+            max_tool_failures: int = 3,
     ):
         super().__init__(
             name=name,
@@ -33,6 +34,11 @@ class ReActAgent(Agent):
             tool_registry=tool_registry,
         )
         self.max_iterations = max_iterations
+        if max_tool_failures < 1:
+            raise ValueError("max_tool_failures 必须大于 0")
+        self.max_tool_failures = max_tool_failures
+        self._consecutive_tool_failures = 0
+        self._last_failed_signature: str | None = None
 
     def run(self, input_text: str, **kwargs: Any) -> str:
         """非流式执行，返回最终答案。"""
@@ -82,7 +88,7 @@ class ReActAgent(Agent):
             if not tool_name:
                 raise AgentException("ReActAgent 未提供可执行的动作。")
 
-            self.call_tool(tool_name, tool_params)
+            self._call_tool_with_guard(tool_name, tool_params)
 
         raise AgentException("ReActAgent 超过最大迭代次数仍未给出最终答案。")
 
@@ -137,7 +143,7 @@ class ReActAgent(Agent):
             if not tool_name:
                 raise AgentException("ReActAgent 未提供可执行的动作。")
 
-            result = self.call_tool(tool_name, tool_params)
+            result = self._call_tool_with_guard(tool_name, tool_params)
             yield f"\n观察结果: {result}\n"
 
         raise AgentException("ReActAgent 超过最大迭代次数仍未给出最终答案。")
@@ -162,6 +168,7 @@ class ReActAgent(Agent):
 
         if tool_calling:
             system_blocks.append("你可以使用可用工具获取信息或执行操作。")
+            system_blocks.append(self._tool_retry_hint())
         else:
             system_blocks.append(self._json_format_hint())
 
@@ -197,8 +204,16 @@ class ReActAgent(Agent):
             "- 当 type=action 时，必须提供 action.name 和 action.params\n"
             "- 当 type=final 时，必须提供 final 且禁止提供 action\n"
             "- 只输出 JSON（使用双引号），不得包含注释或 trailing comma\n"
+            "- 如果收到工具错误 Observation，下一轮必须修正工具名或参数，不得原样重试\n"
             f"{tool_section}\n"
             "请严格遵守以上规则进行输出。"
+        )
+
+    @staticmethod
+    def _tool_retry_hint() -> str:
+        return (
+            "如果工具返回错误，请根据错误信息修正参数后再重试；"
+            "禁止重复提交完全相同的错误调用。"
         )
 
     def _execute_tool_calls(self, tool_calls: list[Any]) -> list[Any]:
@@ -211,19 +226,86 @@ class ReActAgent(Agent):
                 raise AgentException("工具调用缺少 function 字段。")
 
             name = getattr(function, "name", None) or function.get("name")
+            if not name:
+                raise AgentException("工具调用缺少 function.name。")
+
             arguments = getattr(function, "arguments", None) or function.get("arguments") or "{}"
             tool_call_id = getattr(call, "id", None) or call.get("id") if isinstance(call, dict) else None
 
-            try:
-                params = json.loads(arguments)
-            except json.JSONDecodeError as exc:
-                raise AgentException(f"工具调用参数 JSON 解析失败: {exc}") from exc
+            if isinstance(arguments, str):
+                try:
+                    params = json.loads(arguments)
+                except json.JSONDecodeError as exc:
+                    raise AgentException(f"工具调用参数 JSON 解析失败: {exc}") from exc
+            elif isinstance(arguments, dict):
+                params = arguments
+            else:
+                raise AgentException("工具调用参数必须是 JSON 字符串或对象。")
 
             if not isinstance(params, dict):
                 raise AgentException("工具调用参数必须是 JSON 对象。")
 
-            results.append(self.call_tool(name, params, tool_call_id=tool_call_id))
+            results.append(self._call_tool_with_guard(name, params, tool_call_id=tool_call_id))
         return results
+
+    def _call_tool_with_guard(
+            self,
+            tool_name: str,
+            tool_params: dict[str, Any],
+            tool_call_id: str | None = None,
+    ) -> Any:
+        try:
+            result = self.call_tool(tool_name, tool_params, tool_call_id=tool_call_id)
+            self._consecutive_tool_failures = 0
+            self._last_failed_signature = None
+            return result
+        except ToolException as exc:
+            signature = self._build_call_signature(tool_name, tool_params)
+            repeated = signature == self._last_failed_signature
+            self._last_failed_signature = signature
+            self._consecutive_tool_failures += 1
+
+            schema_hint = self._get_tool_schema_hint(tool_name)
+            repeat_hint = "请修正后重试，不要重复同一参数。" if repeated else "请根据错误信息修正参数后重试。"
+            error_text = (
+                f"工具 {tool_name} 调用失败: {exc}. {repeat_hint}"
+                + (f" schema: {schema_hint}" if schema_hint else "")
+            )
+            self.add_message(
+                Message(
+                    role="tool",
+                    content=error_text,
+                    metadata={
+                        "tool": tool_name,
+                        "params": tool_params,
+                        "tool_call_id": tool_call_id,
+                        "error": True,
+                    },
+                )
+            )
+
+            if self._consecutive_tool_failures >= self.max_tool_failures:
+                raise AgentException(
+                    f"ReActAgent 连续 {self._consecutive_tool_failures} 次工具调用失败，已终止。"
+                    "请调整工具选择或参数。"
+                ) from exc
+
+            return f"ERROR: {error_text}"
+
+    @staticmethod
+    def _build_call_signature(tool_name: str, tool_params: dict[str, Any]) -> str:
+        try:
+            payload = json.dumps(tool_params, sort_keys=True, ensure_ascii=True)
+        except TypeError:
+            payload = repr(tool_params)
+        return f"{tool_name}:{payload}"
+
+    def _get_tool_schema_hint(self, tool_name: str) -> str | None:
+        try:
+            tool = self.tool_registry.get(tool_name)
+            return json.dumps(tool.params_model.model_json_schema(), ensure_ascii=True)
+        except Exception:
+            return None
 
     @staticmethod
     def _parse_json_response(response: str) -> dict[str, Any]:
