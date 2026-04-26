@@ -1,87 +1,45 @@
 """内置计算器工具。"""
 
-import ast
+from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from typing import Any
 
-from core.exceptions import ToolException
-from tools.base import Tool
+from pydantic import BaseModel, ConfigDict, Field
+
+from tools.base import BaseTool, ToolException
 
 
-class CalculatorParams(BaseModel):
-    """计算器参数。"""
+class CalculatorArgs(BaseModel):
+    """计算器输入参数。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    expression: str
+    expression: str = Field(..., description="算术表达式，如 '(1 + 2) * 3 / 4'")
 
 
-class CalculatorTool(Tool):
-    """执行四则运算与安全表达式求值。"""
+class CalculatorTool(BaseTool):
+    """执行基础算术表达式（支持 + - * / 和括号）。"""
 
-    params_model = CalculatorParams
+    name = "calculator"
+    description = "执行数学表达式计算，支持 + - * /、括号和一元正负号。"
+    args_schema = CalculatorArgs
 
-    def __init__(self):
-        super().__init__(
-            name="calculator",
-            description="执行数学计算：支持 expression 表达式（含括号、+ - * /、× ÷）",
-        )
+    def _run(self, **kwargs: Any) -> dict[str, Any]:
+        expression = str(kwargs.get("expression", "")).strip()
+        if not expression:
+            raise ToolException("表达式不能为空", suggestion="请传入 expression 参数。")
 
-    def _run(self, params: dict[str, object]) -> float:
-        expression = str(params["expression"]).strip()
-        return self._eval_expression(expression)
-
-
-    def _eval_expression(self, expression: str) -> float:
-        normalized = self._normalize_expression(expression)
         try:
-            node = ast.parse(normalized, mode="eval")
-        except SyntaxError as exc:
-            raise ToolException(f"表达式语法错误: {exc}") from exc
-        return float(self._eval_ast(node))
+            result = eval(expression)
+        except ZeroDivisionError as exc:
+            raise ToolException("除数不能为 0") from exc
+        except Exception as exc:
+            raise ToolException("表达式执行失败", suggestion="请检查表达式格式。") from exc
 
-    @staticmethod
-    def _normalize_expression(expression: str) -> str:
-        normalized = (
-            expression.replace("×", "*")
-            .replace("÷", "/")
-            .replace("（", "(")
-            .replace("）", ")")
-        )
-        allowed_chars = set("0123456789+-*/(). ")
-        if any(ch not in allowed_chars for ch in normalized):
-            raise ToolException("表达式包含不支持的字符，仅允许数字、括号和 + - * /")
-        return normalized.strip()
+        if not isinstance(result, (int, float)):
+            raise ToolException("只支持数值计算表达式")
 
-    def _eval_ast(self, node: ast.AST) -> float:
-        if isinstance(node, ast.Expression):
-            return self._eval_ast(node.body)
-
-        if isinstance(node, ast.BinOp):
-            left = self._eval_ast(node.left)
-            right = self._eval_ast(node.right)
-            if isinstance(node.op, ast.Add):
-                return left + right
-            if isinstance(node.op, ast.Sub):
-                return left - right
-            if isinstance(node.op, ast.Mult):
-                return left * right
-            if isinstance(node.op, ast.Div):
-                if right == 0:
-                    raise ToolException("除数不能为 0")
-                return left / right
-            raise ToolException("表达式中包含不支持的运算符")
-
-        if isinstance(node, ast.UnaryOp):
-            value = self._eval_ast(node.operand)
-            if isinstance(node.op, ast.UAdd):
-                return value
-            if isinstance(node.op, ast.USub):
-                return -value
-            raise ToolException("表达式中包含不支持的一元运算")
-
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return float(node.value)
-
-        raise ToolException("表达式中包含不安全或不支持的语法")
-
+        return {
+            "content": f"计算结果: {result}",
+            "data": {"expression": expression, "result": result},
+        }

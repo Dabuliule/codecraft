@@ -1,103 +1,80 @@
-"""Tool 注册中心。"""
-
 from __future__ import annotations
 
-from typing import Any, Iterable, Literal
+from typing import Any, Dict, List, Optional
 
-from core.exceptions import ToolException
-from .base import Tool
-from .builtin import CalculatorTool
-
-ConflictPolicy = Literal["error", "overwrite", "ignore"]
+from .base import BaseTool, ToolResult
 
 
 class ToolRegistry:
-    """管理 Tool 的注册、查找和执行。"""
+    """工具注册中心。"""
 
-    def __init__(
-            self,
-            tools: Iterable[Tool] | None = None,
-            conflict: ConflictPolicy = "error",
-            include_builtin: bool = True,
-    ):
-        self._tools: dict[str, Tool] = {}
-        if include_builtin:
-            self.register_many([CalculatorTool()], conflict="error")
-        if tools:
-            self.register_many(tools, conflict=conflict)
+    def __init__(self):
+        self._tools: Dict[str, BaseTool] = {}
+        self.register_builtin_tools()
 
-    def register(self, tool: Tool, conflict: ConflictPolicy = "error") -> None:
-        """注册单个工具。"""
-        if not isinstance(tool, Tool):
-            raise ToolException("只能注册 Tool 实例")
-
-        name = tool.name
-        exists = name in self._tools
-        if exists and conflict == "error":
-            raise ToolException(f"工具已存在: {name}")
-        if exists and conflict == "ignore":
-            return
+    def register(self, tool: BaseTool, *, overwrite: bool = False) -> None:
+        """注册一个工具实例。"""
+        name = getattr(tool, "name", "")
+        if not name:
+            raise ValueError("工具必须定义非空 name。")
+        if not overwrite and name in self._tools:
+            raise ValueError(f"工具 '{name}' 已被注册。")
         self._tools[name] = tool
 
-    def register_many(self, tools: Iterable[Tool], conflict: ConflictPolicy = "error") -> None:
-        """批量注册工具。"""
-        for tool in tools:
-            self.register(tool, conflict=conflict)
+    def register_builtin_tools(self) -> None:
+        """自动注册 tools.builtin 下导出的工具类。"""
+        from . import builtin as builtin_module
 
-    def unregister(self, name: str) -> None:
-        """移除工具。"""
-        if name not in self._tools:
-            raise ToolException(f"工具不存在: {name}")
-        del self._tools[name]
+        for name in getattr(builtin_module, "__all__", []):
+            tool_cls = getattr(builtin_module, name, None)
+            if not isinstance(tool_cls, type):
+                continue
+            if not issubclass(tool_cls, BaseTool):
+                continue
+            self.register(tool_cls())
 
-    def get(self, name: str) -> Tool:
-        """按名称获取工具。"""
-        tool = self._tools.get(name)
-        if tool is None:
-            available = ", ".join(sorted(self._tools.keys()))
-            raise ToolException(f"工具不存在: {name}. 可用工具: [{available}]")
-        return tool
+    def get(self, name: str) -> Optional[BaseTool]:
+        """通过名称获取工具实例。"""
+        return self._tools.get(name)
 
-    def has(self, name: str) -> bool:
-        """判断工具是否已注册。"""
-        return name in self._tools
-
-    def list_tools(self) -> list[Tool]:
-        """返回已注册工具列表。"""
+    def list_tools(self) -> List[BaseTool]:
+        """返回所有已注册工具。"""
         return list(self._tools.values())
 
-    def names(self) -> list[str]:
-        """返回已注册工具名称。"""
-        return sorted(self._tools.keys())
+    def names(self) -> List[str]:
+        """返回所有已注册工具名称。"""
+        return list(self._tools.keys())
 
-    def export_schemas(self) -> list[dict[str, Any]]:
-        """导出所有工具的 schema 描述。"""
-        return [self._tools[name].to_dict() for name in self.names()]
+    def tool_schemas(self) -> List[Dict[str, Any]]:
+        """导出 function-calling 所需的 schema 列表。"""
+        return [tool.tool_schema() for tool in self._tools.values()]
 
-    def export_openai_tools(self) -> list[dict[str, Any]]:
-        """导出 OpenAI tool calling 格式的工具定义。"""
-        tools: list[dict[str, Any]] = []
-        for name in self.names():
-            tool = self._tools[name]
-            tools.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.params_model.model_json_schema(),
-                    },
-                }
-            )
-        return tools
-
-    def execute(self, name: str, params: dict[str, Any] | None = None) -> Any:
+    def run(self, name: str, params: Dict[str, Any]) -> ToolResult:
         """按工具名执行工具。"""
         tool = self.get(name)
-        try:
-            return tool.execute(params)
-        except ToolException as exc:
-            raise ToolException(f"工具 {name} 执行失败: {exc}") from exc
+        if tool is None:
+            return ToolResult(
+                success=False,
+                content="",
+                error=f"未找到工具: {name}",
+                suggestion="请检查工具名称是否正确。",
+            )
+        return tool.run(params)
+
+    async def arun(self, name: str, params: Dict[str, Any]) -> ToolResult:
+        """按工具名异步执行工具。"""
+        tool = self.get(name)
+        if tool is None:
+            return ToolResult(
+                success=False,
+                content="",
+                error=f"未找到工具: {name}",
+                suggestion="请检查工具名称是否正确。",
+            )
+        return await tool.arun(params)
 
     def __len__(self) -> int:
         return len(self._tools)
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._tools

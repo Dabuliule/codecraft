@@ -1,5 +1,3 @@
-"""Builtin tools exports."""
+from .calculator import CalculatorTool
 
-from .calculator import CalculatorParams, CalculatorTool
-
-__all__ = ["CalculatorTool", "CalculatorParams"]
+__all__ = ["CalculatorTool"]

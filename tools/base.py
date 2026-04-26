@@ -1,72 +1,219 @@
-"""工具基类。"""
+from __future__ import annotations
 
+import asyncio
+import json
+import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Dict, Optional, Type
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+import jsonschema
+from pydantic import BaseModel, ValidationError
 
-from core.exceptions import ToolException
-
-
-class EmptyParams(BaseModel):
-    """默认空参数模型。"""
-
-    model_config = ConfigDict(extra="forbid")
+logger = logging.getLogger(__name__)
 
 
-class Tool(ABC):
-    """工具基类，统一工具元数据、参数校验和执行生命周期。"""
+class ToolException(Exception):
+    """工具执行时可抛出的异常，Agent 可据此决定下一步动作。"""
 
-    params_model: type[BaseModel] = EmptyParams
+    def __init__(self, message: str, suggestion: str = ""):
+        self.message = message
+        self.suggestion = suggestion
+        super().__init__(message)
 
-    def __init__(self, name: str, description: str):
-        normalized_name = name.strip() if isinstance(name, str) else ""
-        if not normalized_name:
-            raise ToolException("Tool name 不能为空")
 
-        normalized_description = description.strip() if isinstance(description, str) else ""
-        if not normalized_description:
-            raise ToolException("Tool description 不能为空")
+class ToolResult:
+    """统一的工具返回结果，分离给模型的内容和原始数据。"""
+    __slots__ = ("success", "content", "data", "error", "suggestion")
 
-        self.name = normalized_name
-        self.description = normalized_description
+    def __init__(
+            self,
+            success: bool,
+            content: str,
+            data: Any = None,
+            error: Optional[str] = None,
+            suggestion: Optional[str] = None,
+    ):
+        self.success = success
+        self.content = content  # 给 LLM 的文本摘要
+        self.data = data  # 原始结构化数据（供前端/二次处理）
+        self.error = error
+        self.suggestion = suggestion
 
-    def validate_params(self, params: dict[str, Any] | BaseModel | None) -> dict[str, Any]:
-        """使用 Pydantic 模型校验并规范化参数。"""
-        raw_params: dict[str, Any]
-        if params is None:
-            raw_params = {}
-        elif isinstance(params, BaseModel):
-            raw_params = params.model_dump()
-        elif isinstance(params, dict):
-            raw_params = params
-        else:
-            raise ToolException("Tool params 必须是 dict 或 pydantic BaseModel")
-
+    @classmethod
+    def from_value(cls, value: Any) -> "ToolResult":
+        """智能包装各种返回值：ToolResult、dict、其他。"""
+        if isinstance(value, ToolResult):
+            return value
+        if isinstance(value, dict) and "content" in value:
+            return cls(
+                success=bool(value.get("success", True)),
+                content=str(value.get("content", "")),
+                data=value.get("data"),
+                error=value.get("error"),
+                suggestion=value.get("suggestion"),
+            )
         try:
-            validated = self.params_model.model_validate(raw_params)
-        except ValidationError as exc:
-            raise ToolException(f"工具 {self.name} 参数校验失败: {exc}") from exc
-        return validated.model_dump()
+            content = json.dumps(value, ensure_ascii=False)
+        except (TypeError, ValueError):
+            content = str(value)
+        except Exception:
+            logger.exception("Failed to convert tool output to ToolResult")
+            return cls(success=False, content="", error="无法序列化工具输出")
+        return cls(success=True, content=content, data=value)
 
-    def execute(self, params: dict[str, Any] | BaseModel | None = None) -> Any:
-        """工具统一执行入口。"""
-        normalized_params = self.validate_params(params)
-        try:
-            return self._run(normalized_params)
-        except ToolException:
-            raise
-        except Exception as exc:
-            raise ToolException(f"工具 {self.name} 执行失败: {exc}") from exc
+
+class BaseTool(ABC):
+    """工具基类：只负责‘定义’和‘执行’，不侵入任何工作流框架。
+
+    使用方式：子类必须提供 `name`, `description`, `args_schema` 并实现 `_run`。
+    """
+
+    # 工具标识
+    name: str
+    description: str
+
+    # 输入 Schema（只接受 Pydantic v2 模型 或 JSON Schema 字典）
+    args_schema: Type[BaseModel] | Dict[str, Any]
+
+    # 执行配置
+    timeout: float = 60.0
+    max_retries: int = 0
+
+    # 严格模式开关（若为 True 且 args_schema 为 dict，则用 jsonschema 强校验）
+    strict: bool = True
+
+    # 子类可以覆盖此属性，以允许某些错误被‘吞掉’并返回友好消息给模型
+    handle_validation_error: bool = True
+    handle_tool_error: bool = True
 
     @abstractmethod
-    def _run(self, params: dict[str, Any]) -> Any:
-        """工具子类具体执行逻辑。"""
+    def _run(self, **kwargs: Any) -> Any:
+        """同步执行逻辑（子类实现）。返回任意值，会被包装为 ToolResult。"""
+        ...
 
-    def to_dict(self) -> dict[str, Any]:
-        """导出工具描述，便于注册到函数调用协议。"""
+    # 异步版本：默认使用线程池执行同步 _run，子类可以重写以实现真正的异步
+    async def _arun(self, **kwargs: Any) -> Any:
+        return await asyncio.to_thread(self._run, **kwargs)
+
+    def tool_schema(self) -> Dict[str, Any]:
+        """返回标准的 function 工具描述字典。"""
+        if isinstance(self.args_schema, dict):
+            params = self.args_schema
+        else:
+            params = self.args_schema.model_json_schema()
         return {
+            "type": "function",
             "name": self.name,
             "description": self.description,
-            "schema": self.params_model.model_json_schema(),
+            "parameters": params,
+            "strict": self.strict,
         }
+
+    def _validate_input(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """根据 args_schema 校验参数字典，并返回可执行参数。"""
+        if self.args_schema is None:
+            return params
+        if isinstance(self.args_schema, dict):
+            if self.strict:
+                jsonschema.validate(instance=params, schema=self.args_schema)
+            return params
+
+        validated = self.args_schema.model_validate(params)
+        # 使用模型输出，确保类型转换/默认值生效
+        return validated.model_dump()
+
+    def run(self, params: Dict[str, Any]) -> ToolResult:
+        """执行工具，封装：验证、重试、异常处理、结果标准化。"""
+        params = params or {}
+
+        try:
+            validated_params = self._validate_input(params)
+        except (ValidationError, jsonschema.ValidationError) as e:
+            if self.handle_validation_error:
+                return ToolResult(
+                    success=False,
+                    content="",
+                    error=f"参数校验失败: {e}",
+                    suggestion="请根据函数描述修正参数后重试。",
+                )
+            raise
+
+        # 2. 执行（同步路径不强制超时）
+        last_exc: Optional[Exception] = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                raw_result = self._run(**validated_params)
+                return ToolResult.from_value(raw_result)
+            except ToolException as e:
+                if self.handle_tool_error:
+                    return ToolResult(
+                        success=False,
+                        content="",
+                        error=e.message,
+                        suggestion=e.suggestion,
+                    )
+                raise
+            except Exception as e:
+                last_exc = e
+                if attempt < self.max_retries:
+                    logger.warning("工具 '%s' 异常: %s，正在重试...", self.name, e)
+                    continue
+                break
+
+        return ToolResult(
+            success=False,
+            content="",
+            error=f"执行失败: {last_exc}",
+            suggestion="请稍后重试或检查工具状态。",
+        )
+
+    async def arun(self, params: Dict[str, Any]) -> ToolResult:
+        """异步执行工具。"""
+        params = params or {}
+
+        try:
+            validated_params = self._validate_input(params)
+        except (ValidationError, jsonschema.ValidationError) as e:
+            if self.handle_validation_error:
+                return ToolResult(
+                    success=False,
+                    content="",
+                    error=f"参数校验失败: {e}",
+                    suggestion="请根据函数描述修正参数后重试。",
+                )
+            raise
+
+        last_exc = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                async with asyncio.timeout(self.timeout):
+                    raw_result = await self._arun(**validated_params)
+                return ToolResult.from_value(raw_result)
+            except ToolException as e:
+                if self.handle_tool_error:
+                    return ToolResult(
+                        success=False,
+                        content="",
+                        error=e.message,
+                        suggestion=e.suggestion,
+                    )
+                raise
+            except asyncio.TimeoutError:
+                last_exc = TimeoutError(f"工具执行超时 ({self.timeout}s)")
+                if attempt < self.max_retries:
+                    await asyncio.sleep(1.5 ** attempt)
+                    continue
+                break
+            except Exception as e:
+                last_exc = e
+                if attempt < self.max_retries:
+                    await asyncio.sleep(1.5 ** attempt)
+                    continue
+                break
+
+        return ToolResult(
+            success=False,
+            content="",
+            error=f"执行失败: {last_exc}",
+            suggestion="请稍后重试或检查工具状态。",
+        )
