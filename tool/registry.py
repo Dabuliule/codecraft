@@ -22,7 +22,7 @@ class ToolRegistry:
         self._tools[name] = tool
 
     def register_builtin_tools(self) -> None:
-        """自动注册 tools.builtin 下导出的工具类。"""
+        """自动注册 tool.builtin 下导出的工具类。"""
         from . import builtin as builtin_module
 
         for name in getattr(builtin_module, "__all__", []):
