@@ -103,9 +103,11 @@ class BaseTool(ABC):
             params = self.args_schema.model_json_schema()
         return {
             "type": "function",
-            "name": self.name,
-            "description": self.description,
-            "parameters": params,
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": params,
+            },
             "strict": self.strict,
         }
 
