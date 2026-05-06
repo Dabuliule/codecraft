@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from observability.context import trace_scope
+from observability.trace import TraceLogger
 from .base import BaseTool, ToolResult
 
 
@@ -51,27 +53,43 @@ class ToolRegistry:
 
     def run(self, name: str, params: Dict[str, Any]) -> ToolResult:
         """按工具名执行工具。"""
-        tool = self.get(name)
-        if tool is None:
-            return ToolResult(
-                success=False,
-                content="",
-                error=f"未找到工具: {name}",
-                suggestion="请检查工具名称是否正确。",
+        with trace_scope(component="tool_registry"):
+            tool = self.get(name)
+            TraceLogger.log("tool.run.start", {"tool": name})
+            if tool is None:
+                TraceLogger.log("tool.run.missing", {"tool": name}, level="WARN")
+                return ToolResult(
+                    success=False,
+                    content="",
+                    error=f"未找到工具: {name}",
+                    suggestion="请检查工具名称是否正确。",
+                )
+            result = tool.run(params)
+            TraceLogger.log(
+                "tool.run.end",
+                {"tool": name, "success": result.success, "error": result.error},
             )
-        return tool.run(params)
+            return result
 
     async def arun(self, name: str, params: Dict[str, Any]) -> ToolResult:
         """按工具名异步执行工具。"""
-        tool = self.get(name)
-        if tool is None:
-            return ToolResult(
-                success=False,
-                content="",
-                error=f"未找到工具: {name}",
-                suggestion="请检查工具名称是否正确。",
+        with trace_scope(component="tool_registry"):
+            tool = self.get(name)
+            TraceLogger.log("tool.arun.start", {"tool": name})
+            if tool is None:
+                TraceLogger.log("tool.arun.missing", {"tool": name}, level="WARN")
+                return ToolResult(
+                    success=False,
+                    content="",
+                    error=f"未找到工具: {name}",
+                    suggestion="请检查工具名称是否正确。",
+                )
+            result = await tool.arun(params)
+            TraceLogger.log(
+                "tool.arun.end",
+                {"tool": name, "success": result.success, "error": result.error},
             )
-        return await tool.arun(params)
+            return result
 
     def __len__(self) -> int:
         return len(self._tools)
