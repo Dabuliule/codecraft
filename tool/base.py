@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Type
 
 import jsonschema
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -21,29 +21,22 @@ class ToolException(Exception):
         super().__init__(message)
 
 
-class ToolResult:
-    """统一的工具返回结果，分离给模型的内容和原始数据。"""
-    __slots__ = ("success", "content", "data", "error", "suggestion")
+class ToolResult(BaseModel):
+    """统一的工具返回结果。"""
 
-    def __init__(
-            self,
-            success: bool,
-            content: str,
-            data: Any = None,
-            error: Optional[str] = None,
-            suggestion: Optional[str] = None,
-    ):
-        self.success = success
-        self.content = content  # 给 LLM 的文本摘要
-        self.data = data  # 原始结构化数据（供前端/二次处理）
-        self.error = error
-        self.suggestion = suggestion
+    success: bool = Field(..., description="工具是否执行成功")
+    content: str = Field(default="", description="提供给 LLM 的文本结果")
+    data: Any = Field(default=None, description="原始结构化数据")
+    error: Optional[str] = Field(default=None, description="错误信息")
+    suggestion: Optional[str] = Field(default=None, description="修复建议")
 
     @classmethod
     def from_value(cls, value: Any) -> "ToolResult":
-        """智能包装各种返回值：ToolResult、dict、其他。"""
+        """智能包装各种返回值。"""
+
         if isinstance(value, ToolResult):
             return value
+
         if isinstance(value, dict) and "content" in value:
             return cls(
                 success=bool(value.get("success", True)),
@@ -52,13 +45,12 @@ class ToolResult:
                 error=value.get("error"),
                 suggestion=value.get("suggestion"),
             )
+
         try:
-            content = json.dumps(value, ensure_ascii=False)
-        except (TypeError, ValueError):
-            content = str(value)
+            content = json.dumps(value, ensure_ascii=False, default=str)
         except Exception:
-            logger.exception("Failed to convert tool output to ToolResult")
-            return cls(success=False, content="", error="无法序列化工具输出")
+            content = str(value)
+
         return cls(success=True, content=content, data=value)
 
 

@@ -164,7 +164,7 @@ class Planner:
 {json.dumps(step.tool_input, ensure_ascii=False)}
 
 输出:
-{json.dumps(step.tool_output, ensure_ascii=False)}
+{json.dumps(step.tool_output.model_dump(), ensure_ascii=False)}
 
 元数据:
 {json.dumps(step.metadata, ensure_ascii=False)}
