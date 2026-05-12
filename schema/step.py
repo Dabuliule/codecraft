@@ -11,3 +11,4 @@ class Step(BaseModel):
     tool: str = Field(..., description="工具名称")
     tool_input: Dict[str, Any] = Field(default_factory=dict, description="工具参数")
     tool_output: Any = Field(..., description="工具输出")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
