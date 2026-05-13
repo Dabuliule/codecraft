@@ -1,5 +1,6 @@
 import asyncio
 
+from core import Reflector
 from core.executor import Executor
 from core.planner import Planner
 from core.runtime import AgentRuntime
@@ -21,16 +22,20 @@ async def main():
         tool_registry=tools,
     )
 
+    reflector = Reflector(
+        llm=llm,
+    )
+
     runtime = AgentRuntime(
         planner=planner,
         executor=executor,
+        reflector=reflector,
     )
 
     task = "这个文件的内容是什么：/Users/wpt/project/agent/agent-runtime/main.py"
 
     state = await runtime.arun(
         task=task,
-        max_steps=10,
     )
 
     print("\n===== FINAL STATE =====\n")

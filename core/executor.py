@@ -1,4 +1,4 @@
-from schema import Action
+from schema import ToolAction
 from schema.step import Step
 from tool import ToolResult
 from tool.registry import ToolRegistry
@@ -13,14 +13,7 @@ class Executor:
     ) -> None:
         self.tool_registry = tool_registry
 
-    async def execute(self, action: Action) -> Step:
-        match action.type:
-            case "tool":
-                return await self._execute_tool(action)
-            case _:
-                raise NotImplementedError
-
-    async def _execute_tool(self, action: Action) -> Step:
+    async def execute(self, action: ToolAction) -> Step:
         try:
             result = await self.tool_registry.arun(
                 action.tool,
@@ -37,13 +30,11 @@ class Executor:
             )
 
         return Step(
-            tool=action.tool,
-            tool_input=action.tool_input or {},
-            tool_output=result,
+            action=action,
+            observation=result,
             metadata={
                 "success": result.success,
                 "error": result.error,
-                "suggestion": result.suggestion,
-                "action_type": "tool",
+                "suggestion": result.suggestion
             },
         )

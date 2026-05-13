@@ -1,51 +1,50 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from core.executor import Executor
 from core.planner import Planner
-from observability.context import trace_scope
-from schema.action import Action
+from core.reflector import Reflector
 from schema.state import AgentState
 
 
 class AgentRuntime:
-    """Planner-driven agent runtime."""
+    """
+    Planner → Executor → Reflector 驱动的 Agent Runtime。
+    只负责 orchestration（编排）。
+    """
 
-    def __init__(self, planner: Planner, executor: Executor) -> None:
+    def __init__(self, planner: Planner, executor: Executor, reflector: Reflector) -> None:
         self.planner = planner
         self.executor = executor
+        self.reflector = reflector
 
-    async def arun(self, task: str, *, max_steps: Optional[int] = None) -> AgentState:
+    async def arun(self, task: str) -> AgentState:
         state = AgentState(task=task)
+        while not state.done:
+            plan = await self.planner.aplan(state)
 
-        if max_steps is not None:
-            state.max_steps = max_steps
+            if not plan.actions:
+                state.done = True
+                break
 
-        with trace_scope(trace_id=state.trace_id, component="runtime"):
-            while not state.done and state.current_step < state.max_steps:
-                with trace_scope(step=state.current_step, component="planner"):
-                    planned_steps = await self.planner.aplan(state)
+            for action in plan.actions:
+                step = await self.executor.execute(action)
+                state.history.append(step)
+                reflection = await self.reflector.areflect(state)
 
-                if not planned_steps:
-                    state.done = True
-                    break
-
-                for planned_step in planned_steps:
-                    if state.current_step >= state.max_steps:
+                match reflection.status:
+                    case "success":
                         state.done = True
                         break
+                    case "continue":
+                        continue
+                    case "retry":
+                        raise NotImplementedError
+                    case "replan":
+                        raise NotImplementedError
+                    case "abort":
+                        state.done = True
+                        break
+                    case _:
+                        raise NotImplementedError
 
-                    with trace_scope(step=state.current_step, component="executor"):
-                        action = Action(
-                            type="tool",
-                            tool=planned_step.tool,
-                            tool_input=planned_step.tool_input,
-                            final_answer=None
-                        )
-                        executed_step = await self.executor.execute(action)
-
-                    state.history.append(executed_step)
-                    state.current_step += 1
-
-            return state
+        return state
