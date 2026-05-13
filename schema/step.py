@@ -4,11 +4,12 @@ from typing import Any, Dict
 
 from pydantic import BaseModel, Field
 
+from schema import ToolAction
+
 
 class Step(BaseModel):
-    """一次工具调用记录。"""
+    """一次 action 记录。"""
 
-    tool: str = Field(..., description="工具名称")
-    tool_input: Dict[str, Any] = Field(default_factory=dict, description="工具参数")
-    tool_output: Any = Field(..., description="工具输出")
+    action: ToolAction = Field(..., description="ToolAction")
+    observation: Any = Field(..., description="Observation")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")

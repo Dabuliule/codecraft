@@ -3,14 +3,16 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
+from pydantic import TypeAdapter
+
 from llm.base import BaseLLM
+from schema.plan import Plan
 from schema.state import AgentState
-from schema.step import Step
 from tool.registry import ToolRegistry
 
 
 class Planner:
-    """负责根据当前 state 生成下一步执行计划。"""
+    """负责根据当前 state 生成完整执行计划。"""
 
     def __init__(
             self,
@@ -20,10 +22,12 @@ class Planner:
         self.llm = llm
         self.tool_registry = tool_registry
 
+        self.plan_adapter = TypeAdapter(Plan)
+
     async def aplan(
             self,
             state: AgentState,
-    ) -> List[Step]:
+    ) -> Plan:
 
         messages = self._build_messages(state)
 
@@ -39,26 +43,17 @@ class Planner:
             data = json.loads(response.content)
 
         except Exception as e:
-            raise RuntimeError(f"Planner 输出非法 JSON:\n{response.content}") from e
+            raise RuntimeError(
+                f"Planner 输出非法 JSON:\n{response.content}"
+            ) from e
 
-        raw_steps = data.get("steps", [])
+        try:
+            return self.plan_adapter.validate_python(data)
 
-        steps: List[Step] = []
-
-        for raw_step in raw_steps:
-            step = Step(
-                tool=raw_step["tool"],
-                tool_input=raw_step.get("tool_input", {}),
-                tool_output=None,
-                metadata={
-                    "reason": raw_step.get("reason"),
-                    "planner_raw": raw_step,
-                },
-            )
-
-            steps.append(step)
-
-        return steps
+        except Exception as e:
+            raise RuntimeError(
+                f"Planner 输出不符合 Plan schema:\n{response.content}"
+            ) from e
 
     def _build_messages(
             self,
@@ -69,14 +64,34 @@ class Planner:
 
         history_prompt = self._build_history_prompt(state)
 
+        schema_prompt = json.dumps(
+            Plan.model_json_schema(),
+            ensure_ascii=False,
+            indent=2,
+        )
+
+        example_prompt = """
+{
+  "actions": [
+    {
+      "tool": "search",
+      "tool_input": {
+        "query": "RocksDB WAL"
+      },
+      "reason": "先搜索 RocksDB WAL 基本原理"
+    }
+  ]
+}
+"""
+
         system_prompt = f"""
 你是一个 Agent Planner。
 
 你的职责：
 
 1. 分析用户任务
-2. 决定下一步需要调用哪些工具
-3. 生成执行步骤
+2. 生成完整执行计划
+3. 决定需要调用哪些工具
 4. 不要直接回答用户
 5. 不要执行工具
 6. 只输出 JSON
@@ -89,28 +104,26 @@ class Planner:
 
 {history_prompt}
 
-输出格式：
+输出必须严格符合以下 JSON Schema：
 
-{{
-  "steps": [
-    {{
-      "tool": "工具名",
-      "tool_input": {{
-        "参数名": "参数值"
-      }},
-      "reason": "为什么调用该工具"
-    }}
-  ]
-}}
+{schema_prompt}
+
+输出示例：
+
+{example_prompt}
 
 规则：
 
 - 只输出 JSON
 - 不要 markdown
 - 不要解释
-- 如果任务已经完成，返回:
+- actions 必须是数组
+- tool 必须是提供的工具之一
+- tool_input 必须符合工具 schema
+- 如果任务已经完成，返回：
+
 {{
-  "steps": []
+  "actions": []
 }}
 """
 
@@ -153,19 +166,25 @@ class Planner:
         lines = []
 
         for idx, step in enumerate(state.history):
+
+            observation = step.observation
+
+            if hasattr(observation, "model_dump"):
+                observation = observation.model_dump()
+
             lines.append(
                 f"""
 步骤 {idx + 1}
 
 工具:
-{step.tool}
+{step.action.tool}
 
 输入:
-{json.dumps(step.tool_input, ensure_ascii=False)}
+{json.dumps(step.action.tool_input, ensure_ascii=False)}
 
 输出:
-{json.dumps(step.tool_output.model_dump(), ensure_ascii=False)}
-
+{json.dumps(observation, ensure_ascii=False)}
+    
 元数据:
 {json.dumps(step.metadata, ensure_ascii=False)}
 """
