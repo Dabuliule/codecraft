@@ -3,6 +3,7 @@ from __future__ import annotations
 from core.executor import Executor
 from core.planner import Planner
 from core.reflector import Reflector
+from observability.context import trace_scope
 from schema.state import AgentState
 
 
@@ -19,32 +20,34 @@ class AgentRuntime:
 
     async def arun(self, task: str) -> AgentState:
         state = AgentState(task=task)
-        while not state.done:
-            plan = await self.planner.aplan(state)
 
-            if not plan.actions:
-                state.done = True
-                break
+        with trace_scope(trace_id=state.trace_id, component="runtime"):
+            while not state.done:
+                plan = await self.planner.aplan(state)
 
-            for action in plan.actions:
-                step = await self.executor.execute(action)
-                state.history.append(step)
-                reflection = await self.reflector.areflect(state)
+                if not plan.actions:
+                    state.done = True
+                    break
 
-                match reflection.status:
-                    case "success":
-                        state.done = True
-                        break
-                    case "continue":
-                        continue
-                    case "retry":
-                        raise NotImplementedError
-                    case "replan":
-                        raise NotImplementedError
-                    case "abort":
-                        state.done = True
-                        break
-                    case _:
-                        raise NotImplementedError
+                for action in plan.actions:
+                    step = await self.executor.execute(action)
+                    state.history.append(step)
+                    reflection = await self.reflector.areflect(state)
 
-        return state
+                    match reflection.status:
+                        case "success":
+                            state.done = True
+                            break
+                        case "continue":
+                            continue
+                        case "retry":
+                            raise NotImplementedError
+                        case "replan":
+                            raise NotImplementedError
+                        case "abort":
+                            state.done = True
+                            break
+                        case _:
+                            raise NotImplementedError
+
+            return state

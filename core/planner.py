@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from pydantic import TypeAdapter
 
 from llm.base import BaseLLM
+from observability.decorators import traced
 from schema.plan import Plan
 from schema.state import AgentState
 from tool.registry import ToolRegistry
@@ -24,6 +25,7 @@ class Planner:
 
         self.plan_adapter = TypeAdapter(Plan)
 
+    @traced(component="planner")
     async def aplan(
             self,
             state: AgentState,
