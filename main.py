@@ -1,5 +1,7 @@
 import asyncio
 
+from dotenv import load_dotenv
+
 from core import Reflector
 from core.executor import Executor
 from core.planner import Planner
@@ -9,6 +11,7 @@ from tool import ToolRegistry
 
 
 async def main():
+    load_dotenv()
     llm = QwenLLM(model="qwen3.6-flash-2026-04-16")
 
     tools = ToolRegistry()
@@ -32,18 +35,13 @@ async def main():
         reflector=reflector,
     )
 
-    task = "这个文件的内容是什么：/Users/wpt/project/agent/agent-runtime/main.py"
+    task = "这个目录的结构是什么：/Users/wpt/project/agent/agent-runtime/"
 
-    state = await runtime.arun(
+    result = await runtime.arun(
         task=task,
     )
 
-    print("\n===== FINAL STATE =====\n")
-
-    print(state.model_dump_json(
-        indent=2,
-        ensure_ascii=False,
-    ))
+    print(result.pretty())
 
 
 if __name__ == "__main__":
