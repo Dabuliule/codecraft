@@ -1,59 +1,43 @@
-"""Memory 模块基类。"""
-
 from __future__ import annotations
 
-import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import List, Optional
-from zoneinfo import ZoneInfo
+from typing import Iterable, List, Optional
+
+from schema.memory import MemoryItem
 
 
-@dataclass(frozen=True)
-class MemoryRecord:
-    """基础记忆条目：仅包含通用字段。"""
-
-    record_id: str
-    importance: float = 0.0
-    created_at: datetime = field(default_factory=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
-    last_accessed_at: Optional[datetime] = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.record_id, str) or not self.record_id.strip():
-            raise ValueError("record_id 不能为空")
-        if not isinstance(self.importance, (int, float)):
-            raise ValueError("importance 必须是数字")
-        if not math.isfinite(float(self.importance)):
-            raise ValueError("importance 必须是有限数值")
-        if self.created_at.tzinfo is None:
-            raise ValueError("created_at 必须包含时区信息")
-        if self.last_accessed_at is None:
-            object.__setattr__(self, "last_accessed_at", self.created_at)
-        if self.last_accessed_at.tzinfo is None:
-            raise ValueError("last_accessed_at 必须包含时区信息")
-
-
-class MemoryBase(ABC):
-    """记忆基类，定义统一接口。"""
-
+class MemoryStore(ABC):
+    """Minimal memory store interface."""
 
     @abstractmethod
-    def get(self, record_id: str) -> Optional[MemoryRecord]:
-        """按 ID 获取记忆。"""
+    def add(self, item: MemoryItem) -> MemoryItem:
+        """Add a memory item and return it."""
+        raise NotImplementedError
+
+    def add_many(self, items: Iterable[MemoryItem]) -> List[MemoryItem]:
+        """Add multiple memory items."""
+        added: List[MemoryItem] = []
+        for item in items:
+            added.append(self.add(item))
+        return added
 
     @abstractmethod
-    def list(self, limit: Optional[int] = None) -> List[MemoryRecord]:
-        """列出记忆。"""
+    def list(self) -> List[MemoryItem]:
+        """Return all memory items."""
+        raise NotImplementedError
 
     @abstractmethod
-    def retrieve(self, query: Optional[str] = None, limit: int = 10) -> List[MemoryRecord]:
-        """按统一评分返回 Top-K 记忆。"""
+    def recent(self, limit: int = 10, *, role: Optional[str] = None) -> List[MemoryItem]:
+        """Return most recent items, optionally filtered by role."""
+        raise NotImplementedError
 
     @abstractmethod
-    def delete(self, record_id: str) -> bool:
-        """删除记忆，返回是否删除成功。"""
+    def search(self, query: str, *, limit: int = 10, role: Optional[str] = None) -> List[MemoryItem]:
+        """Return items matching the query string."""
+        raise NotImplementedError
 
     @abstractmethod
     def clear(self) -> None:
-        """清空全部记忆。"""
+        """Clear all items."""
+        raise NotImplementedError
+
