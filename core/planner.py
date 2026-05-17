@@ -73,61 +73,76 @@ class Planner:
         )
 
         example_prompt = """
-{
-  "actions": [
-    {
-      "tool": "search",
-      "tool_input": {
-        "query": "RocksDB WAL"
-      },
-      "reason": "先搜索 RocksDB WAL 基本原理"
-    }
-  ]
-}
-"""
+        {
+          "actions": [
+            {
+              "tool": "search",
+              "tool_input": {
+                "query": "RocksDB WAL"
+              },
+              "reason": "先搜索 RocksDB WAL 基本原理"
+            }
+          ]
+        }
+        """
 
         system_prompt = f"""
-你是一个 Agent Planner。
+        你是一个 Agent Planner。
 
-你的职责：
+        你的职责：
 
-1. 分析用户任务
-2. 生成完整执行计划
-3. 决定需要调用哪些工具
-4. 不要直接回答用户
-5. 不要执行工具
-6. 只输出 JSON
+        1. 理解用户任务
+        2. 分析当前执行状态
+        3. 决定下一步最合理的动作
+        4. 必要时调用工具
+        5. 任务完成时调用 final_answer
+        6. 不要直接执行工具
+        7. 只输出 JSON
 
-你可以使用如下工具：
+        你可以使用如下工具：
 
-{tool_prompt}
+        {tool_prompt}
 
-当前执行历史：
+        当前执行历史：
 
-{history_prompt}
+        {history_prompt}
 
-输出必须严格符合以下 JSON Schema：
+        输出必须严格符合以下 JSON Schema：
 
-{schema_prompt}
+        {schema_prompt}
 
-输出示例：
+        输出示例：
 
-{example_prompt}
+        {example_prompt}
 
-规则：
+        规则：
 
-- 只输出 JSON
-- 不要 markdown
-- 不要解释
-- actions 必须是数组
-- tool 必须是提供的工具之一
-- tool_input 必须符合工具 schema
-- 如果任务已经完成，返回：
+        - 只输出 JSON
+        - 不要 markdown
+        - 不要解释
+        - actions 必须是数组
+        - tool 必须是提供的工具之一
+        - tool_input 必须符合工具 schema
+        - actions 应尽量精简
+        - 优先生成“下一步动作”
+        - 不要一次生成大量 actions
+        - 当信息不足时，优先获取信息
+        - 当任务已经完成时，必须调用 final_answer
 
-{{
-  "actions": []
-}}
-"""
+        final_answer 示例：
+
+        {{
+          "actions": [
+            {{
+              "tool": "final_answer",
+              "tool_input": {{
+                "answer": "..."
+              }},
+              "reason": "任务已经完成"
+            }}
+          ]
+        }}
+        """
 
         return [
             {

@@ -15,4 +15,5 @@ class AgentState(BaseModel):
     trace_id: str = Field(default_factory=lambda: str(uuid4()))
     current_plan: Plan | None = None
     history: list[Step] = Field(default_factory=list)
+    final_answer: str | None = None
     done: bool = False

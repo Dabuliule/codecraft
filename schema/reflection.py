@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 
 class Reflection(BaseModel):
     status: Literal[
-        "success",
         "continue",
         "retry",
         "replan",
