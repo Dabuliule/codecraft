@@ -2,7 +2,7 @@ import asyncio
 
 import typer
 from dotenv import load_dotenv
-from prompt_toolkit import prompt
+from prompt_toolkit import PromptSession
 from rich.console import Console
 from rich.panel import Panel
 
@@ -10,11 +10,19 @@ from core.agent import Agent
 from core.executor import Executor
 from core.runtime import AgentRuntime
 from llm.providers.qwen import QwenLLM
+from schema.event import (
+    ActionEvent,
+    FinalResultEvent,
+    ObservationEvent,
+    ThoughtEvent,
+    WarningEvent,
+)
 from tool import ToolRegistry
 
 app = typer.Typer()
 
 console = Console()
+session = PromptSession()
 
 
 def build_runtime() -> AgentRuntime:
@@ -37,8 +45,7 @@ def build_runtime() -> AgentRuntime:
     )
 
 
-@app.command()
-def chat():
+async def run_chat():
     load_dotenv()
 
     runtime = build_runtime()
@@ -52,37 +59,73 @@ def chat():
 
     while True:
         try:
-            user_input = prompt("> ")
+            user_input = await session.prompt_async("> ")
 
-            if user_input.strip() in {
-                "exit",
-                "quit",
-            }:
+            if user_input.strip() in {"exit", "quit"}:
                 break
 
-            result = asyncio.run(
-                runtime.arun(
-                    task=user_input,
-                )
-            )
-
             console.print()
 
-            console.print(
-                result.pretty()
-            )
+            async for event in runtime.astream(task=user_input):
+                match event:
+                    case ThoughtEvent():
+                        console.print(
+                            Panel(
+                                event.thought,
+                                title="🧠 Thought",
+                                border_style="cyan",
+                            )
+                        )
 
-            console.print()
+                    case ActionEvent():
+                        console.print(
+                            Panel(
+                                f"{event.tool}\n\n"
+                                f"{event.tool_input}",
+                                title="🎯 Action",
+                                border_style="yellow",
+                            )
+                        )
+
+                    case ObservationEvent():
+                        style = (
+                            "green"
+                            if event.success
+                            else "red"
+                        )
+
+                        console.print(
+                            Panel(
+                                event.content[:3000],
+                                title="📤 Observation",
+                                border_style=style,
+                            )
+                        )
+
+                    case WarningEvent():
+                        console.print(
+                            Panel(
+                                event.message,
+                                title="⚠️ Warning",
+                                border_style="red",
+                            )
+                        )
+
+                    case FinalResultEvent():
+                        console.print()
+                        console.print(event.result.pretty())
+                        console.print()
 
         except KeyboardInterrupt:
-            console.print(
-                "\n[yellow]Interrupted[/yellow]"
-            )
+            console.print("\n[yellow]Interrupted[/yellow]")
 
         except Exception as e:
-            console.print(
-                f"[red]{e}[/red]"
-            )
+            console.print(f"[red]{e}[/red]")
+
+
+@app.command()
+def chat():
+    asyncio.run(run_chat())
 
 
 if __name__ == "__main__":

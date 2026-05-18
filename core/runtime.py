@@ -3,6 +3,7 @@ from __future__ import annotations
 from core.agent import Agent
 from core.executor import Executor
 from observability.context import trace_scope
+from schema.event import ActionEvent, FinalResultEvent, ObservationEvent, ThoughtEvent
 from schema.result import AgentResult
 from schema.state import AgentState
 from schema.step import Step
@@ -34,10 +35,10 @@ class AgentRuntime:
 
         self.max_steps = max_steps
 
-    async def arun(
+    async def astream(
             self,
             task: str,
-    ) -> AgentResult:
+    ):
 
         state = AgentState(
             task=task,
@@ -63,19 +64,27 @@ class AgentRuntime:
                     )
 
                 decision = await self.agent.astep(
-                    state=state,
+                    state=state
                 )
 
                 state.current_decision = decision
 
-                print("\n🧠 Thought")
-                print(decision.thought)
+                yield ThoughtEvent(
+                    thought=decision.thought,
+                )
 
-                print("\n🎯 Action")
-                print(decision.action.pretty())
+                yield ActionEvent(
+                    tool=decision.action.tool,
+                    tool_input=decision.action.tool_input,
+                )
 
                 tool_result = await self.executor.execute(
                     decision.action,
+                )
+
+                yield ObservationEvent(
+                    content=str(tool_result.content),
+                    success=tool_result.success,
                 )
 
                 step = Step(
@@ -83,7 +92,7 @@ class AgentRuntime:
                     thought=decision.thought,
                     action=decision.action,
                     observation=tool_result,
-                    success=not bool(tool_result.error),
+                    success=tool_result.success,
                     summary=self._build_step_summary(
                         decision=decision,
                         tool_result=tool_result,
@@ -92,30 +101,58 @@ class AgentRuntime:
 
                 state.recent_steps.append(step)
 
-                self._maybe_compress_memory(state)
+                self._maybe_compress_memory(
+                    state
+                )
+
+                self._detect_warnings(
+                    state,
+                    step,
+                )
 
                 if decision.is_terminal:
                     state.done = True
 
-                    if hasattr(tool_result, "content"):
-                        state.final_answer = tool_result.content
-                    else:
-                        state.final_answer = str(tool_result)
+                    state.final_answer = (
+                        tool_result.content
+                    )
 
-                    break
+                    result = AgentResult(
+                        success=True,
+                        answer=state.final_answer,
+                        steps=state.recent_steps,
+                        memory=state.memory,
+                        warnings=state.warnings,
+                        total_steps=len(
+                            state.recent_steps
+                        ),
+                    )
 
-                self._detect_warnings(
-                    state=state,
-                    step=step,
-                )
+                    yield FinalResultEvent(
+                        result=result,
+                    )
+
+                    return
 
                 step_count += 1
 
-            return AgentResult(
-                success=state.done,
-                answer=state.final_answer,
-                steps=state.recent_steps,
-            )
+    async def arun(
+            self,
+            task: str,
+    ) -> AgentResult:
+
+        final_result = None
+
+        async for event in self.astream(
+                task=task,
+        ):
+            if isinstance(event, FinalResultEvent):
+                final_result = event.result
+
+        if final_result is None:
+            raise RuntimeError("Runtime 未产生最终结果")
+
+        return final_result
 
     @staticmethod
     def _build_step_summary(
