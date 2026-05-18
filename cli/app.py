@@ -4,10 +4,10 @@ import typer
 from dotenv import load_dotenv
 from prompt_toolkit import prompt
 from rich.console import Console
+from rich.panel import Panel
 
-from core import Reflector
+from core.agent import Agent
 from core.executor import Executor
-from core.planner import Planner
 from core.runtime import AgentRuntime
 from llm.providers.qwen import QwenLLM
 from tool import ToolRegistry
@@ -18,11 +18,13 @@ console = Console()
 
 
 def build_runtime() -> AgentRuntime:
-    llm = QwenLLM(model="qwen3.6-flash-2026-04-16")
+    llm = QwenLLM(
+        model="qwen3.6-flash-2026-04-16"
+    )
 
     tools = ToolRegistry()
 
-    planner = Planner(
+    agent = Agent(
         llm=llm,
         tool_registry=tools,
     )
@@ -31,14 +33,9 @@ def build_runtime() -> AgentRuntime:
         tool_registry=tools,
     )
 
-    reflector = Reflector(
-        llm=llm,
-    )
-
     return AgentRuntime(
-        planner=planner,
+        agent=agent,
         executor=executor,
-        reflector=reflector,
     )
 
 
@@ -48,26 +45,46 @@ def chat():
 
     runtime = build_runtime()
 
-    console.print("[bold green]Agent Runtime Started[/bold green]")
+    console.print(
+        Panel.fit(
+            "Agent Runtime Started",
+            border_style="green",
+        )
+    )
 
     while True:
         try:
             user_input = prompt("> ")
 
-            if user_input.strip() in {"exit", "quit"}:
+            if user_input.strip() in {
+                "exit",
+                "quit",
+            }:
                 break
 
             result = asyncio.run(
-                runtime.arun(task=user_input)
+                runtime.arun(
+                    task=user_input,
+                )
             )
 
-            console.print(result.pretty())
+            console.print()
+
+            console.print(
+                result.pretty()
+            )
+
+            console.print()
 
         except KeyboardInterrupt:
-            console.print("\n[yellow]Interrupted[/yellow]")
+            console.print(
+                "\n[yellow]Interrupted[/yellow]"
+            )
 
         except Exception as e:
-            console.print(f"[red]{e}[/red]")
+            console.print(
+                f"[red]{e}[/red]"
+            )
 
 
 if __name__ == "__main__":

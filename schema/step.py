@@ -1,40 +1,51 @@
 from __future__ import annotations
 
-import json
-
-from typing import Any, Dict
+from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-from schema import ToolAction
-from tool import ToolResult
+from schema.action import ToolAction
 
 
 class Step(BaseModel):
-    """一次 action 记录。"""
+    """
+    Agent 单步执行记录。
+    """
 
-    action: ToolAction = Field(..., description="ToolAction")
-    observation: Any = Field(..., description="Observation")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
+    step_id: str = Field(
+        ...,
+        description="step 唯一 ID",
+    )
 
-    def pretty(self) -> str:
-        lines = [self.action.pretty(), "📤 Observation:"]
+    thought: str = Field(
+        ...,
+        description="执行该 action 前的 reasoning",
+    )
 
-        if isinstance(self.observation, ToolResult):
-            if self.observation.content:
-                lines.append(self.observation.content)
-            elif self.observation.error:
-                lines.append(self.observation.error)
-            else:
-                lines.append("-")
-        else:
-            try:
-                lines.append(json.dumps(self.observation, ensure_ascii=False, indent=2, default=str))
-            except Exception:
-                lines.append(str(self.observation))
+    action: ToolAction = Field(
+        ...,
+        description="执行动作",
+    )
 
-        if self.metadata:
-            lines.append("ℹ️ Metadata:")
-            lines.append(json.dumps(self.metadata, ensure_ascii=False, indent=2, default=str))
+    observation: Any = Field(
+        ...,
+        description="工具返回结果",
+    )
 
-        return "\n".join(lines)
+    success: bool = Field(
+        ...,
+        description="该 step 是否成功",
+    )
+
+    summary: str = Field(
+        ...,
+        description=(
+            "该 step 的压缩摘要。"
+            "用于 memory compression。"
+        ),
+    )
+
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+    )
