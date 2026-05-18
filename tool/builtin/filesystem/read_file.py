@@ -48,3 +48,4 @@ class ReadFileTool(BaseTool):
             "content": content,
             "data": {"path": path, "length": len(content)},
         }
+
