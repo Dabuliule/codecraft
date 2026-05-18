@@ -14,10 +14,10 @@ class QwenLLM(BaseLLM):
 
     def __init__(
             self,
-            model: str = "qwen3.6-plus",
+            model: Optional[str] = None,
             api_key: Optional[str] = None,
     ):
-        self.model = model
+        self.model = model or os.environ.get("QWEN_MODEL")
         self.client = AsyncOpenAI(
             api_key=api_key or os.getenv("DASHSCOPE_API_KEY"),
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",

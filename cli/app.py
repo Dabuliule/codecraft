@@ -18,9 +18,7 @@ console = Console()
 
 
 def build_runtime() -> AgentRuntime:
-    llm = QwenLLM(
-        model="qwen3.6-flash-2026-04-16"
-    )
+    llm = QwenLLM()
 
     tools = ToolRegistry()
 
