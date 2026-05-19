@@ -15,6 +15,15 @@ dependencies = [
     "typer>=0.25.1",
 ]
 
+[project.scripts]
+agent = "agent_runtime.cli.app:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
