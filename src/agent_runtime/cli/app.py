@@ -14,6 +14,7 @@ from agent_runtime.core.event_bus import EventBus
 from agent_runtime.core.executor import Executor
 from agent_runtime.core.runtime import AgentRuntime
 from agent_runtime.cli.rich_renderer import RichRenderer
+from agent_runtime.cli.slash import SlashCommandHandler
 from agent_runtime.llm.providers.qwen import QwenLLM
 from agent_runtime.operation.registry import OperationRegistry
 
@@ -21,15 +22,6 @@ app = typer.Typer()
 
 console = Console()
 session = PromptSession()
-
-
-HELP_TEXT = """\
-Commands:
-  /help      show commands
-  /verbose   toggle detailed event panels
-  /clear     clear the screen
-  exit       quit
-"""
 
 
 def build_runtime(
@@ -61,7 +53,7 @@ def render_welcome(verbose: bool) -> None:
     table.add_column()
     table.add_row("Agent Runtime", "interactive session")
     table.add_row("Mode", "verbose" if verbose else "friendly")
-    table.add_row("Commands", "/help, /verbose, /clear, exit")
+    table.add_row("Commands", "/help, /status, /history, /exit")
 
     console.print(
         Panel(
@@ -71,18 +63,6 @@ def render_welcome(verbose: bool) -> None:
         )
     )
 
-
-def render_help() -> None:
-    console.print(
-        Panel(
-            HELP_TEXT,
-            title="Help",
-            border_style="blue",
-            box=box.ROUNDED,
-        )
-    )
-
-
 async def run_chat(verbose: bool = False):
     load_dotenv()
 
@@ -90,6 +70,19 @@ async def run_chat(verbose: bool = False):
     renderer = RichRenderer(console=console, verbose=verbose)
     event_bus.subscribe(renderer.handle)
     runtime = build_runtime(event_bus=event_bus)
+
+    def set_verbose(value: bool) -> None:
+        nonlocal verbose
+        verbose = value
+        renderer.verbose = value
+
+    slash_handler = SlashCommandHandler(
+        console=console,
+        get_state=lambda: runtime.current_state,
+        get_verbose=lambda: verbose,
+        set_verbose=set_verbose,
+        render_welcome=lambda: render_welcome(verbose=verbose),
+    )
 
     render_welcome(verbose=verbose)
 
@@ -101,23 +94,13 @@ async def run_chat(verbose: bool = False):
             if command in {"exit", "quit"}:
                 break
 
-            if command == "/help":
-                render_help()
-                continue
-
-            if command == "/clear":
-                console.clear()
-                render_welcome(verbose=verbose)
-                continue
-
-            if command == "/verbose":
-                verbose = not verbose
-                renderer.verbose = verbose
-                mode = "verbose" if verbose else "friendly"
-                console.print(f"[green]Mode:[/green] {mode}")
-                continue
-
             if not command:
+                continue
+
+            if command.startswith("/"):
+                result = await slash_handler.handle(command)
+                if result.should_exit:
+                    break
                 continue
 
             console.print()

@@ -44,6 +44,7 @@ class AgentRuntime:
         self.event_bus = event_bus or EventBus()
 
         self.max_steps = max_steps
+        self.current_state: AgentState | None = None
 
     async def _emit(
             self,
@@ -65,6 +66,7 @@ class AgentRuntime:
                 approach="逐步观察并执行",
             ),
         )
+        self.current_state = state
 
         with trace_scope(
                 trace_id=state.trace_id,
