@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agent_runtime.core.agent import Agent
+from agent_runtime.core.event_bus import EventBus
 from agent_runtime.core.executor import Executor
 from agent_runtime.observability.context import trace_scope
 from agent_runtime.schema.event import (
@@ -8,6 +9,7 @@ from agent_runtime.schema.event import (
     IntentRequestEvent,
     ObservationEvent,
     OperationEvent,
+    RuntimeEvent,
     ThoughtEvent,
 )
 from agent_runtime.schema.result import AgentResult
@@ -33,13 +35,22 @@ class AgentRuntime:
             self,
             agent: Agent,
             executor: Executor,
+            event_bus: EventBus | None = None,
             max_steps: int = 50,
     ) -> None:
 
         self.agent = agent
         self.executor = executor
+        self.event_bus = event_bus or EventBus()
 
         self.max_steps = max_steps
+
+    async def _emit(
+            self,
+            event: RuntimeEvent,
+    ) -> RuntimeEvent:
+        await self.event_bus.emit(event)
+        return event
 
     async def astream(
             self,
@@ -75,18 +86,22 @@ class AgentRuntime:
 
                 state.current_decision = decision
 
-                yield ThoughtEvent(
-                    thought=decision.thought,
+                yield await self._emit(
+                    ThoughtEvent(
+                        thought=decision.thought,
+                    )
                 )
 
                 if not decision.plan.intents:
                     raise RuntimeError("Agent 返回了空 IntentPlan")
 
                 for intent in decision.plan.intents:
-                    yield IntentRequestEvent(
-                        intent=intent.intent,
-                        target=intent.target,
-                        params=intent.params,
+                    yield await self._emit(
+                        IntentRequestEvent(
+                            intent=intent.intent,
+                            target=intent.target,
+                            params=intent.params,
+                        )
                     )
 
                     execution = await self.executor.execute(
@@ -98,17 +113,29 @@ class AgentRuntime:
                         if execution.resolved
                         else "<unresolved>"
                     )
+                    tool_input = (
+                        execution.resolved.args
+                        if execution.resolved
+                        else {}
+                    )
 
-                    yield OperationEvent(
-                        operation=operation_name,
-                        intent=intent.intent,
+                    yield await self._emit(
+                        OperationEvent(
+                            operation=operation_name,
+                            intent=intent.intent,
+                            tool_input=tool_input,
+                        )
                     )
 
                     operation_result = execution.result
 
-                    yield ObservationEvent(
-                        content=str(operation_result.content),
-                        success=operation_result.success,
+                    yield await self._emit(
+                        ObservationEvent(
+                            content=str(operation_result.content),
+                            success=operation_result.success,
+                            error=operation_result.error,
+                            suggestion=operation_result.suggestion,
+                        )
                     )
 
                     step = Step(
@@ -154,8 +181,10 @@ class AgentRuntime:
                             ),
                         )
 
-                        yield FinalResultEvent(
-                            result=result,
+                        yield await self._emit(
+                            FinalResultEvent(
+                                result=result,
+                            )
                         )
 
                         return

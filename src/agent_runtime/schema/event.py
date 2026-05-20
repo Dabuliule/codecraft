@@ -39,6 +39,8 @@ class OperationEvent(RuntimeEvent):
 
     intent: str
 
+    tool_input: dict = Field(default_factory=dict)
+
 
 class ObservationEvent(RuntimeEvent):
     type: Literal["observation"] = "observation"
@@ -46,6 +48,10 @@ class ObservationEvent(RuntimeEvent):
     content: str
 
     success: bool
+
+    error: str | None = None
+
+    suggestion: str | None = None
 
 
 class WarningEvent(RuntimeEvent):
