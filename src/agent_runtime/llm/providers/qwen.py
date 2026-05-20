@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 import os
 from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
 
-from agent_runtime.llm.base import BaseLLM, LLMResponse, ToolCall
+from agent_runtime.llm.base import BaseLLM, LLMResponse
 
 
 class QwenLLM(BaseLLM):
@@ -26,7 +25,6 @@ class QwenLLM(BaseLLM):
     async def agenerate(
             self,
             messages: List[Dict[str, Any]],
-            tools: Optional[List[Dict[str, Any]]] = None,
             **kwargs: Any,
     ) -> LLMResponse:
         request_payload: Dict[str, Any] = {
@@ -34,9 +32,6 @@ class QwenLLM(BaseLLM):
             "messages": messages,
             **kwargs,
         }
-
-        if tools:
-            request_payload["tools"] = tools
 
         if "extra_body" not in request_payload:
             request_payload["extra_body"] = {"enable_thinking": False}
@@ -48,36 +43,11 @@ class QwenLLM(BaseLLM):
         choice = response.choices[0]
         msg = choice.message
 
-        tool_calls = []
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                tool_calls.append(
-                    ToolCall(
-                        id=tc.id,
-                        name=tc.function.name,
-                        arguments=self._parse_tool_args(
-                            tc.function.arguments, tc.id
-                        ),
-                    )
-                )
-
         return LLMResponse(
             content=msg.content,
-            tool_calls=tool_calls,
             finish_reason=choice.finish_reason,
             usage=self._parse_usage(getattr(response, "usage", None)),
         )
-
-    @staticmethod
-    def _parse_tool_args(raw: str | None, call_id: str) -> Dict[str, Any]:
-        if not raw:
-            return {}
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(
-                f"通义千问返回了非法的工具参数 JSON: {raw[:200]}... (call_id={call_id})"
-            ) from e
 
     @staticmethod
     def _parse_usage(usage: Any) -> Optional[Dict[str, int]]:

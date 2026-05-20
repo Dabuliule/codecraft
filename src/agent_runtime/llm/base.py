@@ -2,16 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
-
-
-@dataclass
-class ToolCall:
-    """工具调用请求（从 LLM 返回）"""
-    id: str
-    name: str
-    arguments: Dict[str, Any]
 
 
 @dataclass
@@ -21,8 +13,7 @@ class LLMResponse:
     Agent 只依赖这个结构，不依赖原始 OpenAI/Anthropic 对象。
     """
     content: Optional[str] = None
-    tool_calls: List[ToolCall] = field(default_factory=list)
-    finish_reason: Optional[str] = None  # "stop", "tool_calls", "length", ...
+    finish_reason: Optional[str] = None
     usage: Optional[Dict[str, int]] = None  # {"prompt_tokens": ..., "completion_tokens": ...}
 
 
@@ -36,7 +27,6 @@ class BaseLLM(ABC):
     async def agenerate(
             self,
             messages: List[Dict[str, Any]],
-            tools: Optional[List[Dict[str, Any]]] = None,
             **kwargs: Any,
     ) -> LLMResponse:
         """
@@ -44,7 +34,6 @@ class BaseLLM(ABC):
 
         Args:
             messages: 消息列表，格式兼容 OpenAI 的 dict 形式。
-            tools: 工具定义列表，兼容 OpenAI function calling 格式。
             **kwargs: 传递给具体模型的额外参数（如 temperature）。
 
         Returns:
@@ -55,7 +44,6 @@ class BaseLLM(ABC):
     def generate(
             self,
             messages: List[Dict[str, Any]],
-            tools: Optional[List[Dict[str, Any]]] = None,
             **kwargs: Any,
     ) -> LLMResponse:
         """同步生成回复。
@@ -66,7 +54,7 @@ class BaseLLM(ABC):
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(self.agenerate(messages=messages, tools=tools, **kwargs))
+            return asyncio.run(self.agenerate(messages=messages, **kwargs))
 
         raise RuntimeError(
             "检测到当前线程已有运行中的事件循环，请改用 `await llm.agenerate(...)`。"

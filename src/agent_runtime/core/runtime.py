@@ -3,7 +3,13 @@ from __future__ import annotations
 from agent_runtime.core.agent import Agent
 from agent_runtime.core.executor import Executor
 from agent_runtime.observability.context import trace_scope
-from agent_runtime.schema.event import ActionEvent, FinalResultEvent, ObservationEvent, ThoughtEvent
+from agent_runtime.schema.event import (
+    FinalResultEvent,
+    IntentRequestEvent,
+    ObservationEvent,
+    OperationEvent,
+    ThoughtEvent,
+)
 from agent_runtime.schema.result import AgentResult
 from agent_runtime.schema.state import AgentState
 from agent_runtime.schema.step import Step
@@ -73,68 +79,96 @@ class AgentRuntime:
                     thought=decision.thought,
                 )
 
-                yield ActionEvent(
-                    tool=decision.action.tool,
-                    tool_input=decision.action.tool_input,
-                )
+                if not decision.plan.intents:
+                    raise RuntimeError("Agent 返回了空 IntentPlan")
 
-                tool_result = await self.executor.execute(
-                    decision.action,
-                )
-
-                yield ObservationEvent(
-                    content=str(tool_result.content),
-                    success=tool_result.success,
-                )
-
-                step = Step(
-                    step_id=f"step-{step_count + 1}",
-                    thought=decision.thought,
-                    action=decision.action,
-                    observation=tool_result,
-                    success=tool_result.success,
-                    summary=self._build_step_summary(
-                        decision=decision,
-                        tool_result=tool_result,
-                    ),
-                )
-
-                state.recent_steps.append(step)
-
-                self._maybe_compress_memory(
-                    state
-                )
-
-                self._detect_warnings(
-                    state,
-                    step,
-                )
-
-                if decision.is_terminal:
-                    state.done = True
-
-                    state.final_answer = (
-                        tool_result.content
+                for intent in decision.plan.intents:
+                    yield IntentRequestEvent(
+                        intent=intent.intent,
+                        target=intent.target,
+                        params=intent.params,
                     )
 
-                    result = AgentResult(
-                        success=True,
-                        answer=state.final_answer,
-                        steps=state.recent_steps,
-                        memory=state.memory,
-                        warnings=state.warnings,
-                        total_steps=len(
-                            state.recent_steps
+                    execution = await self.executor.execute(
+                        intent,
+                    )
+
+                    operation_name = (
+                        execution.resolved.operation.name
+                        if execution.resolved
+                        else "<unresolved>"
+                    )
+
+                    yield OperationEvent(
+                        operation=operation_name,
+                        intent=intent.intent,
+                    )
+
+                    operation_result = execution.result
+
+                    yield ObservationEvent(
+                        content=str(operation_result.content),
+                        success=operation_result.success,
+                    )
+
+                    step = Step(
+                        step_id=f"step-{step_count + 1}",
+                        thought=decision.thought,
+                        intent=intent,
+                        operation=operation_name,
+                        observation=operation_result,
+                        success=operation_result.success,
+                        summary=self._build_step_summary(
+                            intent=intent,
+                            operation=operation_name,
+                            operation_result=operation_result,
                         ),
                     )
 
-                    yield FinalResultEvent(
-                        result=result,
+                    state.recent_steps.append(step)
+
+                    self._maybe_compress_memory(
+                        state
                     )
 
-                    return
+                    self._detect_warnings(
+                        state,
+                        step,
+                    )
 
-                step_count += 1
+                    if intent.intent == "response.final":
+                        state.done = True
+
+                        state.final_answer = (
+                            operation_result.content
+                        )
+
+                        result = AgentResult(
+                            success=True,
+                            answer=state.final_answer,
+                            steps=state.recent_steps,
+                            memory=state.memory,
+                            warnings=state.warnings,
+                            total_steps=len(
+                                state.recent_steps
+                            ),
+                        )
+
+                        yield FinalResultEvent(
+                            result=result,
+                        )
+
+                        return
+
+                    step_count += 1
+
+                    if step_count >= self.max_steps:
+                        raise RuntimeError(
+                            "Agent 超过最大执行步数"
+                        )
+
+                    if not operation_result.success:
+                        break
 
     async def arun(
             self,
@@ -156,20 +190,19 @@ class AgentRuntime:
 
     @staticmethod
     def _build_step_summary(
-            decision,
-            tool_result,
+            intent,
+            operation,
+            operation_result,
     ) -> str:
 
-        tool_name = decision.action.tool
-
-        if getattr(tool_result, "error", None):
+        if getattr(operation_result, "error", None):
             return (
-                f"{tool_name} 执行失败："
-                f"{tool_result.error}"
+                f"{intent.intent} -> {operation} 执行失败："
+                f"{operation_result.error}"
             )
 
         content = getattr(
-            tool_result,
+            operation_result,
             "content",
             "",
         )
@@ -177,7 +210,7 @@ class AgentRuntime:
         short_content = str(content)[:120]
 
         return (
-            f"{tool_name} 执行成功："
+            f"{intent.intent} -> {operation} 执行成功："
             f"{short_content}"
         )
 
@@ -200,7 +233,7 @@ class AgentRuntime:
             step: Step,
     ) -> None:
         if not step.success:
-            state.warnings.append(f"{step.action.tool} 执行失败")
+            state.warnings.append(f"{step.intent.intent} 执行失败")
 
         # 防止 warning 无限增长
         state.warnings = state.warnings[-10:]

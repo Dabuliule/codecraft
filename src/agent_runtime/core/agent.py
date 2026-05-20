@@ -7,9 +7,9 @@ from pydantic import TypeAdapter
 
 from agent_runtime.llm.base import BaseLLM
 from agent_runtime.observability.decorators import traced
+from agent_runtime.operation.registry import OperationRegistry
 from agent_runtime.schema.decision import Decision
 from agent_runtime.schema.state import AgentState
-from agent_runtime.tool.registry import ToolRegistry
 
 
 class Agent:
@@ -19,21 +19,21 @@ class Agent:
     职责：
     - 理解当前 runtime state
     - 维护整体执行方向
-    - 决定下一步 action
+    - 生成 intent plan
     - 根据 observation 持续调整策略
 
     注意：
-    - 一次只允许输出一个 action
-    - runtime 每执行一步后都必须重新进入 Agent
+    - runtime 负责调度执行 plan
+    - 每轮执行后基于 observation 重新生成后续 plan
     """
 
     def __init__(
             self,
             llm: BaseLLM,
-            tool_registry: ToolRegistry,
+            operation_registry: OperationRegistry,
     ) -> None:
         self.llm = llm
-        self.tool_registry = tool_registry
+        self.operation_registry = operation_registry
 
         self.decision_adapter = TypeAdapter(Decision)
 
@@ -74,7 +74,7 @@ class Agent:
             state: AgentState,
     ) -> list[dict[str, Any]]:
 
-        tool_prompt = self._build_tool_prompt()
+        intent_prompt = self._build_intent_prompt()
 
         recent_steps = self._build_recent_steps(state)
 
@@ -92,15 +92,14 @@ class Agent:
 你的职责：
 
 1. 理解当前任务
-2. 基于当前状态决定下一步动作
+2. 基于当前状态生成 intent plan
 3. 持续调整执行策略
-4. 一次只允许执行一个 action
-5. 每一步执行后都必须重新观察状态
-6. 当任务完成时调用 final_answer
+4. 输出 intent plan，由 runtime 解析、校验并调度执行
+5. plan 执行后必须重新观察状态
+6. 当任务完成时输出 response.final intent
 
-你不是 workflow planner。
-
-不要提前规划长链路 actions。
+不要选择具体执行实现；plan 只能表达 intent、target、params 和 purpose。
+如果存在专用 intent，不要使用 shell.exec。
 
 你必须保持：
 
@@ -131,9 +130,9 @@ class Agent:
 
 {recent_steps}
 
-# 可用工具
+# 可用 intents
 
-{tool_prompt}
+{intent_prompt}
 
 # 输出要求
 
@@ -141,7 +140,7 @@ class Agent:
 
 不要 markdown。
 不要解释。
-不要输出多个 actions。
+不要输出 schema 之外的字段。
 
 输出必须符合以下 schema：
 
@@ -155,12 +154,12 @@ class Agent:
             }
         ]
 
-    def _build_tool_prompt(self) -> str:
+    def _build_intent_prompt(self) -> str:
 
         lines = []
 
-        for tool in self.tool_registry.list_tools():
-            schema = tool.tool_schema()
+        for operation in self.operation_registry.list_operations():
+            schema = operation.operation_schema()
 
             lines.append(
                 json.dumps(
@@ -190,11 +189,17 @@ class Agent:
 Thought:
 {step.thought}
 
-Action:
-{step.action.tool}
+Intent:
+{step.intent.intent}
 
-Input:
-{json.dumps(step.action.tool_input, ensure_ascii=False)}
+Target:
+{json.dumps(step.intent.target, ensure_ascii=False)}
+
+Params:
+{json.dumps(step.intent.params, ensure_ascii=False)}
+
+Operation:
+{step.operation}
 
 Observation:
 {str(step.observation)[:1500]}

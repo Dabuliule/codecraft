@@ -22,12 +22,22 @@ class ThoughtEvent(RuntimeEvent):
     thought: str
 
 
-class ActionEvent(RuntimeEvent):
-    type: Literal["action"] = "action"
+class IntentRequestEvent(RuntimeEvent):
+    type: Literal["intent_request"] = "intent_request"
 
-    tool: str
+    intent: str
 
-    tool_input: dict
+    target: dict
+
+    params: dict
+
+
+class OperationEvent(RuntimeEvent):
+    type: Literal["operation"] = "operation"
+
+    operation: str
+
+    intent: str
 
 
 class ObservationEvent(RuntimeEvent):

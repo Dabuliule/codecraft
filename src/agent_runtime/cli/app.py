@@ -10,14 +10,15 @@ from agent_runtime.core.agent import Agent
 from agent_runtime.core.executor import Executor
 from agent_runtime.core.runtime import AgentRuntime
 from agent_runtime.llm.providers.qwen import QwenLLM
+from agent_runtime.operation.registry import OperationRegistry
 from agent_runtime.schema.event import (
-    ActionEvent,
     FinalResultEvent,
+    IntentRequestEvent,
     ObservationEvent,
+    OperationEvent,
     ThoughtEvent,
     WarningEvent,
 )
-from agent_runtime.tool.registry import ToolRegistry
 
 app = typer.Typer()
 
@@ -28,15 +29,15 @@ session = PromptSession()
 def build_runtime() -> AgentRuntime:
     llm = QwenLLM()
 
-    tools = ToolRegistry()
+    operations = OperationRegistry()
 
     agent = Agent(
         llm=llm,
-        tool_registry=tools,
+        operation_registry=operations,
     )
 
     executor = Executor(
-        tool_registry=tools,
+        operation_registry=operations,
     )
 
     return AgentRuntime(
@@ -77,13 +78,23 @@ async def run_chat():
                             )
                         )
 
-                    case ActionEvent():
+                    case IntentRequestEvent():
                         console.print(
                             Panel(
-                                f"{event.tool}\n\n"
-                                f"{event.tool_input}",
-                                title="🎯 Action",
+                                f"{event.intent}\n\n"
+                                f"target={event.target}\n"
+                                f"params={event.params}",
+                                title="🎯 Intent",
                                 border_style="yellow",
+                            )
+                        )
+
+                    case OperationEvent():
+                        console.print(
+                            Panel(
+                                f"{event.intent} -> {event.operation}",
+                                title="⚙️ Operation",
+                                border_style="magenta",
                             )
                         )
 

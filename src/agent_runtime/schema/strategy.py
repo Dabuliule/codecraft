@@ -60,7 +60,7 @@ class Strategy(BaseModel):
         default_factory=list,
         description=(
             "当前仍未解决的问题。"
-            "这些问题会驱动后续 action。"
+            "这些问题会驱动后续 intent request。"
         ),
     )
 
