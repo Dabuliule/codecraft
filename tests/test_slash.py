@@ -4,12 +4,12 @@ import pytest
 from rich.console import Console
 
 from agent_runtime.cli.slash import SlashCommandHandler
-from agent_runtime.operation.base import OperationResult
 from agent_runtime.schema.decision import Decision
-from agent_runtime.schema.intent import IntentPlan, IntentRequest
 from agent_runtime.schema.state import AgentState
 from agent_runtime.schema.step import Step
 from agent_runtime.schema.strategy import Strategy
+from agent_runtime.schema.tool import ToolCall, ToolPlan
+from agent_runtime.tool.base import ToolResult
 
 
 def make_handler(
@@ -32,10 +32,9 @@ def make_handler(
 
 
 def make_state() -> AgentState:
-    intent = IntentRequest(
-        intent="filesystem.read",
-        target={"path": "README.md"},
-        params={},
+    tool_call = ToolCall(
+        tool="read_file",
+        args={"path": "README.md"},
         purpose="inspect readme",
     )
     state = AgentState(
@@ -48,21 +47,20 @@ def make_state() -> AgentState:
         ),
         current_decision=Decision(
             thought="read the file",
-            plan=IntentPlan(intents=[intent]),
+            plan=ToolPlan(tools=[tool_call]),
         ),
     )
     state.recent_steps.append(
         Step(
             step_id="step-1",
             thought="read the file",
-            intent=intent,
-            operation="read_file",
-            observation=OperationResult(
+            tool_call=tool_call,
+            observation=ToolResult(
                 success=True,
                 content="huge observation " * 100,
             ),
             success=True,
-            summary="filesystem.read -> read_file 执行成功：README.md",
+            summary="read_file 执行成功：README.md",
         )
     )
     return state
@@ -112,5 +110,5 @@ async def test_slash_history_does_not_print_huge_observation():
 
     output = console.export_text()
     assert "step-1" in output
-    assert "filesystem.read" in output
+    assert "read_file" in output
     assert "huge observation" not in output

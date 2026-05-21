@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_runtime.operation.base import BaseOperation, OperationResult
+from agent_runtime.tool.base import BaseTool, ToolResult
 
 
 class FinalAnswerArgs(BaseModel):
@@ -11,9 +11,8 @@ class FinalAnswerArgs(BaseModel):
     answer: str = Field(..., description="最终返回给用户的答案")
 
 
-class FinalAnswerOperation(BaseOperation):
+class FinalAnswerTool(BaseTool):
     name = "final_answer"
-    intent = "response.final"
     description = "结束当前任务并返回最终答案。"
     input_schema = FinalAnswerArgs
     preconditions = ["answer 必须包含最终回复"]
@@ -21,8 +20,8 @@ class FinalAnswerOperation(BaseOperation):
     tags = {"response"}
     risk_level = "low"
 
-    def execute(self, answer: str) -> OperationResult:
-        return OperationResult(
+    def execute(self, answer: str) -> ToolResult:
+        return ToolResult(
             success=True,
             content=answer,
             data={"final": True, "answer": answer},

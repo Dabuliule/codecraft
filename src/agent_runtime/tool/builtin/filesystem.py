@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_runtime.operation.base import BaseOperation, OperationException
+from agent_runtime.tool.base import BaseTool, ToolException
 
 
 class PathArgs(BaseModel):
@@ -30,9 +30,8 @@ class ListDirArgs(BaseModel):
     path: str = Field(".", description="目录路径")
 
 
-class ReadFileOperation(BaseOperation):
+class ReadFileTool(BaseTool):
     name = "read_file"
-    intent = "filesystem.read"
     description = "读取本地文件内容，返回文本。"
     input_schema = ReadFileArgs
     preconditions = ["path 必须存在且是文件"]
@@ -43,27 +42,26 @@ class ReadFileOperation(BaseOperation):
     def execute(self, **kwargs: Any) -> dict[str, Any]:
         path = str(kwargs.get("path", "")).strip()
         if not path:
-            raise OperationException("文件路径不能为空", suggestion="请提供 target.path。")
+            raise ToolException("文件路径不能为空", suggestion="请提供 args.path。")
         if not os.path.exists(path):
-            raise OperationException("文件不存在", suggestion="请检查路径是否正确。")
+            raise ToolException("文件不存在", suggestion="请检查路径是否正确。")
         if not os.path.isfile(path):
-            raise OperationException("路径不是文件", suggestion="请传入文件路径。")
+            raise ToolException("路径不是文件", suggestion="请传入文件路径。")
 
         encoding = str(kwargs.get("encoding", "utf-8")).strip() or "utf-8"
         try:
             with open(path, "r", encoding=encoding) as handle:
                 content = handle.read()
         except OSError as exc:
-            raise OperationException("读取文件失败", suggestion=str(exc)) from exc
+            raise ToolException("读取文件失败", suggestion=str(exc)) from exc
         except UnicodeError as exc:
-            raise OperationException("文件编码错误", suggestion="请确认 encoding 参数。") from exc
+            raise ToolException("文件编码错误", suggestion="请确认 encoding 参数。") from exc
 
         return {"content": content, "data": {"path": path, "length": len(content)}}
 
 
-class WriteFileOperation(BaseOperation):
+class WriteFileTool(BaseTool):
     name = "write_file"
-    intent = "filesystem.write"
     description = "写入本地文件内容。"
     input_schema = WriteFileArgs
     preconditions = ["path 必须非空"]
@@ -74,7 +72,7 @@ class WriteFileOperation(BaseOperation):
     def execute(self, **kwargs: Any) -> dict[str, Any]:
         path = str(kwargs.get("path", "")).strip()
         if not path:
-            raise OperationException("文件路径不能为空", suggestion="请提供 target.path。")
+            raise ToolException("文件路径不能为空", suggestion="请提供 args.path。")
 
         content = str(kwargs.get("content", ""))
         encoding = str(kwargs.get("encoding", "utf-8")).strip() or "utf-8"
@@ -88,7 +86,7 @@ class WriteFileOperation(BaseOperation):
             with open(path, "a" if append else "w", encoding=encoding) as handle:
                 handle.write(content)
         except OSError as exc:
-            raise OperationException("写入文件失败", suggestion=str(exc)) from exc
+            raise ToolException("写入文件失败", suggestion=str(exc)) from exc
 
         return {
             "content": f"文件写入成功: {path}",
@@ -96,9 +94,8 @@ class WriteFileOperation(BaseOperation):
         }
 
 
-class DeleteFileOperation(BaseOperation):
+class DeleteFileTool(BaseTool):
     name = "delete_file"
-    intent = "filesystem.delete"
     description = "删除本地文件。"
     input_schema = PathArgs
     preconditions = ["path 必须存在且是文件"]
@@ -109,21 +106,20 @@ class DeleteFileOperation(BaseOperation):
     def execute(self, **kwargs: Any) -> dict[str, Any]:
         path = str(kwargs.get("path", "")).strip()
         if not os.path.exists(path):
-            raise OperationException("文件不存在")
+            raise ToolException("文件不存在")
         if not os.path.isfile(path):
-            raise OperationException("路径不是文件")
+            raise ToolException("路径不是文件")
 
         try:
             os.remove(path)
         except OSError as exc:
-            raise OperationException("删除文件失败", suggestion=str(exc)) from exc
+            raise ToolException("删除文件失败", suggestion=str(exc)) from exc
 
         return {"content": f"文件删除成功: {path}", "data": {"path": path}}
 
 
-class FileExistsOperation(BaseOperation):
+class FileExistsTool(BaseTool):
     name = "file_exists"
-    intent = "filesystem.exists"
     description = "检查文件或目录是否存在。"
     input_schema = PathArgs
     preconditions = ["path 必须非空"]
@@ -140,9 +136,8 @@ class FileExistsOperation(BaseOperation):
         }
 
 
-class ListDirOperation(BaseOperation):
+class ListDirTool(BaseTool):
     name = "list_dir"
-    intent = "filesystem.list"
     description = "列出目录中的文件和子目录。"
     input_schema = ListDirArgs
     preconditions = ["path 必须存在且是目录"]
@@ -153,14 +148,14 @@ class ListDirOperation(BaseOperation):
     def execute(self, **kwargs: Any) -> dict[str, Any]:
         path = str(kwargs.get("path", ".")).strip() or "."
         if not os.path.exists(path):
-            raise OperationException("目录不存在", suggestion="请检查 target.path 是否正确。")
+            raise ToolException("目录不存在", suggestion="请检查 args.path 是否正确。")
         if not os.path.isdir(path):
-            raise OperationException("路径不是目录", suggestion="请提供目录路径。")
+            raise ToolException("路径不是目录", suggestion="请提供目录路径。")
 
         try:
             items = sorted(os.listdir(path))
         except OSError as exc:
-            raise OperationException("读取目录失败", suggestion=str(exc)) from exc
+            raise ToolException("读取目录失败", suggestion=str(exc)) from exc
 
         result = []
         for item in items:
@@ -176,9 +171,8 @@ class ListDirOperation(BaseOperation):
         }
 
 
-class MakeDirOperation(BaseOperation):
+class MakeDirTool(BaseTool):
     name = "make_dir"
-    intent = "filesystem.make_dir"
     description = "创建目录。"
     input_schema = PathArgs
     preconditions = ["path 必须非空"]
@@ -189,11 +183,11 @@ class MakeDirOperation(BaseOperation):
     def execute(self, **kwargs: Any) -> dict[str, Any]:
         path = str(kwargs.get("path", "")).strip()
         if not path:
-            raise OperationException("目录路径不能为空")
+            raise ToolException("目录路径不能为空")
 
         try:
             os.makedirs(path, exist_ok=True)
         except OSError as exc:
-            raise OperationException("创建目录失败", suggestion=str(exc)) from exc
+            raise ToolException("创建目录失败", suggestion=str(exc)) from exc
 
         return {"content": f"目录创建成功: {path}", "data": {"path": path}}

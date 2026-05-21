@@ -9,14 +9,14 @@ from typing import Any, Dict, Optional, Type
 import jsonschema
 from pydantic import BaseModel, Field, ValidationError
 
-from agent_runtime.schema.intent import IntentRequest
 from agent_runtime.schema.policy import RiskLevel
+from agent_runtime.schema.tool import ToolCall
 
 logger = logging.getLogger(__name__)
 
 
-class OperationException(Exception):
-    """Operation 执行时可抛出的受控异常。"""
+class ToolException(Exception):
+    """Tool 执行时可抛出的受控异常。"""
 
     def __init__(self, message: str, suggestion: str = ""):
         self.message = message
@@ -24,18 +24,18 @@ class OperationException(Exception):
         super().__init__(message)
 
 
-class OperationResult(BaseModel):
-    """统一的 Operation 执行结果。"""
+class ToolResult(BaseModel):
+    """统一的 Tool 执行结果。"""
 
-    success: bool = Field(..., description="Operation 是否执行成功")
+    success: bool = Field(..., description="Tool 是否执行成功")
     content: str = Field(default="", description="提供给 Agent 的文本结果")
     data: Any = Field(default=None, description="原始结构化数据")
     error: Optional[str] = Field(default=None, description="错误信息")
     suggestion: Optional[str] = Field(default=None, description="修复建议")
 
     @classmethod
-    def from_value(cls, value: Any) -> "OperationResult":
-        if isinstance(value, OperationResult):
+    def from_value(cls, value: Any) -> "ToolResult":
+        if isinstance(value, ToolResult):
             return value
 
         if isinstance(value, dict) and "content" in value:
@@ -55,16 +55,14 @@ class OperationResult(BaseModel):
         return cls(success=True, content=content, data=value)
 
 
-class BaseOperation(ABC):
+class BaseTool(ABC):
     """
     可治理的确定性执行单元。
 
-    Operation 不由 LLM 直接选择。LLM 输出 IntentRequest，Runtime 通过
-    resolver 选择 Operation，再经 policy 校验后执行。
+    Tool 作为 Runtime 暴露给 LLM 的执行能力，由 Runtime 经 policy 校验后执行。
     """
 
     name: str
-    intent: str
     description: str
     input_schema: Type[BaseModel] | Dict[str, Any]
     preconditions: list[str] = []
@@ -77,12 +75,10 @@ class BaseOperation(ABC):
     max_retries: int = 0
     strict: bool = True
     handle_validation_error: bool = True
-    handle_operation_error: bool = True
+    handle_tool_error: bool = True
 
-    def build_args(self, request: IntentRequest) -> Dict[str, Any]:
-        args = dict(request.target)
-        args.update(request.params)
-        return args
+    def build_args(self, request: ToolCall) -> Dict[str, Any]:
+        return dict(request.args)
 
     @abstractmethod
     def execute(self, **kwargs: Any) -> Any:
@@ -91,14 +87,14 @@ class BaseOperation(ABC):
     async def aexecute(self, **kwargs: Any) -> Any:
         return await asyncio.to_thread(self.execute, **kwargs)
 
-    def operation_schema(self) -> Dict[str, Any]:
+    def tool_schema(self) -> Dict[str, Any]:
         if isinstance(self.input_schema, dict):
             params = self.input_schema
         else:
             params = self.input_schema.model_json_schema()
 
         return {
-            "intent": self.intent,
+            "tool": self.name,
             "description": self.description,
             "input_schema": params,
             "preconditions": list(self.preconditions),
@@ -120,18 +116,18 @@ class BaseOperation(ABC):
         validated = self.input_schema.model_validate(params)
         return validated.model_dump()
 
-    async def arun(self, params: Dict[str, Any]) -> OperationResult:
+    async def arun(self, params: Dict[str, Any]) -> ToolResult:
         params = params or {}
 
         try:
             validated_params = self._validate_input(params)
         except (ValidationError, jsonschema.ValidationError) as e:
             if self.handle_validation_error:
-                return OperationResult(
+                return ToolResult(
                     success=False,
                     content="",
                     error=f"参数校验失败: {e}",
-                    suggestion="请根据意图输入结构修正参数后重试。",
+                    suggestion="请根据工具输入结构修正参数后重试。",
                 )
             raise
 
@@ -140,10 +136,10 @@ class BaseOperation(ABC):
             try:
                 async with asyncio.timeout(self.timeout):
                     raw_result = await self.aexecute(**validated_params)
-                return OperationResult.from_value(raw_result)
-            except OperationException as e:
-                if self.handle_operation_error:
-                    return OperationResult(
+                return ToolResult.from_value(raw_result)
+            except ToolException as e:
+                if self.handle_tool_error:
+                    return ToolResult(
                         success=False,
                         content="",
                         error=e.message,
@@ -151,7 +147,7 @@ class BaseOperation(ABC):
                     )
                 raise
             except asyncio.TimeoutError:
-                last_exc = TimeoutError(f"Operation 执行超时 ({self.timeout}s)")
+                last_exc = TimeoutError(f"Tool 执行超时 ({self.timeout}s)")
                 if attempt < self.max_retries:
                     await asyncio.sleep(1.5 ** attempt)
                     continue
@@ -163,9 +159,9 @@ class BaseOperation(ABC):
                     continue
                 break
 
-        return OperationResult(
+        return ToolResult(
             success=False,
             content="",
             error=f"执行失败: {last_exc}",
-            suggestion="请稍后重试或检查 Operation 状态。",
+            suggestion="请稍后重试或检查 Tool 状态。",
         )

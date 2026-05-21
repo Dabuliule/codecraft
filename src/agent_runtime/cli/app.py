@@ -16,7 +16,7 @@ from agent_runtime.core.runtime import AgentRuntime
 from agent_runtime.cli.rich_renderer import RichRenderer
 from agent_runtime.cli.slash import SlashCommandHandler
 from agent_runtime.llm.providers.qwen import QwenLLM
-from agent_runtime.operation.registry import OperationRegistry
+from agent_runtime.tool.registry import ToolRegistry
 
 app = typer.Typer()
 
@@ -29,15 +29,15 @@ def build_runtime(
 ) -> AgentRuntime:
     llm = QwenLLM()
 
-    operations = OperationRegistry()
+    tools = ToolRegistry()
 
     agent = Agent(
         llm=llm,
-        operation_registry=operations,
+        tool_registry=tools,
     )
 
     executor = Executor(
-        operation_registry=operations,
+        tool_registry=tools,
     )
 
     return AgentRuntime(
@@ -122,7 +122,7 @@ def chat(
             typer.Option(
                 "--verbose",
                 "-v",
-                help="Show full thought, intent, operation, and observation panels.",
+                help="Show full thought, tool, and observation panels.",
             ),
         ] = False,
 ):

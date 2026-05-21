@@ -7,9 +7,9 @@ from pydantic import TypeAdapter
 
 from agent_runtime.llm.base import BaseLLM
 from agent_runtime.observability.decorators import traced
-from agent_runtime.operation.registry import OperationRegistry
 from agent_runtime.schema.decision import Decision
 from agent_runtime.schema.state import AgentState
+from agent_runtime.tool.registry import ToolRegistry
 
 
 class Agent:
@@ -19,7 +19,7 @@ class Agent:
     职责：
     - 理解当前 runtime state
     - 维护整体执行方向
-    - 生成 intent plan
+    - 生成 tool plan
     - 根据 observation 持续调整策略
 
     注意：
@@ -30,10 +30,10 @@ class Agent:
     def __init__(
             self,
             llm: BaseLLM,
-            operation_registry: OperationRegistry,
+            tool_registry: ToolRegistry,
     ) -> None:
         self.llm = llm
-        self.operation_registry = operation_registry
+        self.tool_registry = tool_registry
 
         self.decision_adapter = TypeAdapter(Decision)
 
@@ -74,7 +74,7 @@ class Agent:
             state: AgentState,
     ) -> list[dict[str, Any]]:
 
-        intent_prompt = self._build_intent_prompt()
+        tool_prompt = self._build_tool_prompt()
 
         recent_steps = self._build_recent_steps(state)
 
@@ -92,14 +92,14 @@ class Agent:
 你的职责：
 
 1. 理解当前任务
-2. 基于当前状态生成 intent plan
+2. 基于当前状态生成 tool plan
 3. 持续调整执行策略
-4. 输出 intent plan，由 runtime 解析、校验并调度执行
+4. 输出 tool plan，由 runtime 校验并调度执行
 5. plan 执行后必须重新观察状态
-6. 当任务完成时输出 response.final intent
+6. 当任务完成时调用 final_answer 工具
 
-不要选择具体执行实现；plan 只能表达 intent、target、params 和 purpose。
-如果存在专用 intent，不要使用 shell.exec。
+plan 只能使用可用工具中的 tool 名称，并提供 args 和 purpose。
+如果存在专用工具，不要使用 shell_exec。
 
 你必须保持：
 
@@ -130,9 +130,9 @@ class Agent:
 
 {recent_steps}
 
-# 可用 intents
+# 可用 tools
 
-{intent_prompt}
+{tool_prompt}
 
 # 输出要求
 
@@ -154,12 +154,12 @@ class Agent:
             }
         ]
 
-    def _build_intent_prompt(self) -> str:
+    def _build_tool_prompt(self) -> str:
 
         lines = []
 
-        for operation in self.operation_registry.list_operations():
-            schema = operation.operation_schema()
+        for tool in self.tool_registry.list_tools():
+            schema = tool.tool_schema()
 
             lines.append(
                 json.dumps(
@@ -189,17 +189,11 @@ class Agent:
 Thought:
 {step.thought}
 
-Intent:
-{step.intent.intent}
+Tool:
+{step.tool_call.tool}
 
-Target:
-{json.dumps(step.intent.target, ensure_ascii=False)}
-
-Params:
-{json.dumps(step.intent.params, ensure_ascii=False)}
-
-Operation:
-{step.operation}
+Args:
+{json.dumps(step.tool_call.args, ensure_ascii=False)}
 
 Observation:
 {str(step.observation)[:1500]}

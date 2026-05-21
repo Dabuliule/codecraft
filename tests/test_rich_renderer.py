@@ -4,7 +4,7 @@ import pytest
 from rich.console import Console
 
 from agent_runtime.cli.rich_renderer import RichRenderer
-from agent_runtime.schema.event import ObservationEvent, OperationEvent
+from agent_runtime.schema.event import ObservationEvent, ToolExecutionEvent
 
 
 @pytest.mark.anyio
@@ -30,14 +30,13 @@ async def test_rich_renderer_displays_tool_input_as_json():
     renderer = RichRenderer(console=console)
 
     await renderer.handle(
-        OperationEvent(
-            operation="read_file",
-            intent="filesystem.read",
+        ToolExecutionEvent(
+            tool="read_file",
             tool_input={"path": "README.md"},
         )
     )
 
     output = console.export_text()
 
-    assert "Operation" in output
+    assert "Tool Execution" in output
     assert '"path": "README.md"' in output

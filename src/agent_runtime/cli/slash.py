@@ -13,7 +13,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from agent_runtime.operation.base import OperationResult
+from agent_runtime.tool.base import ToolResult
 from agent_runtime.schema.state import AgentState
 
 
@@ -80,7 +80,7 @@ class SlashCommandHandler:
         ]
 
         if self._has_plan():
-            commands.append(("/plan", "show current intent plan"))
+            commands.append(("/plan", "show current tool plan"))
 
         if self._latest_diff():
             commands.append(("/diff", "show latest diff"))
@@ -138,16 +138,14 @@ class SlashCommandHandler:
         )
         table.add_column("Step", no_wrap=True)
         table.add_column("OK", no_wrap=True)
-        table.add_column("Intent")
-        table.add_column("Operation")
+        table.add_column("Tool")
         table.add_column("Summary")
 
         for step in state.recent_steps[-8:]:
             table.add_row(
                 step.step_id,
                 "yes" if step.success else "no",
-                step.intent.intent,
-                step.operation,
+                step.tool_call.tool,
                 self._truncate(step.summary, limit=140),
             )
 
@@ -251,7 +249,7 @@ class SlashCommandHandler:
     def _observation_content(
             observation: Any,
     ) -> str:
-        if isinstance(observation, OperationResult):
+        if isinstance(observation, ToolResult):
             return observation.content
 
         if isinstance(observation, str):

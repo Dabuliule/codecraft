@@ -2,41 +2,40 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_runtime.operation.base import OperationResult
-from agent_runtime.operation.registry import OperationRegistry
-from agent_runtime.operation.resolver import OperationResolver, ResolvedOperation
 from agent_runtime.policy.engine import PolicyEngine
-from agent_runtime.schema.intent import IntentRequest
+from agent_runtime.schema.tool import ToolCall
+from agent_runtime.tool.base import ToolResult
+from agent_runtime.tool.registry import ToolRegistry
+from agent_runtime.tool.resolver import ResolvedTool, ToolResolver
 
 
 @dataclass(frozen=True)
 class ExecutionResult:
-    resolved: ResolvedOperation | None
-    result: OperationResult
+    resolved: ResolvedTool | None
+    result: ToolResult
 
 
 class Executor:
     """
-    Operation Executor。
+    Tool Executor。
 
     职责：
-    - 将 intent 解析为 operation
     - 执行 policy check
-    - 执行确定性 operation
+    - 执行确定性 tool
     """
 
     def __init__(
             self,
-            operation_registry: OperationRegistry,
+            tool_registry: ToolRegistry,
             policy_engine: PolicyEngine | None = None,
     ) -> None:
-        self.operation_registry = operation_registry
-        self.resolver = OperationResolver(operation_registry)
+        self.tool_registry = tool_registry
+        self.resolver = ToolResolver(tool_registry)
         self.policy_engine = policy_engine or PolicyEngine()
 
     async def execute(
             self,
-            request: IntentRequest,
+            request: ToolCall,
     ) -> ExecutionResult:
         try:
             resolved = self.resolver.resolve(
@@ -50,24 +49,23 @@ class Executor:
             if not policy_decision.allowed:
                 return ExecutionResult(
                     resolved=resolved,
-                    result=OperationResult(
+                    result=ToolResult(
                         success=False,
                         content="",
                         error=policy_decision.reason,
                         suggestion=policy_decision.suggestion,
                         data={
                             "policy": policy_decision.model_dump(),
-                            "operation": resolved.operation.name,
-                            "intent": request.intent,
+                            "tool": request.tool,
                         },
                     ),
                 )
 
-            raw_result = await resolved.operation.arun(
+            raw_result = await resolved.tool.arun(
                 resolved.args,
             )
 
-            result = OperationResult.from_value(
+            result = ToolResult.from_value(
                 raw_result
             )
 
@@ -79,7 +77,7 @@ class Executor:
         except Exception as e:
             return ExecutionResult(
                 resolved=None,
-                result=OperationResult(
+                result=ToolResult(
                     success=False,
                     content="",
                     error=str(e),

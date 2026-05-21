@@ -12,11 +12,11 @@ from rich.text import Text
 
 from agent_runtime.schema.event import (
     FinalResultEvent,
-    IntentRequestEvent,
     ObservationEvent,
-    OperationEvent,
     RuntimeEvent,
     ThoughtEvent,
+    ToolCallEvent,
+    ToolExecutionEvent,
     WarningEvent,
 )
 
@@ -26,7 +26,7 @@ class RichRenderer:
     Rich renderer for runtime events.
 
     This class only maps RuntimeEvent instances to terminal output. It does not
-    make orchestration decisions or execute operations.
+    make orchestration decisions or execute tools.
     """
 
     def __init__(
@@ -50,12 +50,12 @@ class RichRenderer:
             self._render_thought(event)
             return
 
-        if isinstance(event, IntentRequestEvent):
-            self._render_intent(event)
+        if isinstance(event, ToolCallEvent):
+            self._render_tool_call(event)
             return
 
-        if isinstance(event, OperationEvent):
-            self._render_operation(event)
+        if isinstance(event, ToolExecutionEvent):
+            self._render_tool_execution(event)
             return
 
         if isinstance(event, ObservationEvent):
@@ -86,22 +86,17 @@ class RichRenderer:
             )
         )
 
-    def _render_intent(
+    def _render_tool_call(
             self,
-            event: IntentRequestEvent,
+            event: ToolCallEvent,
     ) -> None:
-        tool_input = {
-            "target": event.target,
-            "params": event.params,
-        }
-
-        title = f"Intent: {event.intent}"
+        title = f"Tool: {event.tool}"
 
         if self.verbose:
-            body: RenderableType = self._json_syntax(tool_input)
+            body: RenderableType = self._json_syntax(event.args)
         else:
-            target = event.target.get("path") or event.target.get("command")
-            summary = f"{event.intent}"
+            target = event.args.get("path") or event.args.get("command")
+            summary = f"{event.tool}"
             if target:
                 summary = f"{summary}\n{target}"
             body = Text(summary)
@@ -114,24 +109,24 @@ class RichRenderer:
             )
         )
 
-    def _render_operation(
+    def _render_tool_execution(
             self,
-            event: OperationEvent,
+            event: ToolExecutionEvent,
     ) -> None:
         body: RenderableType
 
         if event.tool_input:
             body = Group(
-                Text(f"{event.intent} -> {event.operation}"),
+                Text(event.tool),
                 self._json_syntax(event.tool_input),
             )
         else:
-            body = Text(f"{event.intent} -> {event.operation}")
+            body = Text(event.tool)
 
         self.console.print(
             self._panel(
                 body,
-                title="Operation",
+                title="Tool Execution",
                 border_style="magenta",
             )
         )

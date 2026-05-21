@@ -22,22 +22,16 @@ class ThoughtEvent(RuntimeEvent):
     thought: str
 
 
-class IntentRequestEvent(RuntimeEvent):
-    type: Literal["intent_request"] = "intent_request"
+class ToolCallEvent(RuntimeEvent):
+    type: Literal["tool_call"] = "tool_call"
 
-    intent: str
-
-    target: dict
-
-    params: dict
+    tool: str
+    args: dict
 
 
-class OperationEvent(RuntimeEvent):
-    type: Literal["operation"] = "operation"
-
-    operation: str
-
-    intent: str
+class ToolExecutionEvent(RuntimeEvent):
+    type: Literal["tool_execution"] = "tool_execution"
+    tool: str
 
     tool_input: dict = Field(default_factory=dict)
 

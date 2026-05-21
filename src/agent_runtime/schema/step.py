@@ -6,8 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agent_runtime.operation.base import OperationResult
-from agent_runtime.schema.intent import IntentRequest
+from agent_runtime.schema.tool import ToolCall
+from agent_runtime.tool.base import ToolResult
 
 
 class Step(BaseModel):
@@ -22,22 +22,17 @@ class Step(BaseModel):
 
     thought: str = Field(
         ...,
-        description="执行该意图前的 reasoning",
+        description="执行该工具前的 reasoning",
     )
 
-    intent: IntentRequest = Field(
+    tool_call: ToolCall = Field(
         ...,
-        description="执行的意图请求",
-    )
-
-    operation: str = Field(
-        ...,
-        description="Runtime 解析出的 Operation 名称",
+        description="执行的工具调用请求",
     )
 
     observation: Any = Field(
         ...,
-        description="Operation 返回结果",
+        description="Tool 返回结果",
     )
 
     success: bool = Field(
@@ -69,16 +64,13 @@ class Step(BaseModel):
             "Thought:",
             self.thought,
             "",
-            "Intent:",
-            self.intent.pretty(),
-            "",
-            "Operation:",
-            self.operation,
+            "Tool:",
+            self.tool_call.pretty(),
             "",
             "Observation:",
         ]
 
-        if isinstance(self.observation, OperationResult):
+        if isinstance(self.observation, ToolResult):
             if self.observation.success:
                 content = (
                     self.observation.content

@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_runtime.operation.base import BaseOperation, OperationException
+from agent_runtime.tool.base import BaseTool, ToolException
 
 
 class ShellExecArgs(BaseModel):
@@ -16,12 +16,11 @@ class ShellExecArgs(BaseModel):
     timeout: int = Field(30, description="超时时间（秒）")
 
 
-class ShellExecOperation(BaseOperation):
+class ShellExecTool(BaseTool):
     name = "shell_exec"
-    intent = "shell.exec"
     description = "执行本地 shell 命令。仅作为高风险通用逃生入口。"
     input_schema = ShellExecArgs
-    preconditions = ["command 必须非空", "没有更专用 Operation 能满足该 intent"]
+    preconditions = ["command 必须非空", "没有更专用 Tool 能满足该工具调用"]
     side_effects = ["可能读取或修改本地环境，取决于 command"]
     tags = {"system", "generic"}
     risk_level = "high"
@@ -30,7 +29,7 @@ class ShellExecOperation(BaseOperation):
     def execute(self, **kwargs: Any) -> dict[str, Any]:
         command = str(kwargs.get("command", "")).strip()
         if not command:
-            raise OperationException("命令不能为空", suggestion="请提供 params.command。")
+            raise ToolException("命令不能为空", suggestion="请提供 args.command。")
 
         cwd = kwargs.get("cwd")
         timeout = int(kwargs.get("timeout", 30))
@@ -45,12 +44,12 @@ class ShellExecOperation(BaseOperation):
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as exc:
-            raise OperationException(
+            raise ToolException(
                 "命令执行超时",
                 suggestion=f"请增加 timeout，当前超时时间为 {timeout} 秒。",
             ) from exc
         except OSError as exc:
-            raise OperationException("命令执行失败", suggestion=str(exc)) from exc
+            raise ToolException("命令执行失败", suggestion=str(exc)) from exc
 
         return {
             "content": result.stdout.strip(),
