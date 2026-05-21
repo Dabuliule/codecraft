@@ -6,12 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from rich import box
-from rich.console import Console, RenderableType
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.table import Table
-from rich.text import Text
+from rich.console import Console
 
 from agent_runtime.tool.base import ToolResult
 from agent_runtime.schema.state import AgentState
@@ -85,44 +80,18 @@ class SlashCommandHandler:
         if self._latest_diff():
             commands.append(("/diff", "show latest diff"))
 
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style="bold cyan")
-        table.add_column()
-
+        self.console.print("commands:")
         for name, description in commands:
-            table.add_row(name, description)
-
-        self.console.print(
-            self._panel(
-                table,
-                title="Slash Commands",
-                border_style="blue",
-            )
-        )
+            self.console.print(f"  {name:<10} {description}")
 
     def _render_status(self) -> None:
         state = self.get_state()
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style="bold")
-        table.add_column()
-
-        table.add_row("trace_id", state.trace_id if state else "-")
-        table.add_row("cwd", os.getcwd())
-        table.add_row("done", str(state.done) if state else "-")
-        table.add_row(
-            "history_steps",
-            str(len(state.recent_steps)) if state else "0",
-        )
-        table.add_row("has_plan", str(self._has_plan()))
-        table.add_row("has_diff", str(bool(self._latest_diff())))
-
-        self.console.print(
-            self._panel(
-                table,
-                title="Status",
-                border_style="green",
-            )
-        )
+        self.console.print(f"trace_id: {state.trace_id if state else '-'}")
+        self.console.print(f"cwd: {os.getcwd()}")
+        self.console.print(f"done: {state.done if state else '-'}")
+        self.console.print(f"history_steps: {len(state.recent_steps) if state else 0}")
+        self.console.print(f"has_plan: {self._has_plan()}")
+        self.console.print(f"has_diff: {bool(self._latest_diff())}")
 
     def _render_history(self) -> None:
         state = self.get_state()
@@ -131,31 +100,10 @@ class SlashCommandHandler:
             self._render_info("No history yet.")
             return
 
-        table = Table(
-            show_header=True,
-            header_style="bold",
-            box=box.SIMPLE,
-        )
-        table.add_column("Step", no_wrap=True)
-        table.add_column("OK", no_wrap=True)
-        table.add_column("Tool")
-        table.add_column("Summary")
-
         for step in state.recent_steps[-8:]:
-            table.add_row(
-                step.step_id,
-                "yes" if step.success else "no",
-                step.tool_call.tool,
-                self._truncate(step.summary, limit=140),
-            )
-
-        self.console.print(
-            self._panel(
-                table,
-                title="History",
-                border_style="cyan",
-            )
-        )
+            ok = "ok" if step.success else "failed"
+            summary = self._truncate(step.summary, limit=140)
+            self.console.print(f"{step.step_id} {ok} {step.tool_call.tool}: {summary}")
 
     def _render_plan(self) -> None:
         state = self.get_state()
@@ -166,13 +114,7 @@ class SlashCommandHandler:
 
         plan = state.current_decision.plan.model_dump()
 
-        self.console.print(
-            self._panel(
-                self._json_syntax(plan),
-                title="Plan",
-                border_style="yellow",
-            )
-        )
+        self.console.print(self._json(plan))
 
     def _render_diff(self) -> None:
         diff = self._latest_diff()
@@ -181,51 +123,26 @@ class SlashCommandHandler:
             self._render_info("No diff available in the current session.")
             return
 
-        self.console.print(
-            self._panel(
-                Syntax(
-                    self._truncate(diff),
-                    "diff",
-                    theme="ansi_dark",
-                    word_wrap=True,
-                ),
-                title="Diff",
-                border_style="magenta",
-            )
-        )
+        self.console.print(self._truncate(diff))
 
     def _toggle_verbose(self) -> None:
         verbose = not self.get_verbose()
         self.set_verbose(verbose)
         mode = "verbose" if verbose else "friendly"
-        self.console.print(f"[green]Mode:[/green] {mode}")
+        self.console.print(f"mode: {mode}")
 
     def _render_unknown(
             self,
             command: str,
     ) -> None:
-        self.console.print(
-            self._panel(
-                Text(
-                    f"Unknown command: {command}\n"
-                    "Type /help to see available commands."
-                ),
-                title="Command",
-                border_style="yellow",
-            )
-        )
+        self.console.print(f"Unknown command: {command}")
+        self.console.print("Type /help to see available commands.")
 
     def _render_info(
             self,
             message: str,
     ) -> None:
-        self.console.print(
-            self._panel(
-                Text(message),
-                title="Info",
-                border_style="blue",
-            )
-        )
+        self.console.print(message)
 
     def _has_plan(self) -> bool:
         state = self.get_state()
@@ -276,22 +193,17 @@ class SlashCommandHandler:
         markers = ("diff --git ", "--- ", "+++ ", "@@ ")
         return any(line.startswith(markers) for line in lines[:12])
 
-    def _json_syntax(
+    def _json(
             self,
             value: Any,
-    ) -> Syntax:
-        return Syntax(
-            self._truncate(
-                json.dumps(
-                    value,
-                    ensure_ascii=False,
-                    indent=2,
-                    default=str,
-                )
-            ),
-            "json",
-            theme="ansi_dark",
-            word_wrap=True,
+    ) -> str:
+        return self._truncate(
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
         )
 
     def _truncate(
@@ -308,17 +220,3 @@ class SlashCommandHandler:
 
         omitted = len(text) - max_chars
         return f"{text[:max_chars].rstrip()}\n... truncated {omitted} chars"
-
-    @staticmethod
-    def _panel(
-            body: RenderableType,
-            *,
-            title: str,
-            border_style: str,
-    ) -> Panel:
-        return Panel(
-            body,
-            title=title,
-            border_style=border_style,
-            box=box.ROUNDED,
-        )

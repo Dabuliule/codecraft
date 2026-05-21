@@ -4,10 +4,7 @@ from typing import Annotated
 import typer
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
-from rich import box
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 
 from agent_runtime.core.agent import Agent
 from agent_runtime.core.event_bus import EventBus
@@ -48,20 +45,9 @@ def build_runtime(
 
 
 def render_welcome(verbose: bool) -> None:
-    table = Table.grid(padding=(0, 2))
-    table.add_column(style="bold green")
-    table.add_column()
-    table.add_row("Agent Runtime", "interactive session")
-    table.add_row("Mode", "verbose" if verbose else "friendly")
-    table.add_row("Commands", "/help, /status, /history, /exit")
-
-    console.print(
-        Panel(
-            table,
-            border_style="green",
-            box=box.ROUNDED,
-        )
-    )
+    mode = "verbose" if verbose else "friendly"
+    console.print(f"Agent Runtime ({mode})")
+    console.print("Type /help for commands, /exit to quit.")
 
 async def run_chat(verbose: bool = False):
     load_dotenv()

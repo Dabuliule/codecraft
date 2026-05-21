@@ -3,11 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from rich import box
-from rich.console import Console, Group, RenderableType
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.syntax import Syntax
+from rich.console import Console
 from rich.text import Text
 
 from agent_runtime.schema.event import (
@@ -74,106 +70,49 @@ class RichRenderer:
             event: ThoughtEvent,
     ) -> None:
         if self.verbose:
-            body: RenderableType = self._truncate(event.thought)
-        else:
-            body = Text("Thinking", style="cyan")
-
-        self.console.print(
-            self._panel(
-                body,
-                title="Thought",
-                border_style="cyan",
-            )
-        )
+            self.console.print(f"thought: {self._truncate(event.thought)}")
 
     def _render_tool_call(
             self,
             event: ToolCallEvent,
     ) -> None:
-        title = f"Tool: {event.tool}"
-
         if self.verbose:
-            body: RenderableType = self._json_syntax(event.args)
+            self.console.print(f"tool: {event.tool}")
+            if event.args:
+                self.console.print(self._json(event.args))
         else:
             target = event.args.get("path") or event.args.get("command")
             summary = f"{event.tool}"
             if target:
-                summary = f"{summary}\n{target}"
-            body = Text(summary)
-
-        self.console.print(
-            self._panel(
-                body,
-                title=title,
-                border_style="yellow",
-            )
-        )
+                summary = f"{summary} {target}"
+            self.console.print(f"tool: {summary}")
 
     def _render_tool_execution(
             self,
             event: ToolExecutionEvent,
     ) -> None:
-        body: RenderableType
-
-        if event.tool_input:
-            body = Group(
-                Text(event.tool),
-                self._json_syntax(event.tool_input),
-            )
-        else:
-            body = Text(event.tool)
-
-        self.console.print(
-            self._panel(
-                body,
-                title="Tool Execution",
-                border_style="magenta",
-            )
-        )
+        if self.verbose and event.tool_input:
+            self.console.print(f"run: {event.tool}")
+            self.console.print(self._json(event.tool_input))
 
     def _render_observation(
             self,
             event: ObservationEvent,
     ) -> None:
-        border_style = "green" if event.success else "red"
-        title = "Observation" if event.success else "Observation Failed"
-
-        parts: list[RenderableType] = []
-
-        if event.content:
-            parts.append(self._render_output(event.content))
+        if event.content and (self.verbose or not event.success):
+            self.console.print(self._render_output(event.content))
 
         if event.error:
-            parts.append(Text(f"error: {event.error}", style="red"))
+            self.console.print(Text(f"error: {event.error}", style="red"))
 
         if event.suggestion:
-            parts.append(Text(f"suggestion: {event.suggestion}", style="yellow"))
-
-        body: RenderableType
-        if parts:
-            body = Group(*parts)
-        else:
-            body = Text("Done" if event.success else "Failed")
-
-        self.console.print(
-            self._panel(
-                body,
-                title=title,
-                border_style=border_style,
-            )
-        )
+            self.console.print(Text(f"suggestion: {event.suggestion}", style="yellow"))
 
     def _render_warning(
             self,
             event: WarningEvent,
     ) -> None:
-        self.console.print(
-            self._panel(
-                Text(event.message),
-                title="Warning",
-                border_style="red",
-            )
-        )
+        self.console.print(Text(f"warning: {event.message}", style="yellow"))
 
     def _render_final(
             self,
@@ -182,15 +121,10 @@ class RichRenderer:
         result = event.result
         answer = result.answer or ""
 
-        body: RenderableType = Markdown(answer) if answer else Text("No answer")
-
-        self.console.print(
-            self._panel(
-                body,
-                title="Final",
-                border_style="green" if result.success else "red",
-            )
-        )
+        if answer:
+            self.console.print(answer)
+        else:
+            self.console.print("No answer")
 
         footer = f"Completed in {result.total_steps} step"
         if result.total_steps != 1:
@@ -199,24 +133,16 @@ class RichRenderer:
         if result.warnings:
             footer = f"{footer}; warnings: {len(result.warnings)}"
 
-        self.console.print(Text(footer, style="dim"))
-        self.console.print()
+        if self.verbose:
+            self.console.print(Text(footer, style="dim"))
+            self.console.print()
 
     def _render_output(
             self,
             content: str,
-    ) -> RenderableType:
+    ) -> str:
         text = self._truncate(content)
-
-        if self._looks_like_diff(text):
-            return Syntax(
-                text,
-                "diff",
-                theme="ansi_dark",
-                word_wrap=True,
-            )
-
-        return Text(text)
+        return text
 
     def _truncate(
             self,
@@ -237,18 +163,6 @@ class RichRenderer:
         return f"{text[:limit].rstrip()}\n... truncated {omitted} chars"
 
     @staticmethod
-    def _looks_like_diff(
-            content: str,
-    ) -> bool:
-        lines = content.splitlines()
-
-        if not lines:
-            return False
-
-        markers = ("diff --git ", "--- ", "+++ ", "@@ ")
-        return any(line.startswith(markers) for line in lines[:12])
-
-    @staticmethod
     def _json(
             value: Any,
     ) -> str:
@@ -257,29 +171,4 @@ class RichRenderer:
             ensure_ascii=False,
             indent=2,
             default=str,
-        )
-
-    def _json_syntax(
-            self,
-            value: Any,
-    ) -> Syntax:
-        return Syntax(
-            self._truncate(self._json(value)),
-            "json",
-            theme="ansi_dark",
-            word_wrap=True,
-        )
-
-    @staticmethod
-    def _panel(
-            body: RenderableType,
-            *,
-            title: str,
-            border_style: str,
-    ) -> Panel:
-        return Panel(
-            body,
-            title=title,
-            border_style=border_style,
-            box=box.ROUNDED,
         )

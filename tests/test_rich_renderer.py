@@ -15,7 +15,7 @@ async def test_rich_renderer_truncates_long_observation_output():
     await renderer.handle(
         ObservationEvent(
             content="x" * 80,
-            success=True,
+            success=False,
         )
     )
 
@@ -27,7 +27,7 @@ async def test_rich_renderer_truncates_long_observation_output():
 @pytest.mark.anyio
 async def test_rich_renderer_displays_tool_input_as_json():
     console = Console(record=True, width=100)
-    renderer = RichRenderer(console=console)
+    renderer = RichRenderer(console=console, verbose=True)
 
     await renderer.handle(
         ToolExecutionEvent(
@@ -38,5 +38,5 @@ async def test_rich_renderer_displays_tool_input_as_json():
 
     output = console.export_text()
 
-    assert "Tool Execution" in output
+    assert "run: read_file" in output
     assert '"path": "README.md"' in output
