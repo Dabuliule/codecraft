@@ -22,7 +22,7 @@ editable install 和全局命令 `agent`，可在任意目录直接启动。
 5. **Executor**（`agent_runtime.core.executor`）只执行通过策略校验的 Tool，返回 Observation 事件。
 6. **ToolRegistry**（`agent_runtime.tool.registry`）统一管理 Tool 注册、按 tool 名称查找、标签分类与扩展注入。
 7. **Schema**（`agent_runtime.schema.*`）定义了事件与状态的结构，保证事件流可序列化且稳定。
-8. **Memory/LLM**（`agent_runtime.memory` / `agent_runtime.llm`）提供可插拔能力，方便替换或扩展。
+8. **LLM**（`agent_runtime.llm`）提供可插拔模型能力，方便替换或扩展。
 
 LLM 生成工具调用计划：
 
@@ -59,7 +59,6 @@ project_root/
         ├── cli/
         ├── core/
         ├── llm/
-        ├── memory/
         ├── tool/
         ├── policy/
         └── schema/
