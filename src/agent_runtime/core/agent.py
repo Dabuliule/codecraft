@@ -6,7 +6,6 @@ from typing import Any
 from pydantic import TypeAdapter
 
 from agent_runtime.llm.base import BaseLLM
-from agent_runtime.observability.decorators import traced
 from agent_runtime.schema.decision import Decision
 from agent_runtime.schema.state import AgentState
 from agent_runtime.tool.registry import ToolRegistry
@@ -37,7 +36,6 @@ class Agent:
 
         self.decision_adapter = TypeAdapter(Decision)
 
-    @traced(component="agent")
     async def astep(
             self,
             state: AgentState,

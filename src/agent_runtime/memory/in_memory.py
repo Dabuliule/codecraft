@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from agent_runtime.observability.trace import TraceLogger
 from agent_runtime.schema.memory import MemoryItem
 
 from .base import MemoryStore
@@ -16,11 +15,6 @@ class InMemoryStore(MemoryStore):
 
     def add(self, item: MemoryItem) -> MemoryItem:
         self._items.append(item)
-        TraceLogger.log(
-            "memory.add",
-            {"role": item.role, "content_len": len(item.content)},
-            level="DEBUG",
-        )
         return item
 
     def list(self) -> List[MemoryItem]:

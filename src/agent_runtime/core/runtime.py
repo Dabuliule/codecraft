@@ -3,7 +3,6 @@ from __future__ import annotations
 from agent_runtime.core.agent import Agent
 from agent_runtime.core.event_bus import EventBus
 from agent_runtime.core.executor import Executor
-from agent_runtime.observability.context import trace_scope
 from agent_runtime.schema.event import (
     FinalResultEvent,
     ObservationEvent,
@@ -68,129 +67,124 @@ class AgentRuntime:
         )
         self.current_state = state
 
-        with trace_scope(
-                trace_id=state.trace_id,
-                component="runtime",
-        ):
+        step_count = 0
 
-            step_count = 0
+        while not state.done:
 
-            while not state.done:
+            if step_count >= self.max_steps:
+                raise RuntimeError(
+                    "Agent 超过最大执行步数"
+                )
+
+            decision = await self.agent.astep(
+                state=state
+            )
+
+            state.current_decision = decision
+
+            yield await self._emit(
+                ThoughtEvent(
+                    thought=decision.thought,
+                )
+            )
+
+            if not decision.plan.tools:
+                raise RuntimeError("Agent 返回了空 ToolPlan")
+
+            for tool_call in decision.plan.tools:
+                yield await self._emit(
+                    ToolCallEvent(
+                        tool=tool_call.tool,
+                        args=tool_call.args,
+                    )
+                )
+
+                execution = await self.executor.execute(
+                    tool_call,
+                )
+
+                tool_input = (
+                    execution.resolved.args
+                    if execution.resolved
+                    else {}
+                )
+
+                yield await self._emit(
+                    ToolExecutionEvent(
+                        tool=tool_call.tool,
+                        tool_input=tool_input,
+                    )
+                )
+
+                tool_result = execution.result
+
+                yield await self._emit(
+                    ObservationEvent(
+                        content=str(tool_result.content),
+                        success=tool_result.success,
+                        error=tool_result.error,
+                        suggestion=tool_result.suggestion,
+                    )
+                )
+
+                step = Step(
+                    step_id=f"step-{step_count + 1}",
+                    thought=decision.thought,
+                    tool_call=tool_call,
+                    observation=tool_result,
+                    success=tool_result.success,
+                    summary=self._build_step_summary(
+                        tool_call=tool_call,
+                        tool_result=tool_result,
+                    ),
+                )
+
+                state.recent_steps.append(step)
+
+                self._maybe_compress_memory(
+                    state
+                )
+
+                self._detect_warnings(
+                    state,
+                    step,
+                )
+
+                if tool_call.tool == "final_answer":
+                    state.done = True
+
+                    state.final_answer = (
+                        tool_result.content
+                    )
+
+                    result = AgentResult(
+                        success=True,
+                        answer=state.final_answer,
+                        steps=state.recent_steps,
+                        memory=state.memory,
+                        warnings=state.warnings,
+                        total_steps=len(
+                            state.recent_steps
+                        ),
+                    )
+
+                    yield await self._emit(
+                        FinalResultEvent(
+                            result=result,
+                        )
+                    )
+
+                    return
+
+                step_count += 1
 
                 if step_count >= self.max_steps:
                     raise RuntimeError(
                         "Agent 超过最大执行步数"
                     )
 
-                decision = await self.agent.astep(
-                    state=state
-                )
-
-                state.current_decision = decision
-
-                yield await self._emit(
-                    ThoughtEvent(
-                        thought=decision.thought,
-                    )
-                )
-
-                if not decision.plan.tools:
-                    raise RuntimeError("Agent 返回了空 ToolPlan")
-
-                for tool_call in decision.plan.tools:
-                    yield await self._emit(
-                        ToolCallEvent(
-                            tool=tool_call.tool,
-                            args=tool_call.args,
-                        )
-                    )
-
-                    execution = await self.executor.execute(
-                        tool_call,
-                    )
-
-                    tool_input = (
-                        execution.resolved.args
-                        if execution.resolved
-                        else {}
-                    )
-
-                    yield await self._emit(
-                        ToolExecutionEvent(
-                            tool=tool_call.tool,
-                            tool_input=tool_input,
-                        )
-                    )
-
-                    tool_result = execution.result
-
-                    yield await self._emit(
-                        ObservationEvent(
-                            content=str(tool_result.content),
-                            success=tool_result.success,
-                            error=tool_result.error,
-                            suggestion=tool_result.suggestion,
-                        )
-                    )
-
-                    step = Step(
-                        step_id=f"step-{step_count + 1}",
-                        thought=decision.thought,
-                        tool_call=tool_call,
-                        observation=tool_result,
-                        success=tool_result.success,
-                        summary=self._build_step_summary(
-                            tool_call=tool_call,
-                            tool_result=tool_result,
-                        ),
-                    )
-
-                    state.recent_steps.append(step)
-
-                    self._maybe_compress_memory(
-                        state
-                    )
-
-                    self._detect_warnings(
-                        state,
-                        step,
-                    )
-
-                    if tool_call.tool == "final_answer":
-                        state.done = True
-
-                        state.final_answer = (
-                            tool_result.content
-                        )
-
-                        result = AgentResult(
-                            success=True,
-                            answer=state.final_answer,
-                            steps=state.recent_steps,
-                            memory=state.memory,
-                            warnings=state.warnings,
-                            total_steps=len(
-                                state.recent_steps
-                            ),
-                        )
-
-                        yield await self._emit(
-                            FinalResultEvent(
-                                result=result,
-                            )
-                        )
-
-                        return
-
-                    step_count += 1
-
-                    if step_count >= self.max_steps:
-                        raise RuntimeError(
-                            "Agent 超过最大执行步数"
-                        )
-
-                    if not tool_result.success:
-                        break
+                if not tool_result.success:
+                    break
 
     async def arun(
             self,
