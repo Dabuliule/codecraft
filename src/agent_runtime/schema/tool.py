@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
@@ -12,14 +11,6 @@ class ToolCall(BaseModel):
     tool: str = Field(description="工具名称，例如 read_file")
     args: Dict[str, Any] = Field(default_factory=dict, description="工具输入参数")
     purpose: Optional[str] = Field(default=None, description="为什么需要调用该工具")
-
-    def pretty(self) -> str:
-        return (
-            f"Tool: {self.tool}\n"
-            f"Args:\n"
-            f"{json.dumps(self.args, ensure_ascii=False, indent=2)}\n"
-            f"Purpose: {self.purpose or '-'}"
-        )
 
 
 class ToolPlan(BaseModel):
