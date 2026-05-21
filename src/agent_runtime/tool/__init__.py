@@ -3,14 +3,13 @@ from agent_runtime.tool.base import (
     ToolException,
     ToolResult,
 )
-from agent_runtime.tool.registry import ToolRegistry
-from agent_runtime.tool.resolver import ResolvedTool, ToolResolver
+from agent_runtime.tool.factory import create_tool_registry
+from agent_runtime.tool.provider import ToolProvider
 
 __all__ = [
     "BaseTool",
-    "ResolvedTool",
     "ToolException",
-    "ToolRegistry",
-    "ToolResolver",
+    "ToolProvider",
     "ToolResult",
+    "create_tool_registry",
 ]

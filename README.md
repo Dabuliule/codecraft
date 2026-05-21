@@ -6,7 +6,7 @@ editable install 和全局命令 `agent`，可在任意目录直接启动。
 ## 主要能力
 
 - 统一的运行时编排（Agent + Executor + Runtime）
-- Tool 注册、调度与 Policy 校验
+- Tool Provider 注册、调度与 Policy 校验
 - 内置 Tool 集（文件系统、受限 shell、响应输出）
 - 事件流式输出（Thought / Tool / Observation / FinalResult 等）
 - 标准化包结构，便于扩展与发布
@@ -20,7 +20,7 @@ editable install 和全局命令 `agent`，可在任意目录直接启动。
 3. **ToolResolver**（`agent_runtime.tool.resolver`）把 `ToolCall` 解析为确定性 `Tool`。
 4. **PolicyEngine**（`agent_runtime.policy.engine`）在执行前拦截高风险或可被专用 tool 替代的通用入口。
 5. **Executor**（`agent_runtime.core.executor`）只执行通过策略校验的 Tool，返回 Observation 事件。
-6. **ToolRegistry**（`agent_runtime.tool.registry`）统一管理 Tool 注册、按 tool 名称查找、标签分类与扩展注入。
+6. **ToolProvider/ToolRegistry**（`agent_runtime.tool.provider` / `agent_runtime.tool.registry`）由 Provider 提供 Tool，Registry 只负责注册、按 tool 名称查找和标签分类。
 7. **Schema**（`agent_runtime.schema.*`）定义了事件与状态的结构，保证事件流可序列化且稳定。
 8. **LLM**（`agent_runtime.llm`）提供可插拔模型能力，方便替换或扩展。
 

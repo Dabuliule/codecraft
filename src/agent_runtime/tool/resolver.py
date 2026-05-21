@@ -22,9 +22,12 @@ class ToolResolver:
         self.registry = registry
 
     def resolve(self, request: ToolCall) -> ResolvedTool:
-        tool = self.registry.get(request.tool)
-        if tool is None:
-            raise ValueError(f"未找到可处理的 Tool: {request.tool}")
+        try:
+            tool = self.registry.require(request.tool)
+        except KeyError as e:
+            raise ValueError(f"未找到可处理的 Tool: {request.tool}") from e
+        except ValueError as e:
+            raise ValueError(f"非法 Tool 名称: {request.tool}") from e
 
         return ResolvedTool(
             tool_call=request,

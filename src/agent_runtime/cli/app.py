@@ -13,7 +13,7 @@ from agent_runtime.core.runtime import AgentRuntime
 from agent_runtime.cli.rich_renderer import RichRenderer
 from agent_runtime.cli.slash import SlashCommandHandler
 from agent_runtime.llm.providers.qwen import QwenLLM
-from agent_runtime.tool.registry import ToolRegistry
+from agent_runtime.tool.factory import create_tool_registry
 
 app = typer.Typer()
 
@@ -26,7 +26,7 @@ def build_runtime(
 ) -> AgentRuntime:
     llm = QwenLLM()
 
-    tools = ToolRegistry()
+    tools = create_tool_registry()
 
     agent = Agent(
         llm=llm,
