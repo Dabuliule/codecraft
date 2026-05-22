@@ -15,33 +15,44 @@ class PolicyEngine:
         if tool.name == "shell_exec":
             return self._check_shell_exec(resolved)
 
-        return PolicyDecision(
-            allowed=True,
+        return PolicyDecision.allow(
             reason="tool policy allowed",
+            data=self._tool_context(resolved),
         )
 
     def _check_shell_exec(self, resolved: ResolvedTool) -> PolicyDecision:
         command = str(resolved.args.get("command", "")).strip()
         if not command:
-            return PolicyDecision(
-                allowed=False,
+            return PolicyDecision.deny(
                 reason="shell_exec command 不能为空",
+                data=self._tool_context(resolved),
             )
 
         specialized = self._specialized_tool_for_command(command)
         if specialized:
-            return PolicyDecision(
-                allowed=False,
+            return PolicyDecision.deny(
                 reason="shell_exec 不能替代已有专用工具",
-                requires_approval=True,
                 suggestion=f"请改用 {specialized}",
+                data={
+                    **self._tool_context(resolved),
+                    "specialized_tool": specialized,
+                },
             )
 
-        return PolicyDecision(
-            allowed=False,
+        return PolicyDecision.require_approval(
             reason="shell_exec 是高风险通用 Tool，默认需要外部审批",
-            requires_approval=True,
+            data=self._tool_context(resolved),
         )
+
+    @staticmethod
+    def _tool_context(resolved: ResolvedTool) -> dict[str, object]:
+        tool = resolved.tool
+        return {
+            "tool": tool.name,
+            "risk_level": str(getattr(tool.risk_level, "value", tool.risk_level)),
+            "tags": sorted(tool.tags),
+            "generic": tool.generic,
+        }
 
     @staticmethod
     def _specialized_tool_for_command(command: str) -> str | None:

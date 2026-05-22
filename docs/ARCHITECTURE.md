@@ -138,15 +138,22 @@ Registry 不做执行，也不做 policy。这样职责边界比较清楚。
 当前实现重点处理 `shell_exec`：
 
 - 空命令直接拒绝。
-- 如果命令可以被专用工具替代，例如 `cat`、`sed`、`ls`、`mkdir`、`rm`，拒绝并建议使用专用工具。
+- 如果命令可以被专用工具替代，例如 `cat`、`sed`、`ls`、`mkdir`、`rm`，直接拒绝并建议使用专用工具。
 - 其他 shell 命令默认拒绝，并标记需要外部审批。
+
+Policy 返回 `PolicyDecision`，其中 `action` 明确区分三种状态：
+
+- `allow`：允许执行。
+- `deny`：直接拒绝，不进入审批。
+- `require_approval`：当前 Runtime 不直接执行，需要外部审批机制介入。
+
+`PolicyDecision` 以 `action` 作为唯一决策字段，并通过 `data` 携带结构化上下文，例如 tool 名称、风险级别、tag 和专用工具建议。这些信息会被 Executor 放进失败的 `ToolResult.data["policy"]` 中，方便 CLI、trace 和测试消费。
 
 后续计划把 policy 从简单规则升级成更完整的治理层：
 
 - 工作目录沙箱
 - 路径越权检测
 - 写文件 / 删除文件审批
-- 风险等级策略
 - approval decision
 - policy audit log
 

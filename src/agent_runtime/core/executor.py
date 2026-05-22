@@ -46,7 +46,7 @@ class Executor:
                 resolved,
             )
 
-            if not policy_decision.allowed:
+            if policy_decision.action != "allow":
                 return ExecutionResult(
                     resolved=resolved,
                     result=ToolResult(
