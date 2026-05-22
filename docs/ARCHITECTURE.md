@@ -308,7 +308,7 @@ class SearchProvider(ToolProvider):
 主要限制：
 
 - `shell_exec` 只有拒绝策略，还没有外部审批恢复执行。
-- 没有 trace 持久化，执行轨迹只存在于本次运行内存中。
+- 已有 JSONL trace 持久化，但还不是可恢复状态存储。
 - 目前只有测试内 scripted LLM，还没有可复用的 mock LLM provider。
 - 只有单 Agent loop，还没有多 Agent 协作或并行工具执行。
 - memory compression 目前只是基于 step summary 的简单滚动压缩。

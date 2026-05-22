@@ -55,7 +55,7 @@ ToolResult
 Runtime Events + Step History + Memory
 ```
 
-更详细的设计说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+更详细的模块说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，关键设计取舍见 [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md)。
 
 ## 执行流程
 
