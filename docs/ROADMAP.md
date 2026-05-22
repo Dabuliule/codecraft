@@ -26,7 +26,7 @@
 - [x] 增加测试用 scripted LLM。
 - [x] 增加 Runtime 端到端测试：`read_file -> final_answer`。
 - [x] 增加 PolicyEngine 测试：专用工具替代、空命令、高风险 shell。
-- [ ] 增加 BaseTool 测试：参数校验、timeout、retry、ToolException。
+- [x] 增加 BaseTool 测试：参数校验、timeout、retry、ToolException。
 
 验收标准：
 
