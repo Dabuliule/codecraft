@@ -1,15 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
 
-from agent_runtime.llm.base import BaseLLM, LLMResponse
-
-
-class LLMConfigError(RuntimeError):
-    """Raised when an LLM provider is missing required local configuration."""
+from agent_runtime.llm.base import BaseLLM, LLMConfigError, LLMProviderError, LLMResponse
 
 
 class QwenLLM(BaseLLM):
@@ -19,12 +16,17 @@ class QwenLLM(BaseLLM):
             self,
             model: Optional[str] = None,
             api_key: Optional[str] = None,
+            max_retries: int = 2,
+            retry_delay_seconds: float = 0.5,
     ):
         self.model = self._require_config(
             value=model or os.environ.get("QWEN_MODEL"),
             name="QWEN_MODEL",
             description="Qwen model name",
         )
+        self.max_retries = max(0, max_retries)
+        self.retry_delay_seconds = max(0.0, retry_delay_seconds)
+
         resolved_api_key = self._require_config(
             value=api_key or os.getenv("DASHSCOPE_API_KEY"),
             name="DASHSCOPE_API_KEY",
@@ -49,8 +51,33 @@ class QwenLLM(BaseLLM):
         if "extra_body" not in request_payload:
             request_payload["extra_body"] = {"enable_thinking": False}
 
-        response = await self.client.chat.completions.create(**request_payload)
-        return self._build_llm_response(response)
+        response = await self._create_completion(request_payload)
+
+        try:
+            return self._build_llm_response(response)
+        except Exception as exc:
+            raise LLMProviderError("Qwen response parsing failed.") from exc
+
+    async def _create_completion(
+            self,
+            request_payload: Dict[str, Any],
+    ) -> Any:
+        last_error: Exception | None = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await self.client.chat.completions.create(**request_payload)
+            except Exception as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    break
+                if self.retry_delay_seconds:
+                    await asyncio.sleep(self.retry_delay_seconds)
+
+        raise LLMProviderError(
+            "Qwen completion request failed after "
+            f"{self.max_retries + 1} attempt(s)."
+        ) from last_error
 
     def _build_llm_response(self, response: Any) -> LLMResponse:
         choice = response.choices[0]

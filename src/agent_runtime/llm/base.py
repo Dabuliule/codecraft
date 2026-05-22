@@ -17,6 +17,14 @@ class LLMResponse:
     usage: Optional[Dict[str, int]] = None  # {"prompt_tokens": ..., "completion_tokens": ...}
 
 
+class LLMConfigError(RuntimeError):
+    """Raised when an LLM provider is missing required local configuration."""
+
+
+class LLMProviderError(RuntimeError):
+    """Raised when an LLM provider call fails after retries."""
+
+
 class BaseLLM(ABC):
     """
     所有 LLM 适配器的基类。
