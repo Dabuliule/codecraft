@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_runtime.tool.base import BaseTool, ToolException
+from codecraft.tool.base import BaseTool, ToolException
 
 
 class EchoArgs(BaseModel):

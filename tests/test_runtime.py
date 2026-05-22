@@ -5,13 +5,13 @@ from typing import Any
 
 import pytest
 
-from agent_runtime.core.agent import Agent
-from agent_runtime.core.event_bus import EventBus
-from agent_runtime.core.executor import Executor
-from agent_runtime.core.runtime import AgentRuntime
-from agent_runtime.llm.base import BaseLLM, LLMResponse
-from agent_runtime.schema.event import ObservationEvent
-from agent_runtime.tool.factory import create_tool_registry
+from codecraft.core.agent import Agent
+from codecraft.core.event_bus import EventBus
+from codecraft.core.executor import Executor
+from codecraft.core.runtime import AgentRuntime
+from codecraft.llm.base import BaseLLM, LLMResponse
+from codecraft.schema.event import ObservationEvent
+from codecraft.tool.factory import create_tool_registry
 
 
 class ScriptedLLM(BaseLLM):

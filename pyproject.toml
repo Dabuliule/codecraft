@@ -1,7 +1,7 @@
 [project]
-name = "agent-runtime"
+name = "codecraft"
 version = "0.1.0"
-description = "Add your description here"
+description = "Open-source coding agent with governed tool execution and traceable runtime events."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -16,7 +16,11 @@ dependencies = [
 ]
 
 [project.scripts]
-agent = "agent_runtime.cli.app:app"
+codecraft = "codecraft.cli.app:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

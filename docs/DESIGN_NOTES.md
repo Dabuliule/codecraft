@@ -1,6 +1,6 @@
 # Design Notes
 
-本文档记录 `agent-runtime` 当前已经落地的关键设计取舍。`ARCHITECTURE.md` 解释模块结构；本文更关注为什么这样做，以及这些选择带来的边界。
+本文档记录 `CodeCraft` 当前已经落地的关键设计取舍。`ARCHITECTURE.md` 解释模块结构；本文更关注为什么这样做，以及这些选择带来的边界。
 
 ## Runtime 拥有执行权
 
@@ -93,7 +93,7 @@ Qwen provider 当前做了两件事：
 
 ## Public API 保守导出
 
-根包 `agent_runtime` 导出程序化嵌入最常用的对象，例如 `AgentRuntime`、`Agent`、`Executor`、`EventBus`、`BaseLLM`、`QwenLLM`、`BaseTool` 和 `create_tool_registry`。
+根包 `codecraft` 导出程序化嵌入最常用的对象，例如 `AgentRuntime`、`Agent`、`Executor`、`EventBus`、`BaseLLM`、`QwenLLM`、`BaseTool` 和 `create_tool_registry`。
 
 这不表示所有内部模块都是稳定 API。当前约定是：
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def test_root_public_api_exports_runtime_building_blocks():
-    from agent_runtime import (
+    from codecraft import (
         Agent,
         AgentRuntime,
         BaseLLM,
@@ -36,7 +36,7 @@ def test_root_public_api_exports_runtime_building_blocks():
 
 
 def test_subpackage_public_api_exports_expected_names():
-    from agent_runtime import core, llm, schema, tool
+    from codecraft import core, llm, schema, tool
 
     assert "AgentRuntime" in core.__all__
     assert "QwenLLM" in llm.__all__

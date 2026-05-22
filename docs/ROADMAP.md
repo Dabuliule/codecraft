@@ -1,13 +1,13 @@
 # Roadmap
 
-本文档记录 `agent-runtime` 的近期演进计划。目标不是堆功能，而是把项目打磨成一个边界清楚、可运行、可测试、方便继续扩展的 Agent Runtime。
+本文档记录 `CodeCraft` 的近期演进计划。目标不是堆功能，而是把项目打磨成一个边界清楚、可运行、可测试、方便继续扩展的 Coding Agent。
 
 ## 总体目标
 
 近期迭代后，项目应该满足：
 
 - README 能让新读者快速理解项目价值。
-- 本地 demo 可以稳定跑通。
+- 本地真实仓库示例可以稳定跑通。
 - 核心 Runtime 有端到端测试。
 - Tool 执行有清晰安全边界。
 - Policy 层能体现治理能力，而不是只有简单 if 判断。
@@ -54,7 +54,7 @@
 - 高风险操作不会静默执行。
 - Policy 行为有单元测试覆盖。
 
-## Phase 3: Trace、可观测性与 Demo
+## Phase 3: Trace、可观测性与示例
 
 目标：让项目可以稳定展示，并让执行过程更像一个 runtime。
 
@@ -64,14 +64,14 @@
 - [x] 每次 run 生成 trace id 对应的 trace 文件。
 - [x] 增加 trace replay 或 trace summary 命令。
 - [x] CLI 增加 `/trace` 查看当前 trace 摘要。
-- [ ] 准备一个稳定 demo：让 agent 分析当前项目并输出结构总结。
-- [ ] README 增加 demo 命令和示例输出。
+- [ ] 准备一个稳定示例：让 CodeCraft 分析当前项目并输出结构总结。
+- [ ] README 增加真实操作示例和输出。
 
 验收标准：
 
 - 一次运行结束后可以在本地看到完整事件轨迹。
 - 不打开代码也能通过 trace 理解 Agent 做了什么。
-- demo 可以重复运行。
+- 真实仓库示例可以重复运行。
 
 ## Phase 4: 工程 polish 与项目说明
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typer.testing import CliRunner
 
-from agent_runtime.cli.app import app
+from codecraft.cli.app import app
 
 
 def test_trace_summary_command_accepts_trace_file_path(tmp_path):

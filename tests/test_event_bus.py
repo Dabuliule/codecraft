@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent_runtime.core.event_bus import EventBus
-from agent_runtime.schema.event import ThoughtEvent
+from codecraft.core.event_bus import EventBus
+from codecraft.schema.event import ThoughtEvent
 
 
 @pytest.mark.anyio

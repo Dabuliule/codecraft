@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 from typing import Iterable
 
-from agent_runtime.tool.base import BaseTool
-from agent_runtime.tool.factory import create_tool_registry
-from agent_runtime.tool.provider import ToolProvider
-from agent_runtime.tool.registry import ToolRegistry
+from codecraft.tool.base import BaseTool
+from codecraft.tool.factory import create_tool_registry
+from codecraft.tool.provider import ToolProvider
+from codecraft.tool.registry import ToolRegistry
 
 
 class EchoTool(BaseTool):

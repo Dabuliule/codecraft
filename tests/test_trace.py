@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from agent_runtime.core.trace import JsonlTraceWriter
-from agent_runtime.schema.event import FinalResultEvent, ThoughtEvent
-from agent_runtime.schema.result import AgentResult
+from codecraft.core.trace import JsonlTraceWriter
+from codecraft.schema.event import FinalResultEvent, ThoughtEvent
+from codecraft.schema.result import AgentResult
 
 
 @pytest.mark.anyio

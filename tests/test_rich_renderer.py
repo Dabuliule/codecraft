@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from rich.console import Console
 
-from agent_runtime.cli.rich_renderer import RichRenderer
-from agent_runtime.schema.event import ObservationEvent, ToolExecutionEvent
+from codecraft.cli.rich_renderer import RichRenderer
+from codecraft.schema.event import ObservationEvent, ToolExecutionEvent
 
 
 @pytest.mark.anyio

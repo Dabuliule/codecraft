@@ -3,15 +3,15 @@ from __future__ import annotations
 import pytest
 from rich.console import Console
 
-from agent_runtime.cli.slash import SlashCommandHandler
-from agent_runtime.core.trace import JsonlTraceWriter
-from agent_runtime.schema.decision import Decision
-from agent_runtime.schema.event import ThoughtEvent
-from agent_runtime.schema.state import AgentState
-from agent_runtime.schema.step import Step
-from agent_runtime.schema.strategy import Strategy
-from agent_runtime.schema.tool import ToolCall, ToolPlan
-from agent_runtime.tool.base import ToolResult
+from codecraft.cli.slash import SlashCommandHandler
+from codecraft.core.trace import JsonlTraceWriter
+from codecraft.schema.decision import Decision
+from codecraft.schema.event import ThoughtEvent
+from codecraft.schema.state import AgentState
+from codecraft.schema.step import Step
+from codecraft.schema.strategy import Strategy
+from codecraft.schema.tool import ToolCall, ToolPlan
+from codecraft.tool.base import ToolResult
 
 
 def make_handler(

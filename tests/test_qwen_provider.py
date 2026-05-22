@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_runtime.llm.base import LLMConfigError, LLMProviderError
-from agent_runtime.llm.providers.qwen import QwenLLM
+from codecraft.llm.base import LLMConfigError, LLMProviderError
+from codecraft.llm.providers.qwen import QwenLLM
 
 
 class FakeCompletions:
