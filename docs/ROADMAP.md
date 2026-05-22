@@ -23,9 +23,9 @@
 - [x] 重写 README，突出项目定位、架构、使用方式和 roadmap。
 - [x] 增加架构设计文档。
 - [x] 增加后续迭代 roadmap。
-- [ ] 增加 mock LLM provider。
-- [ ] 增加 Runtime 端到端测试：`read_file -> final_answer`。
-- [ ] 增加 PolicyEngine 测试：专用工具替代、空命令、高风险 shell。
+- [x] 增加测试用 scripted LLM。
+- [x] 增加 Runtime 端到端测试：`read_file -> final_answer`。
+- [x] 增加 PolicyEngine 测试：专用工具替代、空命令、高风险 shell。
 - [ ] 增加 BaseTool 测试：参数校验、timeout、retry、ToolException。
 
 验收标准：
