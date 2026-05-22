@@ -1,0 +1,289 @@
+# Architecture
+
+本文档解释 `agent-runtime` 的核心设计。目标是让读者不仅知道代码分了哪些模块，还能理解为什么要这样拆。
+
+## 设计目标
+
+Agent Runtime 的关键职责不是“让模型更聪明”，而是接管模型之外的工程问题：
+
+- **Orchestration**：谁决定下一步执行什么，谁负责循环结束。
+- **State management**：历史步骤、当前策略、压缩记忆和最终结果如何维护。
+- **Tool governance**：工具调用是否允许，参数是否合法，副作用是否可控。
+- **Observability**：每一步执行过程如何被 UI、日志和测试消费。
+- **Extensibility**：如何添加新的 LLM provider、新的工具和新的 policy。
+
+因此项目把 LLM、Runtime、Tool、Policy、Event 分成独立层次。
+
+## 核心模块
+
+### `agent_runtime.core.runtime.AgentRuntime`
+
+`AgentRuntime` 是唯一的 orchestration owner。
+
+它负责：
+
+- 初始化 `AgentState`
+- 驱动 step loop
+- 调用 `Agent.astep()` 获取下一轮 `Decision`
+- 将 `ToolCall` 交给 `Executor`
+- 记录 `Step`
+- 压缩旧 step 到 memory
+- 发出 runtime event
+- 在 `final_answer` 后生成 `AgentResult`
+
+Runtime 不直接理解每个工具的业务逻辑，也不直接调用 LLM API。它只依赖 `Agent` 和 `Executor` 两个抽象协作对象。
+
+### `agent_runtime.core.agent.Agent`
+
+`Agent` 是单 Agent 决策器。
+
+它负责：
+
+- 根据 `AgentState` 构造 prompt
+- 注入可用工具 schema
+- 注入 `Decision` 输出 schema
+- 调用 `BaseLLM.agenerate()`
+- 将 LLM 返回内容解析成 `Decision`
+
+当前实现要求 LLM 输出 JSON，并使用 Pydantic `TypeAdapter` 校验结构。
+
+重要边界：
+
+- Agent 只生成 plan，不执行工具。
+- Agent 不能绕过 Runtime 直接访问 Tool。
+- Agent 输出不可信，必须由 schema、resolver 和 policy 层继续校验。
+
+### `agent_runtime.core.executor.Executor`
+
+`Executor` 是 Tool 执行入口。
+
+执行顺序：
+
+1. `ToolResolver.resolve()` 根据 tool name 找到具体工具。
+2. 工具的 `build_args()` 将原始 `ToolCall.args` 转成实际参数。
+3. `PolicyEngine.check()` 判断是否允许执行。
+4. 通过后调用 `BaseTool.arun()`。
+5. 将结果统一包装成 `ExecutionResult`。
+
+Executor 的价值在于把执行前后的治理逻辑集中起来。Runtime 不需要知道 policy 细节，Tool 也不需要知道审批和调度逻辑。
+
+### `agent_runtime.tool.base.BaseTool`
+
+`BaseTool` 定义了受控执行单元的生命周期。
+
+一个 Tool 可以声明：
+
+- `name`
+- `description`
+- `input_schema`
+- `preconditions`
+- `side_effects`
+- `tags`
+- `risk_level`
+- `generic`
+- `idempotent`
+- `timeout`
+- `max_retries`
+
+`BaseTool.arun()` 统一处理：
+
+- 参数校验
+- 同步/异步执行适配
+- timeout
+- retry
+- `ToolException` 归一化
+- 任意返回值转 `ToolResult`
+
+这种设计让每个具体工具只需要实现 `execute()` 或 `aexecute()`，不需要重复写校验和错误包装。
+
+### `agent_runtime.tool.registry.ToolRegistry`
+
+`ToolRegistry` 负责工具索引。
+
+它只做几件事：
+
+- 从 `ToolProvider` 注册工具
+- 检查重复 tool name
+- 维护 `name -> tool`
+- 维护 `tag -> tool names`
+- 输出工具 schema
+
+Registry 不做执行，也不做 policy。这样职责边界比较清楚。
+
+### `agent_runtime.policy.engine.PolicyEngine`
+
+`PolicyEngine` 负责执行前策略判断。
+
+当前实现重点处理 `shell_exec`：
+
+- 空命令直接拒绝。
+- 如果命令可以被专用工具替代，例如 `cat`、`sed`、`ls`、`mkdir`、`rm`，拒绝并建议使用专用工具。
+- 其他 shell 命令默认拒绝，并标记需要外部审批。
+
+后续计划把 policy 从简单规则升级成更完整的治理层：
+
+- 工作目录沙箱
+- 路径越权检测
+- 写文件 / 删除文件审批
+- 风险等级策略
+- approval decision
+- policy audit log
+
+### `agent_runtime.core.event_bus.EventBus`
+
+`EventBus` 是 runtime event 的分发器。
+
+Runtime 每个关键阶段都会发出事件：
+
+- `ThoughtEvent`
+- `ToolCallEvent`
+- `ToolExecutionEvent`
+- `ObservationEvent`
+- `FinalResultEvent`
+
+CLI 的 `RichRenderer` 只是一个事件订阅者。后续可以增加其他订阅者，例如：
+
+- JSONL trace writer
+- WebSocket streamer
+- test probe
+- metrics collector
+
+## 数据模型
+
+### `AgentState`
+
+`AgentState` 是 runtime 的唯一状态源。
+
+包含：
+
+- `trace_id`
+- `task`
+- `strategy`
+- `current_decision`
+- `recent_steps`
+- `memory`
+- `warnings`
+- `final_answer`
+- `done`
+
+Runtime 每轮会把新的 `Step` 追加到 `recent_steps`，当历史过长时将较旧 step 压缩成 memory。
+
+### `Decision`
+
+`Decision` 是 Agent 对当前状态的决策结果。
+
+包含：
+
+- `thought`
+- `plan`
+- `expected_outcome`
+- `strategy_note`
+- `is_terminal`
+
+当前 Runtime 实际结束条件是执行到 `final_answer` 工具，而不是直接信任 `is_terminal`。
+
+### `ToolPlan` / `ToolCall`
+
+`ToolPlan` 是一组按顺序执行的 `ToolCall`。
+
+`ToolCall` 包含：
+
+- `tool`
+- `args`
+- `purpose`
+
+模型只能生成工具调用请求，不能直接获得执行权。
+
+### `Step`
+
+`Step` 是一次工具调用的完整记录。
+
+包含：
+
+- step id
+- thought
+- tool call
+- observation
+- success
+- summary
+- created_at
+
+Step 同时服务于：
+
+- 后续 prompt context
+- CLI history
+- final result
+- memory compression
+- trace 持久化的未来扩展
+
+## 扩展一个新工具
+
+添加工具通常需要三步。
+
+第一步，定义参数模型：
+
+```python
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SearchArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(..., description="搜索关键词")
+```
+
+第二步，实现 Tool：
+
+```python
+from typing import Any
+
+from agent_runtime.tool.base import BaseTool
+
+
+class SearchTool(BaseTool):
+    name = "search"
+    description = "执行一次搜索。"
+    input_schema = SearchArgs
+    tags = {"search"}
+    risk_level = "low"
+
+    def execute(self, **kwargs: Any) -> dict[str, Any]:
+        query = kwargs["query"]
+        return {
+            "content": f"search result for {query}",
+            "data": {"query": query},
+        }
+```
+
+第三步，通过 Provider 注册：
+
+```python
+from typing import Iterable
+
+from agent_runtime.tool.base import BaseTool
+from agent_runtime.tool.provider import ToolProvider
+
+
+class SearchProvider(ToolProvider):
+    name = "search"
+
+    def tools(self) -> Iterable[BaseTool]:
+        return (SearchTool(),)
+```
+
+然后传给 `create_tool_registry(providers=[SearchProvider()])`。
+
+## 当前限制
+
+当前版本是一个可运行原型，还不是生产级 runtime。
+
+主要限制：
+
+- 没有 workspace sandbox，文件工具目前可以访问进程权限范围内的路径。
+- `shell_exec` 只有拒绝策略，还没有外部审批恢复执行。
+- 没有 trace 持久化，执行轨迹只存在于本次运行内存中。
+- 没有 mock LLM provider，核心 Runtime 测试还需要补。
+- 只有单 Agent loop，还没有多 Agent 协作或并行工具执行。
+- memory compression 目前只是基于 step summary 的简单滚动压缩。
+
+这些限制会作为后续迭代重点，而不是隐藏起来。它们也是项目继续演进时需要明确讨论的设计空间。
