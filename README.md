@@ -147,6 +147,8 @@ DASHSCOPE_API_KEY=your_api_key
 QWEN_MODEL=your_model_name
 ```
 
+如果缺少上述配置，CLI 会在启动 provider 时给出明确错误提示。
+
 ## 使用
 
 启动 CLI：

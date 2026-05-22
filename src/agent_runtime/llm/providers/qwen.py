@@ -8,6 +8,10 @@ from openai import AsyncOpenAI
 from agent_runtime.llm.base import BaseLLM, LLMResponse
 
 
+class LLMConfigError(RuntimeError):
+    """Raised when an LLM provider is missing required local configuration."""
+
+
 class QwenLLM(BaseLLM):
     """通义千问适配器（基于阿里云百炼 OpenAI 兼容接口）"""
 
@@ -16,9 +20,18 @@ class QwenLLM(BaseLLM):
             model: Optional[str] = None,
             api_key: Optional[str] = None,
     ):
-        self.model = model or os.environ.get("QWEN_MODEL")
+        self.model = self._require_config(
+            value=model or os.environ.get("QWEN_MODEL"),
+            name="QWEN_MODEL",
+            description="Qwen model name",
+        )
+        resolved_api_key = self._require_config(
+            value=api_key or os.getenv("DASHSCOPE_API_KEY"),
+            name="DASHSCOPE_API_KEY",
+            description="DashScope API key",
+        )
         self.client = AsyncOpenAI(
-            api_key=api_key or os.getenv("DASHSCOPE_API_KEY"),
+            api_key=resolved_api_key,
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
 
@@ -57,3 +70,18 @@ class QwenLLM(BaseLLM):
             "prompt_tokens": getattr(usage, "prompt_tokens", 0),
             "completion_tokens": getattr(usage, "completion_tokens", 0),
         }
+
+    @staticmethod
+    def _require_config(
+            *,
+            value: str | None,
+            name: str,
+            description: str,
+    ) -> str:
+        resolved = (value or "").strip()
+        if resolved:
+            return resolved
+
+        raise LLMConfigError(
+            f"Missing {description}: set {name} in environment or .env."
+        )
