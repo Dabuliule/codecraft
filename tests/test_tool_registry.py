@@ -40,6 +40,22 @@ def test_create_tool_registry_registers_builtin_provider():
     assert "final_answer" in registry
 
 
+def test_builtin_filesystem_tools_are_tagged_by_operation():
+    registry = create_tool_registry()
+
+    assert registry.names(tag="read") == [
+        "file_exists",
+        "list_dir",
+        "read_file",
+    ]
+    assert registry.names(tag="write") == [
+        "delete_file",
+        "make_dir",
+        "write_file",
+    ]
+    assert registry.names(tag="delete") == ["delete_file"]
+
+
 def test_create_tool_registry_accepts_extra_providers():
     registry = create_tool_registry(
         providers=[EchoToolProvider()],

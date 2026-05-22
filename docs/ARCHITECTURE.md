@@ -107,6 +107,16 @@ Executor 的价值在于把执行前后的治理逻辑集中起来。Runtime 不
 
 `create_tool_registry(workspace_root=...)` 可以显式指定 workspace；如果不传，默认使用当前工作目录。
 
+CLI 场景下不会额外暴露 workspace 配置，用户在哪个目录启动 `agent`，文件系统工具就被限制在哪个目录内。显式 `workspace_root` 主要服务于测试和程序化嵌入场景。
+
+文件系统工具还会通过 tag 区分操作类型：
+
+- `read`：`read_file`、`file_exists`、`list_dir`
+- `write`：`write_file`、`make_dir`、`delete_file`
+- `delete`：`delete_file`
+
+这些 tag 后续会被 policy 和 approval 层用于区分只读、写入和删除操作。
+
 ### `agent_runtime.tool.registry.ToolRegistry`
 
 `ToolRegistry` 负责工具索引。

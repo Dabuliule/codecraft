@@ -79,20 +79,20 @@ Thought -> ToolCall -> ToolExecution -> Observation -> ... -> FinalResult
 
 ## 内置工具
 
-| Tool | 作用 | 风险级别 |
-| --- | --- | --- |
-| `read_file` | 读取本地文件 | low |
-| `write_file` | 写入或追加文件 | medium |
-| `delete_file` | 删除文件 | medium |
-| `file_exists` | 检查路径是否存在 | low |
-| `list_dir` | 列出目录内容 | low |
-| `make_dir` | 创建目录 | medium |
-| `final_answer` | 输出最终回答 | low |
-| `shell_exec` | 通用 shell 入口 | high |
+| Tool | 作用 | 操作类型 | 风险级别 |
+| --- | --- | --- | --- |
+| `read_file` | 读取本地文件 | read | low |
+| `write_file` | 写入或追加文件 | write | medium |
+| `delete_file` | 删除文件 | write / delete | medium |
+| `file_exists` | 检查路径是否存在 | read | low |
+| `list_dir` | 列出目录内容 | read | low |
+| `make_dir` | 创建目录 | write | medium |
+| `final_answer` | 输出最终回答 | response | low |
+| `shell_exec` | 通用 shell 入口 | generic | high |
 
 当前策略下，`shell_exec` 默认不会直接执行；如果已有专用工具能满足需求，例如 `cat`、`ls`、`mkdir`、`rm`，Policy 会建议改用对应专用工具。
 
-文件系统工具默认以当前工作目录作为 workspace。通过代码创建 registry 时，也可以显式传入 workspace：
+CLI 使用时，文件系统工具默认以启动 `agent` 命令时的当前目录作为 workspace，用户不需要额外配置。程序化嵌入 Runtime 时，也可以显式传入 workspace：
 
 ```python
 from agent_runtime.tool.factory import create_tool_registry

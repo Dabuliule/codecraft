@@ -69,7 +69,7 @@ class ReadFileTool(WorkspaceFileTool):
     input_schema = ReadFileArgs
     preconditions = ["path 必须存在且是文件"]
     side_effects: list[str] = []
-    tags = {"filesystem"}
+    tags = {"filesystem", "read"}
     risk_level = "low"
 
     def execute(self, **kwargs: Any) -> dict[str, Any]:
@@ -97,7 +97,7 @@ class WriteFileTool(WorkspaceFileTool):
     input_schema = WriteFileArgs
     preconditions = ["path 必须非空"]
     side_effects = ["写入或追加本地文件"]
-    tags = {"filesystem"}
+    tags = {"filesystem", "write"}
     risk_level = "medium"
 
     def execute(self, **kwargs: Any) -> dict[str, Any]:
@@ -126,7 +126,7 @@ class DeleteFileTool(WorkspaceFileTool):
     input_schema = PathArgs
     preconditions = ["path 必须存在且是文件"]
     side_effects = ["删除本地文件"]
-    tags = {"filesystem"}
+    tags = {"delete", "filesystem", "write"}
     risk_level = "medium"
 
     def execute(self, **kwargs: Any) -> dict[str, Any]:
@@ -150,7 +150,7 @@ class FileExistsTool(WorkspaceFileTool):
     input_schema = PathArgs
     preconditions = ["path 必须非空"]
     side_effects: list[str] = []
-    tags = {"filesystem"}
+    tags = {"filesystem", "read"}
     risk_level = "low"
 
     def execute(self, **kwargs: Any) -> dict[str, Any]:
@@ -168,7 +168,7 @@ class ListDirTool(WorkspaceFileTool):
     input_schema = ListDirArgs
     preconditions = ["path 必须存在且是目录"]
     side_effects: list[str] = []
-    tags = {"filesystem"}
+    tags = {"filesystem", "read"}
     risk_level = "low"
 
     def execute(self, **kwargs: Any) -> dict[str, Any]:
@@ -202,7 +202,7 @@ class MakeDirTool(WorkspaceFileTool):
     input_schema = PathArgs
     preconditions = ["path 必须非空"]
     side_effects = ["创建本地目录"]
-    tags = {"filesystem"}
+    tags = {"filesystem", "write"}
     risk_level = "medium"
 
     def execute(self, **kwargs: Any) -> dict[str, Any]:
