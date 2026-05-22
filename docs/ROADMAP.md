@@ -45,7 +45,7 @@
 - [x] 禁止通过 `..` 或绝对路径逃逸 workspace。
 - [x] 区分只读工具、写入工具、删除工具。
 - [x] 设计 `PolicyDecision` 的 allow / deny / require_approval 状态。
-- [ ] CLI 中展示需要审批的工具调用。
+- [x] CLI 中展示需要审批的工具调用。
 - [x] 为 policy 结果增加结构化 data，方便 trace 和测试断言。
 
 验收标准：

@@ -10,6 +10,7 @@ from agent_runtime.core.event_bus import EventBus
 from agent_runtime.core.executor import Executor
 from agent_runtime.core.runtime import AgentRuntime
 from agent_runtime.llm.base import BaseLLM, LLMResponse
+from agent_runtime.schema.event import ObservationEvent
 from agent_runtime.tool.factory import create_tool_registry
 
 
@@ -107,3 +108,61 @@ async def test_runtime_runs_read_file_then_final_answer(tmp_path):
         "observation",
         "final_result",
     ]
+
+
+@pytest.mark.anyio
+async def test_runtime_includes_policy_data_in_observation_events(tmp_path):
+    llm = ScriptedLLM(
+        responses=[
+            {
+                "thought": "Try a shell command.",
+                "plan": {
+                    "tools": [
+                        {
+                            "tool": "shell_exec",
+                            "args": {"command": "python -V"},
+                            "purpose": "Inspect Python version.",
+                        }
+                    ]
+                },
+            },
+            {
+                "thought": "Report that approval is required.",
+                "plan": {
+                    "tools": [
+                        {
+                            "tool": "final_answer",
+                            "args": {"answer": "Approval is required."},
+                            "purpose": "Finish.",
+                        }
+                    ]
+                },
+                "is_terminal": True,
+            },
+        ]
+    )
+
+    events = []
+
+    async def collect(event):
+        events.append(event)
+
+    event_bus = EventBus()
+    event_bus.subscribe(collect)
+
+    registry = create_tool_registry(workspace_root=tmp_path)
+    runtime = AgentRuntime(
+        agent=Agent(llm=llm, tool_registry=registry),
+        executor=Executor(tool_registry=registry),
+        event_bus=event_bus,
+    )
+
+    await runtime.arun("Check Python version.")
+
+    observations = [
+        event for event in events
+        if isinstance(event, ObservationEvent)
+    ]
+
+    assert observations[0].data["policy"]["action"] == "require_approval"
+    assert observations[0].data["policy"]["data"]["tool"] == "shell_exec"

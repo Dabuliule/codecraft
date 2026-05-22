@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -42,6 +42,8 @@ class ObservationEvent(RuntimeEvent):
     content: str
 
     success: bool
+
+    data: Any = None
 
     error: str | None = None
 

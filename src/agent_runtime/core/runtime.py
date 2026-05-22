@@ -122,6 +122,7 @@ class AgentRuntime:
                     ObservationEvent(
                         content=str(tool_result.content),
                         success=tool_result.success,
+                        data=tool_result.data,
                         error=tool_result.error,
                         suggestion=tool_result.suggestion,
                     )

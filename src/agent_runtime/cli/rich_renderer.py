@@ -99,11 +99,17 @@ class RichRenderer:
             self,
             event: ObservationEvent,
     ) -> None:
+        policy_action = self._policy_action(event)
+
+        if policy_action == "require_approval":
+            self.console.print(Text("approval required", style="yellow bold"))
+
         if event.content and (self.verbose or not event.success):
             self.console.print(self._render_output(event.content))
 
         if event.error:
-            self.console.print(Text(f"error: {event.error}", style="red"))
+            style = "yellow" if policy_action == "require_approval" else "red"
+            self.console.print(Text(f"error: {event.error}", style=style))
 
         if event.suggestion:
             self.console.print(Text(f"suggestion: {event.suggestion}", style="yellow"))
@@ -172,3 +178,20 @@ class RichRenderer:
             indent=2,
             default=str,
         )
+
+    @staticmethod
+    def _policy_action(
+            event: ObservationEvent,
+    ) -> str | None:
+        if not isinstance(event.data, dict):
+            return None
+
+        policy = event.data.get("policy")
+        if not isinstance(policy, dict):
+            return None
+
+        action = policy.get("action")
+        if not isinstance(action, str):
+            return None
+
+        return action
