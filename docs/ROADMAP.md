@@ -62,7 +62,7 @@
 
 - [x] 增加 JSONL trace writer，订阅 RuntimeEvent。
 - [x] 每次 run 生成 trace id 对应的 trace 文件。
-- [ ] 增加 trace replay 或 trace summary 命令。
+- [x] 增加 trace replay 或 trace summary 命令。
 - [x] CLI 增加 `/trace` 查看当前 trace 摘要。
 - [ ] 准备一个稳定 demo：让 agent 分析当前项目并输出结构总结。
 - [ ] README 增加 demo 命令和示例输出。

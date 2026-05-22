@@ -172,6 +172,13 @@ uv run agent
 | `/verbose` | 切换详细事件输出 |
 | `/exit` | 退出 |
 
+离线查看 trace 摘要：
+
+```zsh
+uv run agent trace-summary .agent-runtime/traces/<trace_id>.jsonl
+uv run agent trace-summary <trace_id>
+```
+
 ## 测试与质量检查
 
 ```zsh

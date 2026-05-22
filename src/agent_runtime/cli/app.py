@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -6,17 +7,20 @@ from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
 from rich.console import Console
 
+from agent_runtime.cli.rich_renderer import RichRenderer
+from agent_runtime.cli.slash import SlashCommandHandler
 from agent_runtime.core.agent import Agent
 from agent_runtime.core.event_bus import EventBus
 from agent_runtime.core.executor import Executor
 from agent_runtime.core.runtime import AgentRuntime
-from agent_runtime.core.trace import JsonlTraceWriter
-from agent_runtime.cli.rich_renderer import RichRenderer
-from agent_runtime.cli.slash import SlashCommandHandler
+from agent_runtime.core.trace import JsonlTraceWriter, TraceSummary
 from agent_runtime.llm.providers.qwen import QwenLLM
 from agent_runtime.tool.factory import create_tool_registry
 
-app = typer.Typer()
+app = typer.Typer(
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
 
 console = Console()
 session = PromptSession()
@@ -49,6 +53,26 @@ def render_welcome(verbose: bool) -> None:
     mode = "verbose" if verbose else "friendly"
     console.print(f"Agent Runtime ({mode})")
     console.print("Type /help for commands, /exit to quit.")
+
+
+def render_trace_summary(
+        summary: TraceSummary,
+) -> None:
+    console.print(f"trace_id: {summary.trace_id}")
+    console.print(f"file: {summary.path}")
+    console.print(f"events: {summary.event_count}")
+    console.print(f"last_event: {summary.last_event_type or '-'}")
+
+    if summary.event_counts:
+        counts = ", ".join(
+            f"{name}={count}"
+            for name, count in summary.event_counts.items()
+        )
+        console.print(f"event_counts: {counts}")
+
+    if summary.final_answer:
+        console.print(f"final_answer: {summary.final_answer}")
+
 
 async def run_chat(verbose: bool = False):
     load_dotenv()
@@ -105,6 +129,14 @@ async def run_chat(verbose: bool = False):
             console.print(f"[red]{e}[/red]")
 
 
+@app.callback()
+def main(
+        ctx: typer.Context,
+) -> None:
+    if ctx.invoked_subcommand is None:
+        asyncio.run(run_chat())
+
+
 @app.command()
 def chat(
         verbose: Annotated[
@@ -117,6 +149,32 @@ def chat(
         ] = False,
 ):
     asyncio.run(run_chat(verbose=verbose))
+
+
+@app.command("trace-summary")
+def trace_summary(
+        trace: Annotated[
+            str,
+            typer.Argument(
+                help="Trace id or path to a JSONL trace file.",
+            ),
+        ],
+        trace_dir: Annotated[
+            Path,
+            typer.Option(
+                "--trace-dir",
+                help="Directory containing trace JSONL files.",
+            ),
+        ] = Path(".agent-runtime/traces"),
+) -> None:
+    writer = JsonlTraceWriter(trace_dir=trace_dir)
+    summary = writer.summarize_ref(trace)
+
+    if not summary:
+        console.print(f"No trace found for {trace}")
+        raise typer.Exit(code=1)
+
+    render_trace_summary(summary)
 
 
 if __name__ == "__main__":

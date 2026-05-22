@@ -52,6 +52,28 @@ class JsonlTraceWriter:
         if not path.exists():
             return None
 
+        return self.summarize_path(
+            path=path,
+            trace_id=trace_id,
+        )
+
+    def summarize_ref(
+            self,
+            ref: str,
+    ) -> TraceSummary | None:
+        path = Path(ref)
+        if path.exists():
+            return self.summarize_path(path)
+
+        return self.summarize(ref)
+
+    @staticmethod
+    def summarize_path(
+            path: str | Path,
+            trace_id: str | None = None,
+    ) -> TraceSummary:
+        path = Path(path)
+
         events: list[dict[str, Any]] = []
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:
@@ -75,7 +97,7 @@ class JsonlTraceWriter:
             break
 
         return TraceSummary(
-            trace_id=trace_id,
+            trace_id=trace_id or path.stem,
             path=path,
             event_count=len(events),
             event_counts=dict(sorted(counts.items())),
