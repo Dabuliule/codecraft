@@ -96,6 +96,17 @@ Executor 的价值在于把执行前后的治理逻辑集中起来。Runtime 不
 
 这种设计让每个具体工具只需要实现 `execute()` 或 `aexecute()`，不需要重复写校验和错误包装。
 
+### Filesystem workspace
+
+内置文件系统工具继承自 `WorkspaceFileTool`，所有路径都会先解析到 `workspace_root` 内：
+
+- 相对路径会基于 `workspace_root` 解析。
+- workspace 内的绝对路径允许访问。
+- 通过 `..` 或绝对路径逃逸 workspace 会被拒绝。
+- `file_exists` 也会先经过同一套路径解析，避免用存在性检查探测 workspace 外路径。
+
+`create_tool_registry(workspace_root=...)` 可以显式指定 workspace；如果不传，默认使用当前工作目录。
+
 ### `agent_runtime.tool.registry.ToolRegistry`
 
 `ToolRegistry` 负责工具索引。
@@ -279,10 +290,9 @@ class SearchProvider(ToolProvider):
 
 主要限制：
 
-- 没有 workspace sandbox，文件工具目前可以访问进程权限范围内的路径。
 - `shell_exec` 只有拒绝策略，还没有外部审批恢复执行。
 - 没有 trace 持久化，执行轨迹只存在于本次运行内存中。
-- 没有 mock LLM provider，核心 Runtime 测试还需要补。
+- 目前只有测试内 scripted LLM，还没有可复用的 mock LLM provider。
 - 只有单 Agent loop，还没有多 Agent 协作或并行工具执行。
 - memory compression 目前只是基于 step summary 的简单滚动压缩。
 

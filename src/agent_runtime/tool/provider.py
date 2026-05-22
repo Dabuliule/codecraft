@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from os import PathLike
 from typing import Iterable
 
 from agent_runtime.tool.base import BaseTool
@@ -22,6 +23,12 @@ class BuiltinToolProvider(ToolProvider):
 
     name = "builtin"
 
+    def __init__(
+            self,
+            workspace_root: str | PathLike[str] | None = None,
+    ) -> None:
+        self.workspace_root = workspace_root
+
     def tools(self) -> Iterable[BaseTool]:
         from agent_runtime.tool.builtin import (
             DeleteFileTool,
@@ -35,12 +42,12 @@ class BuiltinToolProvider(ToolProvider):
         )
 
         return (
-            ReadFileTool(),
-            WriteFileTool(),
-            DeleteFileTool(),
-            FileExistsTool(),
-            ListDirTool(),
-            MakeDirTool(),
+            ReadFileTool(workspace_root=self.workspace_root),
+            WriteFileTool(workspace_root=self.workspace_root),
+            DeleteFileTool(workspace_root=self.workspace_root),
+            FileExistsTool(workspace_root=self.workspace_root),
+            ListDirTool(workspace_root=self.workspace_root),
+            MakeDirTool(workspace_root=self.workspace_root),
             FinalAnswerTool(),
             ShellExecTool(),
         )

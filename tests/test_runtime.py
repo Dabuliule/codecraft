@@ -47,7 +47,7 @@ async def test_runtime_runs_read_file_then_final_answer(tmp_path):
                     "tools": [
                         {
                             "tool": "read_file",
-                            "args": {"path": str(target)},
+                            "args": {"path": "note.txt"},
                             "purpose": "Inspect the file content.",
                         }
                     ]
@@ -77,7 +77,7 @@ async def test_runtime_runs_read_file_then_final_answer(tmp_path):
     event_bus = EventBus()
     event_bus.subscribe(collect)
 
-    registry = create_tool_registry()
+    registry = create_tool_registry(workspace_root=tmp_path)
     runtime = AgentRuntime(
         agent=Agent(llm=llm, tool_registry=registry),
         executor=Executor(tool_registry=registry),
