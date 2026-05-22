@@ -14,6 +14,70 @@ Agent Runtime 的关键职责不是“让模型更聪明”，而是接管模型
 
 因此项目把 LLM、Runtime、Tool、Policy、Event 分成独立层次。
 
+## 架构图
+
+```mermaid
+flowchart TD
+    UserTask[User Task] --> Runtime[AgentRuntime]
+    Runtime --> State[AgentState]
+    Runtime --> Agent[Agent]
+    Agent --> LLM[BaseLLM Provider]
+    Agent --> Decision[Decision JSON]
+    Decision --> Runtime
+    Runtime --> Executor[Executor]
+    Executor --> Resolver[ToolResolver]
+    Resolver --> Registry[ToolRegistry]
+    Registry --> Provider[ToolProvider]
+    Provider --> Tool[BaseTool]
+    Executor --> Policy[PolicyEngine]
+    Policy --> Executor
+    Executor --> Tool
+    Tool --> Result[ToolResult]
+    Result --> Runtime
+    Runtime --> Step[Step History + Memory]
+    Runtime --> Events[RuntimeEvent]
+    Events --> CLI[Rich CLI Renderer]
+    Events --> Trace[JSONL Trace Writer]
+```
+
+## 单步执行时序
+
+```mermaid
+sequenceDiagram
+    participant U as User / CLI
+    participant R as AgentRuntime
+    participant A as Agent
+    participant L as LLM Provider
+    participant E as Executor
+    participant P as PolicyEngine
+    participant T as Tool
+    participant B as EventBus
+
+    U->>R: task
+    R->>A: astep(state)
+    A->>L: agenerate(messages)
+    L-->>A: Decision JSON
+    A-->>R: Decision
+    R->>B: ThoughtEvent
+    R->>B: ToolCallEvent
+    R->>E: execute(ToolCall)
+    E->>P: check(resolved tool)
+    P-->>E: PolicyDecision
+    alt allow
+        E->>T: arun(args)
+        T-->>E: ToolResult
+    else deny or require_approval
+        E-->>R: ToolResult(policy error)
+    end
+    E-->>R: ExecutionResult
+    R->>B: ToolExecutionEvent
+    R->>B: ObservationEvent
+    R->>R: append Step
+    opt final_answer
+        R->>B: FinalResultEvent
+    end
+```
+
 ## 核心模块
 
 ### `agent_runtime.core.runtime.AgentRuntime`
