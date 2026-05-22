@@ -96,7 +96,7 @@ Thought -> ToolCall -> ToolExecution -> Observation -> ... -> FinalResult
 CLI 使用时，文件系统工具默认以启动 `agent` 命令时的当前目录作为 workspace，用户不需要额外配置。程序化嵌入 Runtime 时，也可以显式传入 workspace：
 
 ```python
-from agent_runtime.tool.factory import create_tool_registry
+from agent_runtime import create_tool_registry
 
 
 registry = create_tool_registry(workspace_root="/path/to/project")
