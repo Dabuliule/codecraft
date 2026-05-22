@@ -16,6 +16,7 @@
 - **Policy check before execution**：`Executor` 在执行工具前调用 `PolicyEngine`，目前已将 `shell_exec` 建模为高风险通用入口。
 - **Workspace-constrained filesystem**：内置文件系统工具会把路径解析到 workspace 内，拒绝 `..` 或绝对路径逃逸。
 - **Streaming runtime events**：运行时输出 `thought`、`tool_call`、`tool_execution`、`observation`、`final_result` 等事件。
+- **JSONL trace output**：CLI 运行时会把 RuntimeEvent 写入 `.agent-runtime/traces/{trace_id}.jsonl`，并支持 `/trace` 查看当前摘要。
 - **CLI interaction**：提供 `agent` 命令，支持 Rich 渲染、verbose 模式和 `/status`、`/history` 等 slash command。
 - **Pluggable LLM layer**：当前提供 Qwen/OpenAI-compatible provider，后续计划补充 mock provider 和更多模型适配。
 
@@ -167,6 +168,7 @@ uv run agent
 | `/help` | 查看 CLI 命令 |
 | `/status` | 查看当前 runtime state 摘要 |
 | `/history` | 查看最近 step 轨迹 |
+| `/trace` | 查看当前 trace 文件摘要 |
 | `/verbose` | 切换详细事件输出 |
 | `/exit` | 退出 |
 
@@ -183,13 +185,12 @@ uv run ruff check .
 - `ToolRegistry` provider 注册、重复工具名校验、内置工具注册
 - CLI slash command 行为
 - Rich renderer 输出截断与 JSON 展示
+- JSONL trace 写入与 `/trace` 摘要
 
 待补强测试：
 
-- 使用 mock LLM 的 Runtime 端到端闭环测试
-- `PolicyEngine` 对高风险工具和专用工具替代的测试
-- `BaseTool` 参数校验、timeout、retry、ToolException 归一化测试
-- 文件系统工具的临时目录集成测试
+- trace replay / summary 命令的端到端测试
+- 稳定 demo 的回归测试
 
 ## 设计重点
 

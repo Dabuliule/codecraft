@@ -49,6 +49,9 @@ class AgentRuntime:
             self,
             event: RuntimeEvent,
     ) -> RuntimeEvent:
+        if self.current_state and event.trace_id is None:
+            event.trace_id = self.current_state.trace_id
+
         await self.event_bus.emit(event)
         return event
 

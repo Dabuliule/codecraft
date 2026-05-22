@@ -10,6 +10,7 @@ from agent_runtime.core.agent import Agent
 from agent_runtime.core.event_bus import EventBus
 from agent_runtime.core.executor import Executor
 from agent_runtime.core.runtime import AgentRuntime
+from agent_runtime.core.trace import JsonlTraceWriter
 from agent_runtime.cli.rich_renderer import RichRenderer
 from agent_runtime.cli.slash import SlashCommandHandler
 from agent_runtime.llm.providers.qwen import QwenLLM
@@ -54,7 +55,9 @@ async def run_chat(verbose: bool = False):
 
     event_bus = EventBus()
     renderer = RichRenderer(console=console, verbose=verbose)
+    trace_writer = JsonlTraceWriter()
     event_bus.subscribe(renderer.handle)
+    event_bus.subscribe(trace_writer.handle)
     runtime = build_runtime(event_bus=event_bus)
 
     def set_verbose(value: bool) -> None:
@@ -68,6 +71,7 @@ async def run_chat(verbose: bool = False):
         get_verbose=lambda: verbose,
         set_verbose=set_verbose,
         render_welcome=lambda: render_welcome(verbose=verbose),
+        trace_writer=trace_writer,
     )
 
     render_welcome(verbose=verbose)

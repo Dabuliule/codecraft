@@ -4,7 +4,9 @@ import pytest
 from rich.console import Console
 
 from agent_runtime.cli.slash import SlashCommandHandler
+from agent_runtime.core.trace import JsonlTraceWriter
 from agent_runtime.schema.decision import Decision
+from agent_runtime.schema.event import ThoughtEvent
 from agent_runtime.schema.state import AgentState
 from agent_runtime.schema.step import Step
 from agent_runtime.schema.strategy import Strategy
@@ -15,6 +17,7 @@ from agent_runtime.tool.base import ToolResult
 def make_handler(
         console: Console,
         state: AgentState | None = None,
+        trace_writer: JsonlTraceWriter | None = None,
 ) -> SlashCommandHandler:
     verbose = False
 
@@ -28,6 +31,7 @@ def make_handler(
         get_verbose=lambda: verbose,
         set_verbose=set_verbose,
         render_welcome=lambda: None,
+        trace_writer=trace_writer,
     )
 
 
@@ -112,3 +116,26 @@ async def test_slash_history_does_not_print_huge_observation():
     assert "step-1" in output
     assert "read_file" in output
     assert "huge observation" not in output
+
+
+@pytest.mark.anyio
+async def test_slash_trace_shows_current_trace_summary(tmp_path):
+    console = Console(record=True, width=120)
+    state = make_state()
+    trace_writer = JsonlTraceWriter(trace_dir=tmp_path)
+    await trace_writer.handle(
+        ThoughtEvent(
+            trace_id=state.trace_id,
+            thought="inspect",
+        )
+    )
+
+    handler = make_handler(console, state, trace_writer)
+
+    await handler.handle("/trace")
+
+    output = console.export_text()
+
+    assert "trace_id: trace-1" in output
+    assert "events: 1" in output
+    assert "thought=1" in output

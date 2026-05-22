@@ -10,6 +10,7 @@ from agent_runtime.schema.result import AgentResult
 
 class RuntimeEvent(BaseModel):
     type: str
+    trace_id: str | None = None
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

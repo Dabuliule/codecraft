@@ -8,6 +8,7 @@ from typing import Any
 
 from rich.console import Console
 
+from agent_runtime.core.trace import JsonlTraceWriter
 from agent_runtime.tool.base import ToolResult
 from agent_runtime.schema.state import AgentState
 
@@ -26,6 +27,7 @@ class SlashCommandHandler:
             get_verbose: Callable[[], bool],
             set_verbose: Callable[[bool], None],
             render_welcome: Callable[[], None],
+            trace_writer: JsonlTraceWriter | None = None,
             max_output_chars: int = 1200,
     ) -> None:
         self.console = console
@@ -33,6 +35,7 @@ class SlashCommandHandler:
         self.get_verbose = get_verbose
         self.set_verbose = set_verbose
         self.render_welcome = render_welcome
+        self.trace_writer = trace_writer or JsonlTraceWriter()
         self.max_output_chars = max_output_chars
 
     async def handle(
@@ -57,6 +60,8 @@ class SlashCommandHandler:
                 self._render_plan()
             case "/diff":
                 self._render_diff()
+            case "/trace":
+                self._render_trace()
             case "/verbose":
                 self._toggle_verbose()
             case _:
@@ -71,6 +76,7 @@ class SlashCommandHandler:
             ("/exit", "quit"),
             ("/clear", "clear the screen"),
             ("/history", "show recent steps"),
+            ("/trace", "show current trace summary"),
             ("/verbose", "toggle detailed event rendering"),
         ]
 
@@ -92,6 +98,35 @@ class SlashCommandHandler:
         self.console.print(f"history_steps: {len(state.recent_steps) if state else 0}")
         self.console.print(f"has_plan: {self._has_plan()}")
         self.console.print(f"has_diff: {bool(self._latest_diff())}")
+
+    def _render_trace(self) -> None:
+        state = self.get_state()
+
+        if not state:
+            self._render_info("No trace yet.")
+            return
+
+        summary = self.trace_writer.summarize(state.trace_id)
+        if not summary:
+            self._render_info(f"No trace file for {state.trace_id}.")
+            return
+
+        self.console.print(f"trace_id: {summary.trace_id}")
+        self.console.print(f"file: {summary.path}")
+        self.console.print(f"events: {summary.event_count}")
+        self.console.print(f"last_event: {summary.last_event_type or '-'}")
+
+        if summary.event_counts:
+            counts = ", ".join(
+                f"{name}={count}"
+                for name, count in summary.event_counts.items()
+            )
+            self.console.print(f"event_counts: {counts}")
+
+        if summary.final_answer:
+            self.console.print(
+                f"final_answer: {self._truncate(summary.final_answer, limit=180)}"
+            )
 
     def _render_history(self) -> None:
         state = self.get_state()
