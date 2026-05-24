@@ -77,6 +77,8 @@ pip-wheel-metadata/
 # Logs / Runtime Artifacts
 # =========================================================
 logs/
+.codecraft/
+.agent-runtime/
 *.log
 *.out
 *.err

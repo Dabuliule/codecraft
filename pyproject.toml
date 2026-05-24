@@ -1,16 +1,32 @@
 [project]
-name = "agent-runtime"
+name = "codecraft"
 version = "0.1.0"
-description = "Add your description here"
+description = "Open-source coding agent with governed tool execution and traceable runtime events."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "jsonschema>=4.26.0",
     "openai>=2.36.0",
+    "prompt-toolkit>=3.0.52",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
+    "rich>=15.0.0",
+    "typer>=0.25.1",
 ]
+
+[project.scripts]
+codecraft = "codecraft.cli.app:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [dependency-groups]
 dev = [
