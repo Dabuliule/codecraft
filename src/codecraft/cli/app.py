@@ -9,14 +9,16 @@ from rich.console import Console
 
 from codecraft.cli.rich_renderer import RichRenderer
 from codecraft.cli.slash import SlashCommandHandler
-from codecraft.core.approval import ApprovalFlow, ApprovalHandler
+from codecraft.core.approval import ApprovalBroker, ApprovalHandler
+from codecraft.core.approval_gate import ApprovalGate
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
 from codecraft.core.tool_executor import ToolExecutor
 from codecraft.core.runtime import AgentRuntime
-from codecraft.core.tool_runner import ToolCallRunner
 from codecraft.core.trace import JsonlTraceWriter, TraceSummary
 from codecraft.llm.providers.qwen import QwenLLM
+from codecraft.policy.approval import DefaultApprovalPolicy
+from codecraft.schema.approval import ApprovalDecision
 from codecraft.schema.event import ApprovalRequestEvent
 from codecraft.tool.factory import create_tool_registry
 
@@ -46,18 +48,19 @@ def build_runtime(
         tool_registry=tools,
     )
 
-    approval_flow = ApprovalFlow(
+    approval_broker = ApprovalBroker(
         handler=approval_handler,
     )
 
-    tool_runner = ToolCallRunner(
-        executor=executor,
-        approval_flow=approval_flow,
+    approval_gate = ApprovalGate(
+        approval_policy=DefaultApprovalPolicy(),
+        approval_broker=approval_broker,
+        tool_executor=executor,
     )
 
     return AgentRuntime(
         agent=agent,
-        tool_runner=tool_runner,
+        approval_gate=approval_gate,
         event_bus=event_bus,
     )
 
@@ -96,16 +99,20 @@ async def run_chat(verbose: bool = False):
     event_bus.subscribe(renderer.handle)
     event_bus.subscribe(trace_writer.handle)
 
-    async def request_approval(event: ApprovalRequestEvent) -> bool:
+    async def request_approval(event: ApprovalRequestEvent) -> ApprovalDecision:
         answer = await session.prompt_async(
             f"approve {event.tool}? [y/N] "
         )
-        return answer.strip().lower() in {
+        approved = answer.strip().lower() in {
             "y",
             "yes",
             "approve",
             "approved",
         }
+        if approved:
+            return ApprovalDecision.approve("approved by user")
+
+        return ApprovalDecision.reject("rejected by user")
 
     runtime = build_runtime(
         event_bus=event_bus,

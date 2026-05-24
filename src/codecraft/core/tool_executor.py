@@ -89,6 +89,18 @@ class ToolExecutor:
             policy_decision=policy_decision,
         )
 
+    async def execute_allowed(
+            self,
+            request: ToolCall,
+    ) -> ExecutionResult:
+        try:
+            resolved = self.resolve(request)
+
+            return await self._run_resolved(resolved)
+
+        except Exception as e:
+            return self.exception_result(e)
+
     def resolve(
             self,
             request: ToolCall,
@@ -159,29 +171,6 @@ class ToolExecutor:
                 data={
                     "policy": policy_decision.model_dump(),
                     "tool": resolved.tool_call.tool,
-                },
-            ),
-        )
-
-    @staticmethod
-    def approval_rejected_result(
-            resolved: ResolvedTool,
-            policy_decision: PolicyDecision,
-    ) -> ExecutionResult:
-        policy_data = policy_decision.model_dump()
-        return ExecutionResult(
-            resolved=resolved,
-            result=ToolResult(
-                success=False,
-                content="",
-                error="用户拒绝执行需要审批的工具",
-                suggestion=policy_decision.suggestion,
-                data={
-                    "policy": policy_data,
-                    "tool": resolved.tool_call.tool,
-                    "approval": {
-                        "approved": False,
-                    },
                 },
             ),
         )

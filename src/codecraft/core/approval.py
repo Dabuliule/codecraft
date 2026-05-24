@@ -2,27 +2,18 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 
+from codecraft.schema.approval import ApprovalDecision, ApprovalRequest
 from codecraft.schema.event import ApprovalDecisionEvent, ApprovalRequestEvent
-from codecraft.schema.policy import PolicyDecision
-from codecraft.tool.resolver import ResolvedTool
 
-ApprovalHandler = Callable[[ApprovalRequestEvent], bool | Awaitable[bool]]
-
-
-@dataclass(frozen=True)
-class ApprovalOutcome:
-    request: ApprovalRequestEvent
-    decision: ApprovalDecisionEvent
-
-    @property
-    def approved(self) -> bool:
-        return self.decision.approved
+ApprovalHandler = Callable[
+    [ApprovalRequestEvent],
+    ApprovalDecision | Awaitable[ApprovalDecision],
+]
 
 
-class ApprovalFlow:
-    """Build and resolve approval events for policy-gated tool execution."""
+class ApprovalBroker:
+    """Resolve approval requests through a human-facing channel."""
 
     def __init__(
             self,
@@ -30,88 +21,50 @@ class ApprovalFlow:
     ) -> None:
         self.handler = handler
 
-    async def request(
-            self,
-            *,
-            approval_id: str,
-            resolved: ResolvedTool,
-            policy_decision: PolicyDecision,
-    ) -> ApprovalOutcome:
-        request_event = ApprovalRequestEvent(
-            **self.build_request_data(
-                approval_id=approval_id,
-                resolved=resolved,
-                policy_decision=policy_decision,
-            )
-        )
-
-        decision_event = await self.decide(request_event)
-
-        return ApprovalOutcome(
-            request=request_event,
-            decision=decision_event,
-        )
-
-    def build_request(
-            self,
-            *,
-            approval_id: str,
-            resolved: ResolvedTool,
-            policy_decision: PolicyDecision,
+    @staticmethod
+    def build_request_event(
+            request: ApprovalRequest,
     ) -> ApprovalRequestEvent:
         return ApprovalRequestEvent(
-            **self.build_request_data(
-                approval_id=approval_id,
-                resolved=resolved,
-                policy_decision=policy_decision,
-            )
+            approval_id=request.approval_id,
+            tool=request.tool_call.tool,
+            args=request.tool_call.args,
+            reason=request.reason,
+            suggestion=request.suggestion,
+            data=request.data,
         )
 
     @staticmethod
-    def build_request_data(
-            *,
-            approval_id: str,
-            resolved: ResolvedTool,
-            policy_decision: PolicyDecision,
-    ) -> dict:
-        return {
-            "approval_id": approval_id,
-            "tool": resolved.tool_call.tool,
-            "args": resolved.args,
-            "reason": policy_decision.reason,
-            "suggestion": policy_decision.suggestion,
-            "data": policy_decision.data,
-        }
+    def build_decision_event(
+            request: ApprovalRequest,
+            decision: ApprovalDecision,
+    ) -> ApprovalDecisionEvent:
+        edited_args = (
+            decision.edited_tool_call.args
+            if decision.edited_tool_call
+            else None
+        )
+
+        return ApprovalDecisionEvent(
+            approval_id=request.approval_id,
+            tool=request.tool_call.tool,
+            decision=decision.decision,
+            reason=decision.reason,
+            edited_args=edited_args,
+        )
 
     async def decide(
             self,
             request_event: ApprovalRequestEvent,
-    ) -> ApprovalDecisionEvent:
-        approved = await self._resolve(request_event)
-
-        return ApprovalDecisionEvent(
-            approval_id=request_event.approval_id,
-            tool=request_event.tool,
-            approved=approved,
-            reason=(
-                "approved by user"
-                if approved
-                else "rejected by user"
-            ),
-        )
-
-    async def _resolve(
-            self,
-            request_event: ApprovalRequestEvent,
-    ) -> bool:
+    ) -> ApprovalDecision:
         if self.handler is None:
-            return False
+            return ApprovalDecision.reject("rejected by default")
 
         decision = self.handler(request_event)
         if inspect.isawaitable(decision):
             decision = await decision
 
-        if not isinstance(decision, bool):
-            raise TypeError("Approval handler must return bool.")
+        if not isinstance(decision, ApprovalDecision):
+            raise TypeError("Approval handler must return ApprovalDecision.")
 
         return decision

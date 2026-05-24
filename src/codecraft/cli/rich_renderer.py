@@ -140,8 +140,12 @@ class RichRenderer:
             self,
             event: ApprovalDecisionEvent,
     ) -> None:
-        if event.approved:
+        if event.decision == "approve":
             self.console.print(Text("approved", style="green"))
+            return
+
+        if event.decision == "edit":
+            self.console.print(Text("edited", style="green"))
             return
 
         self.console.print(Text("rejected", style="yellow"))

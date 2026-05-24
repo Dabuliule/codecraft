@@ -7,20 +7,21 @@ from typing import Any
 import pytest
 
 from codecraft.core.agent import Agent
-from codecraft.core.approval import ApprovalFlow
+from codecraft.core.approval import ApprovalBroker
+from codecraft.core.approval_gate import ApprovalGate
 from codecraft.core.event_bus import EventBus
 from codecraft.core.tool_executor import ToolExecutor
 from codecraft.core.runtime import AgentRuntime
-from codecraft.core.tool_runner import ToolCallRunner
 from codecraft.llm.base import BaseLLM, LLMResponse
-from codecraft.policy.engine import PolicyEngine
+from codecraft.policy.approval import ApprovalPolicy, DefaultApprovalPolicy
 from codecraft.schema.event import (
     ApprovalDecisionEvent,
     ApprovalRequestEvent,
     ObservationEvent,
     ToolExecutionEvent,
 )
-from codecraft.schema.policy import PolicyDecision
+from codecraft.schema.approval import ApprovalDecision
+from codecraft.schema.tool import ToolCall
 from codecraft.tool.base import BaseTool
 from codecraft.tool.factory import create_tool_registry
 from codecraft.tool.provider import ToolProvider
@@ -55,7 +56,8 @@ class RecordingTool(BaseTool):
         self.markers = markers
 
     def execute(self, **kwargs: Any) -> dict[str, Any]:
-        self.markers.append("tool_executed")
+        label = str(kwargs.get("label", "tool_executed"))
+        self.markers.append(label)
         return {"content": "recorded"}
 
 
@@ -69,18 +71,24 @@ class RecordingProvider(ToolProvider):
         return (RecordingTool(self.markers),)
 
 
-class ApprovalPolicy(PolicyEngine):
-    def check(self, resolved) -> PolicyDecision:
-        if resolved.tool.name == "record_marker":
-            return PolicyDecision.require_approval(
+class RecordingApprovalPolicy(ApprovalPolicy):
+    def request_for(
+            self,
+            *,
+            approval_id: str,
+            tool_call: ToolCall,
+    ):
+        if tool_call.tool == "record_marker":
+            from codecraft.schema.approval import ApprovalRequest
+
+            return ApprovalRequest(
+                approval_id=approval_id,
+                tool_call=tool_call,
                 reason="record_marker needs approval",
-                data={"tool": resolved.tool.name},
+                data={"tool": tool_call.tool},
             )
 
-        return PolicyDecision.allow(
-            reason="allowed",
-            data={"tool": resolved.tool.name},
-        )
+        return None
 
 
 def make_runtime(
@@ -90,14 +98,17 @@ def make_runtime(
         event_bus: EventBus,
         executor: ToolExecutor | None = None,
         approval_handler=None,
+        approval_policy: ApprovalPolicy | None = None,
 ) -> AgentRuntime:
     executor = executor or ToolExecutor(tool_registry=registry)
+    approval_gate = ApprovalGate(
+        approval_policy=approval_policy or DefaultApprovalPolicy(),
+        approval_broker=ApprovalBroker(approval_handler),
+        tool_executor=executor,
+    )
     return AgentRuntime(
         agent=Agent(llm=llm, tool_registry=registry),
-        tool_runner=ToolCallRunner(
-            executor=executor,
-            approval_flow=ApprovalFlow(approval_handler),
-        ),
+        approval_gate=approval_gate,
         event_bus=event_bus,
     )
 
@@ -169,7 +180,7 @@ async def test_runtime_runs_read_file_then_final_answer(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_runtime_includes_policy_data_in_observation_events(tmp_path):
+async def test_runtime_emits_approval_events_for_shell_exec(tmp_path):
     llm = ScriptedLLM(
         responses=[
             {
@@ -212,9 +223,20 @@ async def test_runtime_includes_policy_data_in_observation_events(tmp_path):
         event for event in events
         if isinstance(event, ObservationEvent)
     ]
+    approval_requests = [
+        event for event in events
+        if isinstance(event, ApprovalRequestEvent)
+    ]
+    approval_decisions = [
+        event for event in events
+        if isinstance(event, ApprovalDecisionEvent)
+    ]
 
-    assert observations[0].data["policy"]["action"] == "require_approval"
-    assert observations[0].data["policy"]["data"]["tool"] == "shell_exec"
+    assert approval_requests[0].tool == "shell_exec"
+    assert approval_requests[0].args == {"command": "python -V"}
+    assert approval_decisions[0].decision == "reject"
+    assert observations[0].success is False
+    assert observations[0].data["approval"]["decision"] == "reject"
 
 
 @pytest.mark.anyio
@@ -308,7 +330,7 @@ async def test_runtime_executes_approved_tool_after_approval(tmp_path):
 
     async def approve(event):
         assert event.tool == "record_marker"
-        return True
+        return ApprovalDecision.approve("approved")
 
     event_bus = EventBus()
     event_bus.subscribe(collect)
@@ -320,12 +342,9 @@ async def test_runtime_executes_approved_tool_after_approval(tmp_path):
     runtime = make_runtime(
         llm=llm,
         registry=registry,
-        executor=ToolExecutor(
-            tool_registry=registry,
-            policy_engine=ApprovalPolicy(),
-        ),
         event_bus=event_bus,
         approval_handler=approve,
+        approval_policy=RecordingApprovalPolicy(),
     )
 
     await runtime.arun("Run approved tool.")
@@ -341,7 +360,7 @@ async def test_runtime_executes_approved_tool_after_approval(tmp_path):
     ]
     assert any(isinstance(event, ApprovalRequestEvent) for event in events)
     assert any(
-        isinstance(event, ApprovalDecisionEvent) and event.approved
+        isinstance(event, ApprovalDecisionEvent) and event.decision == "approve"
         for event in events
     )
 
@@ -385,12 +404,9 @@ async def test_runtime_returns_observation_when_approval_rejected(tmp_path):
     runtime = make_runtime(
         llm=llm,
         registry=registry,
-        executor=ToolExecutor(
-            tool_registry=registry,
-            policy_engine=ApprovalPolicy(),
-        ),
         event_bus=event_bus,
-        approval_handler=lambda event: False,
+        approval_handler=lambda event: ApprovalDecision.reject("rejected"),
+        approval_policy=RecordingApprovalPolicy(),
     )
 
     await runtime.arun("Reject tool.")
@@ -407,5 +423,70 @@ async def test_runtime_returns_observation_when_approval_rejected(tmp_path):
         if isinstance(event, ObservationEvent)
     ]
     assert observations[0].success is False
-    assert observations[0].error == "用户拒绝执行需要审批的工具"
-    assert observations[0].data["approval"]["approved"] is False
+    assert observations[0].error == "rejected"
+    assert observations[0].data["approval"]["decision"] == "reject"
+
+
+@pytest.mark.anyio
+async def test_runtime_executes_edited_tool_after_approval(tmp_path):
+    markers: list[str] = []
+    llm = ScriptedLLM(
+        responses=[
+            {
+                "rationale": "Run edited tool.",
+                "tool_call": {
+                    "tool": "record_marker",
+                    "args": {"label": "original"},
+                    "purpose": "Check edit approval.",
+                },
+            },
+            {
+                "rationale": "Finish after edit.",
+                "tool_call": {
+                    "tool": "final_answer",
+                    "args": {"answer": "done"},
+                    "purpose": "Finish.",
+                },
+            },
+        ]
+    )
+
+    events = []
+
+    async def collect(event):
+        events.append(event)
+
+    def edit(event):
+        return ApprovalDecision.edit(
+            ToolCall(
+                tool=event.tool,
+                args={"label": "edited"},
+                purpose="edited by user",
+            ),
+            reason="edited",
+        )
+
+    event_bus = EventBus()
+    event_bus.subscribe(collect)
+
+    registry = create_tool_registry(
+        providers=[RecordingProvider(markers)],
+        workspace_root=tmp_path,
+    )
+    runtime = make_runtime(
+        llm=llm,
+        registry=registry,
+        event_bus=event_bus,
+        approval_handler=edit,
+        approval_policy=RecordingApprovalPolicy(),
+    )
+
+    await runtime.arun("Run edited tool.")
+
+    assert markers == ["edited"]
+    decisions = [
+        event for event in events
+        if isinstance(event, ApprovalDecisionEvent)
+    ]
+    assert decisions[0].decision == "edit"
+    assert decisions[0].edited_args == {"label": "edited"}

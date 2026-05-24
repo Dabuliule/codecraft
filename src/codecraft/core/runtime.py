@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from codecraft.core.approval_gate import ApprovalGate, GuardedToolRequest
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
-from codecraft.core.tool_runner import ToolCallRunner, ToolRunRequest
 from codecraft.schema.event import (
     FinalResultEvent,
     ObservationEvent,
@@ -32,13 +32,13 @@ class AgentRuntime:
     def __init__(
             self,
             agent: Agent,
-            tool_runner: ToolCallRunner,
+            approval_gate: ApprovalGate,
             event_bus: EventBus | None = None,
             max_steps: int = 50,
     ) -> None:
 
         self.agent = agent
-        self.tool_runner = tool_runner
+        self.approval_gate = approval_gate
         self.event_bus = event_bus or EventBus()
 
         self.max_steps = max_steps
@@ -100,8 +100,8 @@ class AgentRuntime:
             )
 
             step_id = f"step-{step_count + 1}"
-            outcome = await self.tool_runner.run(
-                ToolRunRequest(
+            outcome = await self.approval_gate.run(
+                GuardedToolRequest(
                     step_id=step_id,
                     tool_call=tool_call,
                 ),

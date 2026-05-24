@@ -1,3 +1,8 @@
+from codecraft.schema.approval import (
+    ApprovalDecision,
+    ApprovalDecisionKind,
+    ApprovalRequest,
+)
 from codecraft.schema.decision import Decision
 from codecraft.schema.event import (
     ApprovalDecisionEvent,
@@ -21,8 +26,11 @@ from codecraft.schema.tool import ToolCall
 __all__ = [
     "AgentResult",
     "AgentState",
+    "ApprovalDecision",
     "ApprovalDecisionEvent",
+    "ApprovalDecisionKind",
     "ApprovalRequestEvent",
+    "ApprovalRequest",
     "Decision",
     "FinalResultEvent",
     "ObservationEvent",

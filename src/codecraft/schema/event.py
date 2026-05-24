@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from codecraft.schema.approval import ApprovalDecisionKind
 from codecraft.schema.result import AgentResult
 
 
@@ -53,8 +54,9 @@ class ApprovalDecisionEvent(RuntimeEvent):
 
     approval_id: str
     tool: str
-    approved: bool
+    decision: ApprovalDecisionKind
     reason: str | None = None
+    edited_args: dict | None = None
 
 
 class ObservationEvent(RuntimeEvent):

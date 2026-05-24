@@ -94,7 +94,7 @@ async def test_rich_renderer_displays_approval_request_and_decision():
         ApprovalDecisionEvent(
             approval_id="approval-1",
             tool="shell_exec",
-            approved=True,
+            decision="approve",
             reason="approved by user",
         )
     )
