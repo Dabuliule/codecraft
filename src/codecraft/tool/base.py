@@ -87,7 +87,7 @@ class BaseTool(ABC):
     - 返回值归一化
 
     Policy、权限审批、用户确认、Step 记录不应该放在这里，
-    而应该放在 Executor / PolicyEngine / Runtime 层。
+    而应该放在 ToolExecutor / PolicyEngine / Runtime 层。
     """
 
     name: str
@@ -282,7 +282,7 @@ class BaseTool(ABC):
         """
         Tool 的统一异步执行入口。
 
-        Runtime / Executor 应该调用这个方法，而不是直接调用 execute / aexecute。
+        Runtime / ToolExecutor 应该调用这个方法，而不是直接调用 execute / aexecute。
         """
         params = params or {}
 

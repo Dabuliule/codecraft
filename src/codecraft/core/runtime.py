@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
-from codecraft.core.executor import Executor
+from codecraft.core.tool_runner import ToolCallRunner, ToolRunRequest, ToolRunResult
 from codecraft.schema.event import (
     FinalResultEvent,
     ObservationEvent,
     RuntimeEvent,
     ThoughtEvent,
     ToolCallEvent,
-    ToolExecutionEvent,
 )
 from codecraft.schema.result import AgentResult
 from codecraft.schema.state import AgentState
@@ -33,13 +32,13 @@ class AgentRuntime:
     def __init__(
             self,
             agent: Agent,
-            executor: Executor,
+            tool_runner: ToolCallRunner,
             event_bus: EventBus | None = None,
             max_steps: int = 50,
     ) -> None:
 
         self.agent = agent
-        self.executor = executor
+        self.tool_runner = tool_runner
         self.event_bus = event_bus or EventBus()
 
         self.max_steps = max_steps
@@ -100,18 +99,25 @@ class AgentRuntime:
                 )
             )
 
-            yield await self._emit(
-                ToolExecutionEvent(
-                    tool=tool_call.tool,
-                    tool_input=tool_call.args,
-                )
-            )
+            step_id = f"step-{step_count + 1}"
+            tool_run_result = None
 
-            execution = await self.executor.execute(
-                tool_call,
-            )
+            async for item in self.tool_runner.run(
+                    ToolRunRequest(
+                        step_id=step_id,
+                        tool_call=tool_call,
+                    ),
+            ):
+                if isinstance(item, ToolRunResult):
+                    tool_run_result = item
+                    continue
 
-            tool_result = execution.result
+                yield await self._emit(item)
+
+            if tool_run_result is None:
+                raise RuntimeError("Tool runner 未返回执行结果")
+
+            tool_result = tool_run_result.execution.result
 
             yield await self._emit(
                 ObservationEvent(
@@ -124,7 +130,7 @@ class AgentRuntime:
             )
 
             step = Step(
-                step_id=f"step-{step_count + 1}",
+                step_id=step_id,
                 thought=decision.rationale,
                 tool_call=tool_call,
                 observation=tool_result,
