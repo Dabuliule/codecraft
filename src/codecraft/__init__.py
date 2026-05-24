@@ -3,9 +3,10 @@ from codecraft.core import (
     AgentRuntime,
     ApprovalFlow,
     EventBus,
-    ToolExecutor,
     JsonlTraceWriter,
     ToolCallRunner,
+    ToolExecutor,
+    ToolRunOutcome,
     TraceSummary,
 )
 from codecraft.llm import (
@@ -73,6 +74,7 @@ __all__ = [
     "ToolCallEvent",
     "ToolCallRunner",
     "ToolException",
+    "ToolRunOutcome",
     "ToolExecutionEvent",
     "ToolProvider",
     "ToolRegistry",

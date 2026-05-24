@@ -218,8 +218,9 @@ async def test_runtime_includes_policy_data_in_observation_events(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_runtime_emits_tool_execution_before_tool_runs(tmp_path):
+async def test_runtime_emits_tool_execution_before_observation(tmp_path):
     markers: list[str] = []
+    events = []
     llm = ScriptedLLM(
         responses=[
             {
@@ -242,6 +243,7 @@ async def test_runtime_emits_tool_execution_before_tool_runs(tmp_path):
     )
 
     async def collect(event):
+        events.append(event)
         if (
                 isinstance(event, ToolExecutionEvent)
                 and event.tool == "record_marker"
@@ -264,8 +266,14 @@ async def test_runtime_emits_tool_execution_before_tool_runs(tmp_path):
     await runtime.arun("Record timing.")
 
     assert markers == [
-        "tool_execution_event",
         "tool_executed",
+        "tool_execution_event",
+    ]
+    assert [event.type for event in events[:4]] == [
+        "thought",
+        "tool_call",
+        "tool_execution",
+        "observation",
     ]
 
 

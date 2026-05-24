@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
-from codecraft.core.tool_runner import ToolCallRunner, ToolRunRequest, ToolRunResult
+from codecraft.core.tool_runner import ToolCallRunner, ToolRunRequest
 from codecraft.schema.event import (
     FinalResultEvent,
     ObservationEvent,
@@ -100,24 +100,17 @@ class AgentRuntime:
             )
 
             step_id = f"step-{step_count + 1}"
-            tool_run_result = None
+            outcome = await self.tool_runner.run(
+                ToolRunRequest(
+                    step_id=step_id,
+                    tool_call=tool_call,
+                ),
+            )
 
-            async for item in self.tool_runner.run(
-                    ToolRunRequest(
-                        step_id=step_id,
-                        tool_call=tool_call,
-                    ),
-            ):
-                if isinstance(item, ToolRunResult):
-                    tool_run_result = item
-                    continue
+            for event in outcome.events:
+                yield await self._emit(event)
 
-                yield await self._emit(item)
-
-            if tool_run_result is None:
-                raise RuntimeError("Tool runner 未返回执行结果")
-
-            tool_result = tool_run_result.execution.result
+            tool_result = outcome.execution.result
 
             yield await self._emit(
                 ObservationEvent(

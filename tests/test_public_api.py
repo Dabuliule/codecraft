@@ -16,6 +16,7 @@ def test_root_public_api_exports_runtime_building_blocks():
         QwenLLM,
         ToolCall,
         ToolCallRunner,
+        ToolRunOutcome,
         ToolRegistry,
         create_tool_registry,
     )
@@ -33,6 +34,7 @@ def test_root_public_api_exports_runtime_building_blocks():
     assert QwenLLM.__name__ == "QwenLLM"
     assert ToolCall.__name__ == "ToolCall"
     assert ToolCallRunner.__name__ == "ToolCallRunner"
+    assert ToolRunOutcome.__name__ == "ToolRunOutcome"
     assert ToolRegistry.__name__ == "ToolRegistry"
     assert callable(create_tool_registry)
 

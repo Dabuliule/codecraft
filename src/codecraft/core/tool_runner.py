@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TypeAlias
 
 from codecraft.core.approval import ApprovalFlow
 from codecraft.core.tool_executor import ExecutionResult, PreparedExecution, ToolExecutor
@@ -17,11 +15,9 @@ class ToolRunRequest:
 
 
 @dataclass(frozen=True)
-class ToolRunResult:
+class ToolRunOutcome:
+    events: list[RuntimeEvent]
     execution: ExecutionResult
-
-
-ToolRunItem: TypeAlias = RuntimeEvent | ToolRunResult
 
 
 class ToolCallRunner:
@@ -36,19 +32,21 @@ class ToolCallRunner:
     async def run(
             self,
             request: ToolRunRequest,
-    ) -> AsyncIterator[ToolRunItem]:
+    ) -> ToolRunOutcome:
+        events: list[RuntimeEvent] = []
+
         try:
             prepared = self.executor.prepare(request.tool_call)
             policy_decision = prepared.policy_decision
 
             if policy_decision.action == "deny":
-                yield ToolRunResult(
+                return ToolRunOutcome(
+                    events=events,
                     execution=self.executor.policy_failure_result(
                         resolved=prepared.resolved,
                         policy_decision=policy_decision,
                     )
                 )
-                return
 
             if policy_decision.action == "require_approval":
                 request_event = self.approval_flow.build_request(
@@ -57,40 +55,47 @@ class ToolCallRunner:
                     policy_decision=policy_decision,
                 )
 
-                yield request_event
+                events.append(request_event)
 
                 decision_event = await self.approval_flow.decide(
                     request_event
                 )
 
-                yield decision_event
+                events.append(decision_event)
 
                 if not decision_event.approved:
-                    yield ToolRunResult(
+                    return ToolRunOutcome(
+                        events=events,
                         execution=self.executor.approval_rejected_result(
                             resolved=prepared.resolved,
                             policy_decision=policy_decision,
                         )
                     )
-                    return
 
-            async for item in self._run_prepared(prepared):
-                yield item
+            return await self._run_prepared(
+                prepared=prepared,
+                events=events,
+            )
 
         except Exception as e:
-            yield ToolRunResult(
+            return ToolRunOutcome(
+                events=events,
                 execution=self.executor.exception_result(e),
             )
 
     async def _run_prepared(
             self,
             prepared: PreparedExecution,
-    ) -> AsyncIterator[ToolRunItem]:
-        yield ToolExecutionEvent(
-            tool=prepared.resolved.tool_call.tool,
-            tool_input=prepared.resolved.args,
+            events: list[RuntimeEvent],
+    ) -> ToolRunOutcome:
+        events.append(
+            ToolExecutionEvent(
+                tool=prepared.resolved.tool_call.tool,
+                tool_input=prepared.resolved.args,
+            )
         )
 
-        yield ToolRunResult(
+        return ToolRunOutcome(
+            events=events,
             execution=await self.executor.execute_prepared(prepared),
         )
