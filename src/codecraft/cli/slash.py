@@ -56,8 +56,6 @@ class SlashCommandHandler:
                 self.render_welcome()
             case "/history":
                 self._render_history()
-            case "/plan":
-                self._render_plan()
             case "/diff":
                 self._render_diff()
             case "/trace":
@@ -80,9 +78,6 @@ class SlashCommandHandler:
             ("/verbose", "toggle detailed event rendering"),
         ]
 
-        if self._has_plan():
-            commands.append(("/plan", "show current tool plan"))
-
         if self._latest_diff():
             commands.append(("/diff", "show latest diff"))
 
@@ -96,7 +91,6 @@ class SlashCommandHandler:
         self.console.print(f"cwd: {os.getcwd()}")
         self.console.print(f"done: {state.done if state else '-'}")
         self.console.print(f"history_steps: {len(state.recent_steps) if state else 0}")
-        self.console.print(f"has_plan: {self._has_plan()}")
         self.console.print(f"has_diff: {bool(self._latest_diff())}")
 
     def _render_trace(self) -> None:
@@ -140,17 +134,6 @@ class SlashCommandHandler:
             summary = self._truncate(step.summary, limit=140)
             self.console.print(f"{step.step_id} {ok} {step.tool_call.tool}: {summary}")
 
-    def _render_plan(self) -> None:
-        state = self.get_state()
-
-        if not state or not state.current_decision:
-            self._render_info("No current plan available.")
-            return
-
-        plan = state.current_decision.plan.model_dump()
-
-        self.console.print(self._json(plan))
-
     def _render_diff(self) -> None:
         diff = self._latest_diff()
 
@@ -178,10 +161,6 @@ class SlashCommandHandler:
             message: str,
     ) -> None:
         self.console.print(message)
-
-    def _has_plan(self) -> bool:
-        state = self.get_state()
-        return bool(state and state.current_decision)
 
     def _latest_diff(self) -> str | None:
         state = self.get_state()

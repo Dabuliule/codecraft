@@ -9,12 +9,15 @@ from rich.console import Console
 
 from codecraft.cli.rich_renderer import RichRenderer
 from codecraft.cli.slash import SlashCommandHandler
+from codecraft.core.approval import ApprovalFlow, ApprovalHandler
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
-from codecraft.core.executor import Executor
+from codecraft.core.tool_executor import ToolExecutor
 from codecraft.core.runtime import AgentRuntime
+from codecraft.core.tool_runner import ToolCallRunner
 from codecraft.core.trace import JsonlTraceWriter, TraceSummary
 from codecraft.llm.providers.qwen import QwenLLM
+from codecraft.schema.event import ApprovalRequestEvent
 from codecraft.tool.factory import create_tool_registry
 
 app = typer.Typer(
@@ -28,6 +31,7 @@ session = PromptSession()
 
 def build_runtime(
         event_bus: EventBus | None = None,
+        approval_handler: ApprovalHandler | None = None,
 ) -> AgentRuntime:
     llm = QwenLLM()
 
@@ -38,13 +42,22 @@ def build_runtime(
         tool_registry=tools,
     )
 
-    executor = Executor(
+    executor = ToolExecutor(
         tool_registry=tools,
+    )
+
+    approval_flow = ApprovalFlow(
+        handler=approval_handler,
+    )
+
+    tool_runner = ToolCallRunner(
+        executor=executor,
+        approval_flow=approval_flow,
     )
 
     return AgentRuntime(
         agent=agent,
-        executor=executor,
+        tool_runner=tool_runner,
         event_bus=event_bus,
     )
 
@@ -82,7 +95,22 @@ async def run_chat(verbose: bool = False):
     trace_writer = JsonlTraceWriter()
     event_bus.subscribe(renderer.handle)
     event_bus.subscribe(trace_writer.handle)
-    runtime = build_runtime(event_bus=event_bus)
+
+    async def request_approval(event: ApprovalRequestEvent) -> bool:
+        answer = await session.prompt_async(
+            f"approve {event.tool}? [y/N] "
+        )
+        return answer.strip().lower() in {
+            "y",
+            "yes",
+            "approve",
+            "approved",
+        }
+
+    runtime = build_runtime(
+        event_bus=event_bus,
+        approval_handler=request_approval,
+    )
 
     def set_verbose(value: bool) -> None:
         nonlocal verbose

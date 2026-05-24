@@ -37,6 +37,26 @@ class ToolExecutionEvent(RuntimeEvent):
     tool_input: dict = Field(default_factory=dict)
 
 
+class ApprovalRequestEvent(RuntimeEvent):
+    type: Literal["approval_request"] = "approval_request"
+
+    approval_id: str
+    tool: str
+    args: dict
+    reason: str
+    suggestion: str | None = None
+    data: Any = None
+
+
+class ApprovalDecisionEvent(RuntimeEvent):
+    type: Literal["approval_decision"] = "approval_decision"
+
+    approval_id: str
+    tool: str
+    approved: bool
+    reason: str | None = None
+
+
 class ObservationEvent(RuntimeEvent):
     type: Literal["observation"] = "observation"
 

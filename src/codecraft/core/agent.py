@@ -18,12 +18,12 @@ class Agent:
     职责：
     - 理解当前 runtime state
     - 维护整体执行方向
-    - 生成 tool plan
+    - 生成单个 tool call
     - 根据 observation 持续调整策略
 
     注意：
-    - runtime 负责调度执行 plan
-    - 每轮执行后基于 observation 重新生成后续 plan
+    - runtime 负责执行 tool call
+    - 每轮执行后基于 observation 重新生成后续 tool call
     """
 
     def __init__(
@@ -90,13 +90,13 @@ class Agent:
 你的职责：
 
 1. 理解当前任务
-2. 基于当前状态生成 tool plan
+2. 基于当前状态生成一个 tool call
 3. 持续调整执行策略
-4. 输出 tool plan，由 runtime 校验并调度执行
-5. plan 执行后必须重新观察状态
+4. 输出 tool call，由 runtime 校验并执行
+5. tool call 执行后必须重新观察状态
 6. 当任务完成时调用 final_answer 工具
 
-plan 只能使用可用工具中的 tool 名称，并提供 args 和 purpose。
+tool_call 只能使用可用工具中的 tool 名称，并提供 args 和 purpose。
 如果存在专用工具，不要使用 shell_exec。
 
 你必须保持：

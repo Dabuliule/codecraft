@@ -1,5 +1,7 @@
 from codecraft.schema.decision import Decision
 from codecraft.schema.event import (
+    ApprovalDecisionEvent,
+    ApprovalRequestEvent,
     FinalResultEvent,
     ObservationEvent,
     RuntimeEvent,
@@ -14,11 +16,13 @@ from codecraft.schema.result import AgentResult
 from codecraft.schema.state import AgentState
 from codecraft.schema.step import Step
 from codecraft.schema.strategy import Strategy
-from codecraft.schema.tool import ToolCall, ToolPlan
+from codecraft.schema.tool import ToolCall
 
 __all__ = [
     "AgentResult",
     "AgentState",
+    "ApprovalDecisionEvent",
+    "ApprovalRequestEvent",
     "Decision",
     "FinalResultEvent",
     "ObservationEvent",
@@ -33,6 +37,5 @@ __all__ = [
     "ToolCall",
     "ToolCallEvent",
     "ToolExecutionEvent",
-    "ToolPlan",
     "WarningEvent",
 ]

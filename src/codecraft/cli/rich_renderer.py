@@ -7,6 +7,8 @@ from rich.console import Console
 from rich.text import Text
 
 from codecraft.schema.event import (
+    ApprovalDecisionEvent,
+    ApprovalRequestEvent,
     FinalResultEvent,
     ObservationEvent,
     RuntimeEvent,
@@ -54,6 +56,14 @@ class RichRenderer:
             self._render_tool_execution(event)
             return
 
+        if isinstance(event, ApprovalRequestEvent):
+            self._render_approval_request(event)
+            return
+
+        if isinstance(event, ApprovalDecisionEvent):
+            self._render_approval_decision(event)
+            return
+
         if isinstance(event, ObservationEvent):
             self._render_observation(event)
             return
@@ -80,12 +90,16 @@ class RichRenderer:
             self.console.print(f"tool: {event.tool}")
             if event.args:
                 self.console.print(self._json(event.args))
-        else:
-            target = event.args.get("path") or event.args.get("command")
-            summary = f"{event.tool}"
-            if target:
-                summary = f"{summary} {target}"
-            self.console.print(f"tool: {summary}")
+            return
+
+        if event.tool == "final_answer":
+            return
+
+        target = event.args.get("path") or event.args.get("command")
+        summary = f"{event.tool}"
+        if target:
+            summary = f"{summary} {target}"
+        self.console.print(f"tool: {summary}")
 
     def _render_tool_execution(
             self,
@@ -94,6 +108,43 @@ class RichRenderer:
         if self.verbose and event.tool_input:
             self.console.print(f"run: {event.tool}")
             self.console.print(self._json(event.tool_input))
+
+    def _render_approval_request(
+            self,
+            event: ApprovalRequestEvent,
+    ) -> None:
+        if not self.verbose:
+            summary = f"approval required: {event.tool}"
+            target = self._approval_target_value(event.args)
+            if target:
+                summary = f"{summary} {target}"
+            self.console.print(Text(summary, style="yellow bold"))
+            if event.suggestion:
+                self.console.print(
+                    Text(f"suggestion: {event.suggestion}", style="yellow")
+                )
+            return
+
+        self.console.print(Text("approval required", style="yellow bold"))
+        self.console.print(Text(f"tool: {event.tool}", style="yellow"))
+        target = self._approval_target(event.args)
+        if target:
+            self.console.print(Text(target, style="yellow"))
+        self.console.print(Text(f"reason: {event.reason}", style="yellow"))
+        if event.suggestion:
+            self.console.print(Text(f"suggestion: {event.suggestion}", style="yellow"))
+        if event.args:
+            self.console.print(self._json(event.args))
+
+    def _render_approval_decision(
+            self,
+            event: ApprovalDecisionEvent,
+    ) -> None:
+        if event.approved:
+            self.console.print(Text("approved", style="green"))
+            return
+
+        self.console.print(Text("rejected", style="yellow"))
 
     def _render_observation(
             self,
@@ -195,3 +246,28 @@ class RichRenderer:
             return None
 
         return action
+
+    @staticmethod
+    def _approval_target(
+            args: dict,
+    ) -> str | None:
+        target = RichRenderer._approval_target_value(args)
+        if target is None:
+            return None
+
+        for key in ("command", "path"):
+            if args.get(key):
+                return f"{key}: {target}"
+
+        return None
+
+    @staticmethod
+    def _approval_target_value(
+            args: dict,
+    ) -> str | None:
+        for key in ("command", "path"):
+            value = args.get(key)
+            if value:
+                return str(value)
+
+        return None

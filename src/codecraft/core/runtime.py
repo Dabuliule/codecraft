@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
-from codecraft.core.executor import Executor
+from codecraft.core.tool_runner import ToolCallRunner, ToolRunRequest, ToolRunResult
 from codecraft.schema.event import (
     FinalResultEvent,
     ObservationEvent,
     RuntimeEvent,
     ThoughtEvent,
     ToolCallEvent,
-    ToolExecutionEvent,
 )
 from codecraft.schema.result import AgentResult
 from codecraft.schema.state import AgentState
@@ -33,13 +32,13 @@ class AgentRuntime:
     def __init__(
             self,
             agent: Agent,
-            executor: Executor,
+            tool_runner: ToolCallRunner,
             event_bus: EventBus | None = None,
             max_steps: int = 50,
     ) -> None:
 
         self.agent = agent
-        self.executor = executor
+        self.tool_runner = tool_runner
         self.event_bus = event_bus or EventBus()
 
         self.max_steps = max_steps
@@ -87,108 +86,99 @@ class AgentRuntime:
 
             yield await self._emit(
                 ThoughtEvent(
-                    thought=decision.thought,
+                    thought=decision.rationale,
                 )
             )
 
-            if not decision.plan.tools:
-                raise RuntimeError("Agent 返回了空 ToolPlan")
+            tool_call = decision.tool_call
 
-            for tool_call in decision.plan.tools:
-                yield await self._emit(
-                    ToolCallEvent(
-                        tool=tool_call.tool,
-                        args=tool_call.args,
-                    )
+            yield await self._emit(
+                ToolCallEvent(
+                    tool=tool_call.tool,
+                    args=tool_call.args,
                 )
+            )
 
-                execution = await self.executor.execute(
-                    tool_call,
-                )
+            step_id = f"step-{step_count + 1}"
+            tool_run_result = None
 
-                tool_input = (
-                    execution.resolved.args
-                    if execution.resolved
-                    else {}
-                )
-
-                yield await self._emit(
-                    ToolExecutionEvent(
-                        tool=tool_call.tool,
-                        tool_input=tool_input,
-                    )
-                )
-
-                tool_result = execution.result
-
-                yield await self._emit(
-                    ObservationEvent(
-                        content=str(tool_result.content),
-                        success=tool_result.success,
-                        data=tool_result.data,
-                        error=tool_result.error,
-                        suggestion=tool_result.suggestion,
-                    )
-                )
-
-                step = Step(
-                    step_id=f"step-{step_count + 1}",
-                    thought=decision.thought,
-                    tool_call=tool_call,
-                    observation=tool_result,
-                    success=tool_result.success,
-                    summary=self._build_step_summary(
+            async for item in self.tool_runner.run(
+                    ToolRunRequest(
+                        step_id=step_id,
                         tool_call=tool_call,
-                        tool_result=tool_result,
+                    ),
+            ):
+                if isinstance(item, ToolRunResult):
+                    tool_run_result = item
+                    continue
+
+                yield await self._emit(item)
+
+            if tool_run_result is None:
+                raise RuntimeError("Tool runner 未返回执行结果")
+
+            tool_result = tool_run_result.execution.result
+
+            yield await self._emit(
+                ObservationEvent(
+                    content=str(tool_result.content),
+                    success=tool_result.success,
+                    data=tool_result.data,
+                    error=tool_result.error,
+                    suggestion=tool_result.suggestion,
+                )
+            )
+
+            step = Step(
+                step_id=step_id,
+                thought=decision.rationale,
+                tool_call=tool_call,
+                observation=tool_result,
+                success=tool_result.success,
+                summary=self._build_step_summary(
+                    tool_call=tool_call,
+                    tool_result=tool_result,
+                ),
+            )
+
+            state.recent_steps.append(step)
+
+            self._maybe_compress_memory(
+                state
+            )
+
+            self._detect_warnings(
+                state,
+                step,
+            )
+
+            if tool_call.tool == "final_answer":
+                state.done = True
+
+                state.final_answer = (
+                    tool_result.content
+                )
+
+                result = AgentResult(
+                    success=True,
+                    answer=state.final_answer,
+                    steps=state.recent_steps,
+                    memory=state.memory,
+                    warnings=state.warnings,
+                    total_steps=len(
+                        state.recent_steps
                     ),
                 )
 
-                state.recent_steps.append(step)
-
-                self._maybe_compress_memory(
-                    state
+                yield await self._emit(
+                    FinalResultEvent(
+                        result=result,
+                    )
                 )
 
-                self._detect_warnings(
-                    state,
-                    step,
-                )
+                return
 
-                if tool_call.tool == "final_answer":
-                    state.done = True
-
-                    state.final_answer = (
-                        tool_result.content
-                    )
-
-                    result = AgentResult(
-                        success=True,
-                        answer=state.final_answer,
-                        steps=state.recent_steps,
-                        memory=state.memory,
-                        warnings=state.warnings,
-                        total_steps=len(
-                            state.recent_steps
-                        ),
-                    )
-
-                    yield await self._emit(
-                        FinalResultEvent(
-                            result=result,
-                        )
-                    )
-
-                    return
-
-                step_count += 1
-
-                if step_count >= self.max_steps:
-                    raise RuntimeError(
-                        "Agent 超过最大执行步数"
-                    )
-
-                if not tool_result.success:
-                    break
+            step_count += 1
 
     async def arun(
             self,

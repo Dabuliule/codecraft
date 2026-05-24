@@ -8,13 +8,14 @@ def test_root_public_api_exports_runtime_building_blocks():
         BaseLLM,
         BaseTool,
         EventBus,
-        Executor,
+        ToolExecutor,
         JsonlTraceWriter,
         LLMConfigError,
         LLMProviderError,
         PolicyEngine,
         QwenLLM,
         ToolCall,
+        ToolCallRunner,
         ToolRegistry,
         create_tool_registry,
     )
@@ -24,13 +25,14 @@ def test_root_public_api_exports_runtime_building_blocks():
     assert BaseLLM.__name__ == "BaseLLM"
     assert BaseTool.__name__ == "BaseTool"
     assert EventBus.__name__ == "EventBus"
-    assert Executor.__name__ == "Executor"
+    assert ToolExecutor.__name__ == "ToolExecutor"
     assert JsonlTraceWriter.__name__ == "JsonlTraceWriter"
     assert LLMConfigError.__name__ == "LLMConfigError"
     assert LLMProviderError.__name__ == "LLMProviderError"
     assert PolicyEngine.__name__ == "PolicyEngine"
     assert QwenLLM.__name__ == "QwenLLM"
     assert ToolCall.__name__ == "ToolCall"
+    assert ToolCallRunner.__name__ == "ToolCallRunner"
     assert ToolRegistry.__name__ == "ToolRegistry"
     assert callable(create_tool_registry)
 

@@ -1,9 +1,11 @@
 from codecraft.core import (
     Agent,
     AgentRuntime,
+    ApprovalFlow,
     EventBus,
-    Executor,
+    ToolExecutor,
     JsonlTraceWriter,
+    ToolCallRunner,
     TraceSummary,
 )
 from codecraft.llm import (
@@ -17,6 +19,8 @@ from codecraft.policy import PolicyEngine
 from codecraft.schema import (
     AgentResult,
     AgentState,
+    ApprovalDecisionEvent,
+    ApprovalRequestEvent,
     Decision,
     FinalResultEvent,
     ObservationEvent,
@@ -28,7 +32,6 @@ from codecraft.schema import (
     ToolCall,
     ToolCallEvent,
     ToolExecutionEvent,
-    ToolPlan,
     WarningEvent,
 )
 from codecraft.tool import (
@@ -45,11 +48,14 @@ __all__ = [
     "AgentResult",
     "AgentRuntime",
     "AgentState",
+    "ApprovalDecisionEvent",
+    "ApprovalFlow",
+    "ApprovalRequestEvent",
     "BaseLLM",
     "BaseTool",
     "Decision",
     "EventBus",
-    "Executor",
+    "ToolExecutor",
     "FinalResultEvent",
     "JsonlTraceWriter",
     "LLMConfigError",
@@ -65,9 +71,9 @@ __all__ = [
     "ThoughtEvent",
     "ToolCall",
     "ToolCallEvent",
+    "ToolCallRunner",
     "ToolException",
     "ToolExecutionEvent",
-    "ToolPlan",
     "ToolProvider",
     "ToolRegistry",
     "ToolResult",
