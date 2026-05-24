@@ -241,6 +241,15 @@ Registry 不做执行，也不做 policy。这样职责边界比较清楚。
 - 如果命令可以被专用工具替代，例如 `cat`、`sed`、`ls`、`mkdir`、`rm`，直接拒绝并建议使用专用工具。
 - 其他 shell 命令标记为需要外部审批。
 
+审批通过后，`ShellExecTool` 仍会限制执行边界：
+
+- 使用 `shell=False` 执行 `shlex.split()` 后的 argv。
+- `cwd` 必须位于 workspace 内。
+- 过滤环境变量，只保留最小运行环境。
+- 非零 returncode 返回失败 `ToolResult`。
+- stdout / stderr 会稳定截断。
+- 高风险基础命令会在工具层直接拒绝。
+
 Policy 返回 `PolicyDecision`，其中 `action` 明确区分三种状态：
 
 - `allow`：允许执行。
@@ -406,7 +415,7 @@ class SearchProvider(ToolProvider):
 
 主要限制：
 
-- `shell_exec` 已支持 CLI 审批恢复执行，但还没有进程级隔离。
+- `shell_exec` 已支持 CLI 审批和 workspace/cwd 边界，但还没有进程级隔离。
 - 已有 JSONL trace 持久化，但还不是可恢复状态存储。
 - 目前只有测试内 scripted LLM，还没有可复用的 mock LLM provider。
 - 只有单 Agent loop，还没有多 Agent 协作或并行工具执行。

@@ -49,5 +49,5 @@ class BuiltinToolProvider(ToolProvider):
             ListDirTool(workspace_root=self.workspace_root),
             MakeDirTool(workspace_root=self.workspace_root),
             FinalAnswerTool(),
-            ShellExecTool(),
+            ShellExecTool(workspace_root=self.workspace_root),
         )
