@@ -79,6 +79,7 @@ pip-wheel-metadata/
 logs/
 .codecraft/
 .agent-runtime/
+docs/optimization-checklist.md
 *.log
 *.out
 *.err
