@@ -100,21 +100,15 @@ class AgentRuntime:
                 )
             )
 
-            execution = await self.executor.execute(
-                tool_call,
-            )
-
-            tool_input = (
-                execution.resolved.args
-                if execution.resolved
-                else {}
-            )
-
             yield await self._emit(
                 ToolExecutionEvent(
                     tool=tool_call.tool,
-                    tool_input=tool_input,
+                    tool_input=tool_call.args,
                 )
+            )
+
+            execution = await self.executor.execute(
+                tool_call,
             )
 
             tool_result = execution.result
