@@ -43,29 +43,20 @@ async def test_runtime_runs_read_file_then_final_answer(tmp_path):
     llm = ScriptedLLM(
         responses=[
             {
-                "thought": "Read the file before answering.",
-                "plan": {
-                    "tools": [
-                        {
-                            "tool": "read_file",
-                            "args": {"path": "note.txt"},
-                            "purpose": "Inspect the file content.",
-                        }
-                    ]
+                "rationale": "Read the file before answering.",
+                "tool_call": {
+                    "tool": "read_file",
+                    "args": {"path": "note.txt"},
+                    "purpose": "Inspect the file content.",
                 },
             },
             {
-                "thought": "The file content is known; produce the answer.",
-                "plan": {
-                    "tools": [
-                        {
-                            "tool": "final_answer",
-                            "args": {"answer": "The file says: hello runtime"},
-                            "purpose": "Finish the task.",
-                        }
-                    ]
+                "rationale": "The file content is known; produce the answer.",
+                "tool_call": {
+                    "tool": "final_answer",
+                    "args": {"answer": "The file says: hello runtime"},
+                    "purpose": "Finish the task.",
                 },
-                "is_terminal": True,
             },
         ]
     )
@@ -115,29 +106,20 @@ async def test_runtime_includes_policy_data_in_observation_events(tmp_path):
     llm = ScriptedLLM(
         responses=[
             {
-                "thought": "Try a shell command.",
-                "plan": {
-                    "tools": [
-                        {
-                            "tool": "shell_exec",
-                            "args": {"command": "python -V"},
-                            "purpose": "Inspect Python version.",
-                        }
-                    ]
+                "rationale": "Try a shell command.",
+                "tool_call": {
+                    "tool": "shell_exec",
+                    "args": {"command": "python -V"},
+                    "purpose": "Inspect Python version.",
                 },
             },
             {
-                "thought": "Report that approval is required.",
-                "plan": {
-                    "tools": [
-                        {
-                            "tool": "final_answer",
-                            "args": {"answer": "Approval is required."},
-                            "purpose": "Finish.",
-                        }
-                    ]
+                "rationale": "Report that approval is required.",
+                "tool_call": {
+                    "tool": "final_answer",
+                    "args": {"answer": "Approval is required."},
+                    "purpose": "Finish.",
                 },
-                "is_terminal": True,
             },
         ]
     )

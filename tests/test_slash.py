@@ -10,7 +10,7 @@ from codecraft.schema.event import ThoughtEvent
 from codecraft.schema.state import AgentState
 from codecraft.schema.step import Step
 from codecraft.schema.strategy import Strategy
-from codecraft.schema.tool import ToolCall, ToolPlan
+from codecraft.schema.tool import ToolCall
 from codecraft.tool.base import ToolResult
 
 
@@ -50,8 +50,8 @@ def make_state() -> AgentState:
             approach="step",
         ),
         current_decision=Decision(
-            thought="read the file",
-            plan=ToolPlan(tools=[tool_call]),
+            rationale="read the file",
+            tool_call=tool_call,
         ),
     )
     state.recent_steps.append(

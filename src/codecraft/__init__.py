@@ -28,7 +28,6 @@ from codecraft.schema import (
     ToolCall,
     ToolCallEvent,
     ToolExecutionEvent,
-    ToolPlan,
     WarningEvent,
 )
 from codecraft.tool import (
@@ -67,7 +66,6 @@ __all__ = [
     "ToolCallEvent",
     "ToolException",
     "ToolExecutionEvent",
-    "ToolPlan",
     "ToolProvider",
     "ToolRegistry",
     "ToolResult",

@@ -14,7 +14,7 @@ from codecraft.schema.result import AgentResult
 from codecraft.schema.state import AgentState
 from codecraft.schema.step import Step
 from codecraft.schema.strategy import Strategy
-from codecraft.schema.tool import ToolCall, ToolPlan
+from codecraft.schema.tool import ToolCall
 
 __all__ = [
     "AgentResult",
@@ -33,6 +33,5 @@ __all__ = [
     "ToolCall",
     "ToolCallEvent",
     "ToolExecutionEvent",
-    "ToolPlan",
     "WarningEvent",
 ]
