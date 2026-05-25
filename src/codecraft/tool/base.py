@@ -9,8 +9,7 @@ from typing import Any, Mapping
 import jsonschema
 from pydantic import BaseModel, Field, ValidationError
 
-from codecraft.schema.policy import RiskLevel
-from codecraft.schema.tool import ToolCall
+from codecraft.schema.tool import RiskLevel, ToolCall
 
 
 class ToolException(Exception):
@@ -86,8 +85,8 @@ class BaseTool(ABC):
     - 受控异常归一化
     - 返回值归一化
 
-    Policy、权限审批、用户确认、Step 记录不应该放在这里，
-    而应该放在 ToolExecutor / PolicyEngine / Runtime 层。
+    Approval、用户确认、Step 记录不应该放在这里，
+    而应该放在 ApprovalGate / ToolExecutor / Runtime 层。
     """
 
     name: str
@@ -170,7 +169,7 @@ class BaseTool(ABC):
 
     def _risk_level_value(self) -> str:
         """
-        兼容 RiskLevel 是 Literal[str] 或 Enum 的情况。
+        返回风险等级的字符串值。
         """
         value = self.risk_level
         return str(getattr(value, "value", value))

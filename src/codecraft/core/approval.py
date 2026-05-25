@@ -48,7 +48,7 @@ class ApprovalBroker:
         return ApprovalDecisionEvent(
             approval_id=request.approval_id,
             tool=request.tool_call.tool,
-            decision=decision.decision,
+            action=decision.action,
             reason=decision.reason,
             edited_args=edited_args,
         )

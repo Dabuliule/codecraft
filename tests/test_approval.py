@@ -39,7 +39,7 @@ async def test_approval_broker_accepts_approve_reject_and_edit():
             ApprovalDecision.reject(),
             ApprovalDecision.edit(edited),
     ):
-        broker = ApprovalBroker(handler=lambda event, decision=decision: decision)
+        broker = ApprovalBroker(handler=lambda event, approval=decision: approval)
 
         result = await broker.decide(approval_event())
 
@@ -48,4 +48,4 @@ async def test_approval_broker_accepts_approve_reject_and_edit():
 
 def test_edit_approval_requires_edited_tool_call():
     with pytest.raises(ValueError, match="edit approval requires edited_tool_call"):
-        ApprovalDecision(decision="edit")
+        ApprovalDecision(action="edit")

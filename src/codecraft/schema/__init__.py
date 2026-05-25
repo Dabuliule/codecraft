@@ -1,6 +1,6 @@
 from codecraft.schema.approval import (
+    ApprovalAction,
     ApprovalDecision,
-    ApprovalDecisionKind,
     ApprovalRequest,
 )
 from codecraft.schema.decision import Decision
@@ -15,27 +15,24 @@ from codecraft.schema.event import (
     ToolExecutionEvent,
     WarningEvent,
 )
-from codecraft.schema.policy import PolicyAction, PolicyDecision, RiskLevel
 from codecraft.schema.reflection import Reflection
 from codecraft.schema.result import AgentResult
 from codecraft.schema.state import AgentState
 from codecraft.schema.step import Step
 from codecraft.schema.strategy import Strategy
-from codecraft.schema.tool import ToolCall
+from codecraft.schema.tool import RiskLevel, ToolCall
 
 __all__ = [
     "AgentResult",
     "AgentState",
     "ApprovalDecision",
     "ApprovalDecisionEvent",
-    "ApprovalDecisionKind",
+    "ApprovalAction",
     "ApprovalRequestEvent",
     "ApprovalRequest",
     "Decision",
     "FinalResultEvent",
     "ObservationEvent",
-    "PolicyAction",
-    "PolicyDecision",
     "Reflection",
     "RiskLevel",
     "RuntimeEvent",

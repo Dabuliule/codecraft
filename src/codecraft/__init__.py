@@ -6,7 +6,7 @@ from codecraft.core import (
     EventBus,
     JsonlTraceWriter,
     ToolExecutor,
-    GuardedToolOutcome,
+    ApprovalGateOutcome,
     TraceSummary,
 )
 from codecraft.llm import (
@@ -16,7 +16,6 @@ from codecraft.llm import (
     LLMResponse,
     QwenLLM,
 )
-from codecraft.policy import PolicyEngine
 from codecraft.schema import (
     AgentResult,
     AgentState,
@@ -27,7 +26,7 @@ from codecraft.schema import (
     Decision,
     FinalResultEvent,
     ObservationEvent,
-    PolicyDecision,
+    RiskLevel,
     RuntimeEvent,
     Step,
     Strategy,
@@ -68,9 +67,8 @@ __all__ = [
     "LLMProviderError",
     "LLMResponse",
     "ObservationEvent",
-    "PolicyDecision",
-    "PolicyEngine",
     "QwenLLM",
+    "RiskLevel",
     "RuntimeEvent",
     "Step",
     "Strategy",
@@ -78,7 +76,7 @@ __all__ = [
     "ToolCall",
     "ToolCallEvent",
     "ToolException",
-    "GuardedToolOutcome",
+    "ApprovalGateOutcome",
     "ToolExecutionEvent",
     "ToolProvider",
     "ToolRegistry",

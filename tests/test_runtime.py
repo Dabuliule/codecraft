@@ -72,7 +72,7 @@ class RecordingProvider(ToolProvider):
 
 
 class RecordingApprovalPolicy(ApprovalPolicy):
-    def request_for(
+    def build_request(
             self,
             *,
             approval_id: str,
@@ -234,9 +234,9 @@ async def test_runtime_emits_approval_events_for_shell_exec(tmp_path):
 
     assert approval_requests[0].tool == "shell_exec"
     assert approval_requests[0].args == {"command": "python -V"}
-    assert approval_decisions[0].decision == "reject"
+    assert approval_decisions[0].action == "reject"
     assert observations[0].success is False
-    assert observations[0].data["approval"]["decision"] == "reject"
+    assert observations[0].data["approval"]["action"] == "reject"
 
 
 @pytest.mark.anyio
@@ -360,7 +360,7 @@ async def test_runtime_executes_approved_tool_after_approval(tmp_path):
     ]
     assert any(isinstance(event, ApprovalRequestEvent) for event in events)
     assert any(
-        isinstance(event, ApprovalDecisionEvent) and event.decision == "approve"
+        isinstance(event, ApprovalDecisionEvent) and event.action == "approve"
         for event in events
     )
 
@@ -424,7 +424,7 @@ async def test_runtime_returns_observation_when_approval_rejected(tmp_path):
     ]
     assert observations[0].success is False
     assert observations[0].error == "rejected"
-    assert observations[0].data["approval"]["decision"] == "reject"
+    assert observations[0].data["approval"]["action"] == "reject"
 
 
 @pytest.mark.anyio
@@ -488,5 +488,5 @@ async def test_runtime_executes_edited_tool_after_approval(tmp_path):
         event for event in events
         if isinstance(event, ApprovalDecisionEvent)
     ]
-    assert decisions[0].decision == "edit"
+    assert decisions[0].action == "edit"
     assert decisions[0].edited_args == {"label": "edited"}

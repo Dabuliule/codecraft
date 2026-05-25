@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from codecraft.schema.tool import ToolCall
 
-ApprovalDecisionKind = Literal["approve", "reject", "edit"]
+ApprovalAction = Literal["approve", "reject", "edit"]
 
 
 class ApprovalRequest(BaseModel):
@@ -18,16 +18,16 @@ class ApprovalRequest(BaseModel):
 
 
 class ApprovalDecision(BaseModel):
-    decision: ApprovalDecisionKind
+    action: ApprovalAction
     reason: str | None = None
     edited_tool_call: ToolCall | None = None
 
     @model_validator(mode="after")
     def validate_decision(self) -> "ApprovalDecision":
-        if self.decision == "edit" and self.edited_tool_call is None:
+        if self.action == "edit" and self.edited_tool_call is None:
             raise ValueError("edit approval requires edited_tool_call")
 
-        if self.decision != "edit" and self.edited_tool_call is not None:
+        if self.action != "edit" and self.edited_tool_call is not None:
             raise ValueError("edited_tool_call is only valid for edit approval")
 
         return self
@@ -38,7 +38,7 @@ class ApprovalDecision(BaseModel):
             reason: str | None = None,
     ) -> "ApprovalDecision":
         return cls(
-            decision="approve",
+            action="approve",
             reason=reason,
         )
 
@@ -48,7 +48,7 @@ class ApprovalDecision(BaseModel):
             reason: str | None = None,
     ) -> "ApprovalDecision":
         return cls(
-            decision="reject",
+            action="reject",
             reason=reason,
         )
 
@@ -59,7 +59,7 @@ class ApprovalDecision(BaseModel):
             reason: str | None = None,
     ) -> "ApprovalDecision":
         return cls(
-            decision="edit",
+            action="edit",
             reason=reason,
             edited_tool_call=tool_call,
         )

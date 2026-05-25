@@ -11,13 +11,13 @@ from codecraft.tool.base import ToolResult
 
 
 @dataclass(frozen=True)
-class GuardedToolRequest:
+class ApprovalGateRequest:
     step_id: str
     tool_call: ToolCall
 
 
 @dataclass(frozen=True)
-class GuardedToolOutcome:
+class ApprovalGateOutcome:
     events: list[RuntimeEvent]
     execution: ExecutionResult
 
@@ -36,9 +36,9 @@ class ApprovalGate:
 
     async def run(
             self,
-            request: GuardedToolRequest,
-    ) -> GuardedToolOutcome:
-        approval_request = self.approval_policy.request_for(
+            request: ApprovalGateRequest,
+    ) -> ApprovalGateOutcome:
+        approval_request = self.approval_policy.build_request(
             approval_id=f"{request.step_id}-approval",
             tool_call=request.tool_call,
         )
@@ -61,8 +61,8 @@ class ApprovalGate:
         )
         events.append(decision_event)
 
-        if decision.decision == "reject":
-            return GuardedToolOutcome(
+        if decision.action == "reject":
+            return ApprovalGateOutcome(
                 events=events,
                 execution=self._rejected_result(
                     tool_call=request.tool_call,
@@ -71,7 +71,7 @@ class ApprovalGate:
                 ),
             )
 
-        if decision.decision == "edit":
+        if decision.action == "edit":
             tool_call = decision.edited_tool_call
             assert tool_call is not None
         else:
@@ -81,7 +81,7 @@ class ApprovalGate:
             tool_call=tool_call,
         )
 
-        return GuardedToolOutcome(
+        return ApprovalGateOutcome(
             events=[
                 *events,
                 *outcome.events,
@@ -93,15 +93,15 @@ class ApprovalGate:
             self,
             *,
             tool_call: ToolCall,
-    ) -> GuardedToolOutcome:
-        return GuardedToolOutcome(
+    ) -> ApprovalGateOutcome:
+        return ApprovalGateOutcome(
             events=[
                 ToolExecutionEvent(
                     tool=tool_call.tool,
                     tool_input=tool_call.args,
                 )
             ],
-            execution=await self.tool_executor.execute_allowed(tool_call),
+            execution=await self.tool_executor.execute(tool_call),
         )
 
     @staticmethod
@@ -121,7 +121,7 @@ class ApprovalGate:
                     "tool": tool_call.tool,
                     "approval": {
                         "approval_id": approval_id,
-                        "decision": "reject",
+                        "action": "reject",
                     },
                 },
             ),

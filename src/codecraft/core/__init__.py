@@ -1,5 +1,5 @@
 from codecraft.core.approval import ApprovalBroker
-from codecraft.core.approval_gate import ApprovalGate, GuardedToolOutcome
+from codecraft.core.approval_gate import ApprovalGate, ApprovalGateOutcome
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
 from codecraft.core.tool_executor import ExecutionResult, ToolExecutor
@@ -15,6 +15,6 @@ __all__ = [
     "ExecutionResult",
     "ToolExecutor",
     "JsonlTraceWriter",
-    "GuardedToolOutcome",
+    "ApprovalGateOutcome",
     "TraceSummary",
 ]

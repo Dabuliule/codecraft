@@ -14,10 +14,10 @@ def test_root_public_api_exports_runtime_building_blocks():
         JsonlTraceWriter,
         LLMConfigError,
         LLMProviderError,
-        PolicyEngine,
         QwenLLM,
+        RiskLevel,
         ToolCall,
-        GuardedToolOutcome,
+        ApprovalGateOutcome,
         ToolRegistry,
         create_tool_registry,
     )
@@ -33,10 +33,10 @@ def test_root_public_api_exports_runtime_building_blocks():
     assert JsonlTraceWriter.__name__ == "JsonlTraceWriter"
     assert LLMConfigError.__name__ == "LLMConfigError"
     assert LLMProviderError.__name__ == "LLMProviderError"
-    assert PolicyEngine.__name__ == "PolicyEngine"
     assert QwenLLM.__name__ == "QwenLLM"
+    assert RiskLevel
     assert ToolCall.__name__ == "ToolCall"
-    assert GuardedToolOutcome.__name__ == "GuardedToolOutcome"
+    assert ApprovalGateOutcome.__name__ == "ApprovalGateOutcome"
     assert ToolRegistry.__name__ == "ToolRegistry"
     assert callable(create_tool_registry)
 

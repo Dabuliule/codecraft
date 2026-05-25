@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from codecraft.core.approval_gate import ApprovalGate, GuardedToolRequest
+from codecraft.core.approval_gate import ApprovalGate, ApprovalGateRequest
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
 from codecraft.schema.event import (
@@ -101,7 +101,7 @@ class AgentRuntime:
 
             step_id = f"step-{step_count + 1}"
             outcome = await self.approval_gate.run(
-                GuardedToolRequest(
+                ApprovalGateRequest(
                     step_id=step_id,
                     tool_call=tool_call,
                 ),

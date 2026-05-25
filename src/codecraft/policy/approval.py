@@ -7,7 +7,7 @@ from codecraft.schema.tool import ToolCall
 class ApprovalPolicy:
     """Decide whether a tool action needs human approval."""
 
-    def request_for(
+    def build_request(
             self,
             *,
             approval_id: str,
@@ -22,14 +22,14 @@ class DefaultApprovalPolicy(ApprovalPolicy):
         "list_dir",
         "read_file",
     }
-    approval_tools = {
+    protected_tools = {
         "delete_file",
         "make_dir",
         "shell_exec",
         "write_file",
     }
 
-    def request_for(
+    def build_request(
             self,
             *,
             approval_id: str,
@@ -38,7 +38,7 @@ class DefaultApprovalPolicy(ApprovalPolicy):
         if tool_call.tool in self.read_only_tools:
             return None
 
-        if tool_call.tool not in self.approval_tools:
+        if tool_call.tool not in self.protected_tools:
             return None
 
         risk_level = "high" if tool_call.tool == "shell_exec" else "medium"

@@ -49,35 +49,6 @@ async def test_rich_renderer_displays_tool_input_as_json():
 
 
 @pytest.mark.anyio
-async def test_rich_renderer_displays_approval_required_observation():
-    console = Console(record=True, width=100)
-    renderer = RichRenderer(console=console)
-
-    await renderer.handle(
-        ObservationEvent(
-            content="",
-            success=False,
-            error="shell_exec 是高风险通用 Tool，默认需要外部审批",
-            data={
-                "policy": {
-                    "action": "require_approval",
-                    "reason": "shell_exec 是高风险通用 Tool，默认需要外部审批",
-                    "data": {
-                        "tool": "shell_exec",
-                        "risk_level": "high",
-                    },
-                }
-            },
-        )
-    )
-
-    output = console.export_text()
-
-    assert "approval required" in output
-    assert "error: shell_exec 是高风险通用 Tool，默认需要外部审批" in output
-
-
-@pytest.mark.anyio
 async def test_rich_renderer_displays_approval_request_and_decision():
     console = Console(record=True, width=100)
     renderer = RichRenderer(console=console)
@@ -94,7 +65,7 @@ async def test_rich_renderer_displays_approval_request_and_decision():
         ApprovalDecisionEvent(
             approval_id="approval-1",
             tool="shell_exec",
-            decision="approve",
+            action="approve",
             reason="approved by user",
         )
     )
