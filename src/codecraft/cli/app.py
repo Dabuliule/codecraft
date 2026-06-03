@@ -35,7 +35,8 @@ def build_runtime(
 ) -> AgentRuntime:
     llm = QwenLLM()
 
-    tools = create_tool_registry()
+    workspace_root = Path.cwd()
+    tools = create_tool_registry(workspace_root=workspace_root)
 
     agent = Agent(
         llm=llm,
@@ -47,7 +48,7 @@ def build_runtime(
     )
 
     approval_gate = ApprovalGate(
-        approval_policy=DefaultApprovalPolicy(),
+        approval_policy=DefaultApprovalPolicy(workspace_root=workspace_root),
         tool_executor=executor,
     )
 
