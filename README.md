@@ -40,7 +40,7 @@ ToolCall
 ApprovalGate
    |
    v
-ApprovalPolicy / ApprovalBroker
+ApprovalPolicy / Runtime Pending Approval
    |
    v
 ToolExecutor
@@ -70,7 +70,7 @@ RuntimeEvent + Step History + Memory
 4. LLM 返回结构化 `Decision`，其中包含 `rationale` 和单个 `ToolCall`。
 5. Runtime 依次发出 `ThoughtEvent` 和 `ToolCallEvent`。
 6. `ApprovalGate` 根据 `ApprovalPolicy` 判断是否需要人工审批。
-7. 需要审批时，`ApprovalBroker` 获取用户决策；拒绝会返回 rejected observation，批准或编辑后继续执行。
+7. 需要审批时，Runtime 发出 `ApprovalRequestEvent` 并暂停当前 step，外部通过 `decide_approval()` 提交 approve / reject / edit 决策。
 8. `ApprovalGate` 执行已放行的 `ToolCall`。
 9. `ToolExecutor` 使用 `ToolResolver` 将 `ToolCall` 解析为确定工具和参数，并调用 `BaseTool.arun()`。
 10. Runtime 将 `ToolResult` 记录为 `Step`，发出 `ObservationEvent`。

@@ -5,7 +5,6 @@ def test_root_public_api_exports_runtime_building_blocks():
     from codecraft import (
         Agent,
         AgentRuntime,
-        ApprovalBroker,
         ApprovalGate,
         BaseLLM,
         BaseTool,
@@ -24,7 +23,6 @@ def test_root_public_api_exports_runtime_building_blocks():
 
     assert Agent.__name__ == "Agent"
     assert AgentRuntime.__name__ == "AgentRuntime"
-    assert ApprovalBroker.__name__ == "ApprovalBroker"
     assert ApprovalGate.__name__ == "ApprovalGate"
     assert BaseLLM.__name__ == "BaseLLM"
     assert BaseTool.__name__ == "BaseTool"

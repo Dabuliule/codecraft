@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 
 from codecraft.core.agent import Agent
-from codecraft.core.approval import ApprovalBroker
 from codecraft.core.approval_gate import ApprovalGate
 from codecraft.core.event_bus import EventBus
 from codecraft.core.tool_executor import ToolExecutor
@@ -97,13 +96,11 @@ def make_runtime(
         registry,
         event_bus: EventBus,
         executor: ToolExecutor | None = None,
-        approval_handler=None,
         approval_policy: ApprovalPolicy | None = None,
 ) -> AgentRuntime:
     executor = executor or ToolExecutor(tool_registry=registry)
     approval_gate = ApprovalGate(
         approval_policy=approval_policy or DefaultApprovalPolicy(),
-        approval_broker=ApprovalBroker(approval_handler),
         tool_executor=executor,
     )
     return AgentRuntime(
@@ -203,19 +200,23 @@ async def test_runtime_emits_approval_events_for_shell_exec(tmp_path):
     )
 
     events = []
-
-    async def collect(event):
-        events.append(event)
-
     event_bus = EventBus()
-    event_bus.subscribe(collect)
-
     registry = create_tool_registry(workspace_root=tmp_path)
     runtime = make_runtime(
         llm=llm,
         registry=registry,
         event_bus=event_bus,
     )
+
+    async def collect(event):
+        events.append(event)
+        if isinstance(event, ApprovalRequestEvent):
+            runtime.decide_approval(
+                event.approval_id,
+                ApprovalDecision.reject("rejected by user"),
+            )
+
+    event_bus.subscribe(collect)
 
     await runtime.arun("Check Python version.")
 
@@ -324,17 +325,7 @@ async def test_runtime_executes_approved_tool_after_approval(tmp_path):
     )
 
     events = []
-
-    async def collect(event):
-        events.append(event)
-
-    async def approve(event):
-        assert event.tool == "record_marker"
-        return ApprovalDecision.approve("approved")
-
     event_bus = EventBus()
-    event_bus.subscribe(collect)
-
     registry = create_tool_registry(
         providers=[RecordingProvider(markers)],
         workspace_root=tmp_path,
@@ -343,9 +334,19 @@ async def test_runtime_executes_approved_tool_after_approval(tmp_path):
         llm=llm,
         registry=registry,
         event_bus=event_bus,
-        approval_handler=approve,
         approval_policy=RecordingApprovalPolicy(),
     )
+
+    async def collect(event):
+        events.append(event)
+        if isinstance(event, ApprovalRequestEvent):
+            assert event.tool == "record_marker"
+            runtime.decide_approval(
+                event.approval_id,
+                ApprovalDecision.approve("approved"),
+            )
+
+    event_bus.subscribe(collect)
 
     await runtime.arun("Run approved tool.")
 
@@ -363,6 +364,64 @@ async def test_runtime_executes_approved_tool_after_approval(tmp_path):
         isinstance(event, ApprovalDecisionEvent) and event.action == "approve"
         for event in events
     )
+
+
+@pytest.mark.anyio
+async def test_runtime_emits_approval_request_before_waiting_for_decision(tmp_path):
+    markers: list[str] = []
+    llm = ScriptedLLM(
+        responses=[
+            {
+                "rationale": "Run approved tool.",
+                "tool_call": {
+                    "tool": "record_marker",
+                    "args": {},
+                    "purpose": "Check approval request timing.",
+                },
+            },
+            {
+                "rationale": "Finish after approval.",
+                "tool_call": {
+                    "tool": "final_answer",
+                    "args": {"answer": "done"},
+                    "purpose": "Finish.",
+                },
+            },
+        ]
+    )
+
+    events = []
+    event_bus = EventBus()
+    registry = create_tool_registry(
+        providers=[RecordingProvider(markers)],
+        workspace_root=tmp_path,
+    )
+    runtime = make_runtime(
+        llm=llm,
+        registry=registry,
+        event_bus=event_bus,
+        approval_policy=RecordingApprovalPolicy(),
+    )
+
+    async def collect(event):
+        events.append(event)
+        if isinstance(event, ApprovalRequestEvent):
+            assert runtime.list_pending_approvals() == (event,)
+            runtime.decide_approval(
+                event.approval_id,
+                ApprovalDecision.approve("approved"),
+            )
+
+    event_bus.subscribe(collect)
+
+    await runtime.arun("Run approved tool.")
+
+    assert [event.type for event in events[:4]] == [
+        "thought",
+        "tool_call",
+        "approval_request",
+        "approval_decision",
+    ]
 
 
 @pytest.mark.anyio
@@ -390,13 +449,7 @@ async def test_runtime_returns_observation_when_approval_rejected(tmp_path):
     )
 
     events = []
-
-    async def collect(event):
-        events.append(event)
-
     event_bus = EventBus()
-    event_bus.subscribe(collect)
-
     registry = create_tool_registry(
         providers=[RecordingProvider(markers)],
         workspace_root=tmp_path,
@@ -405,9 +458,18 @@ async def test_runtime_returns_observation_when_approval_rejected(tmp_path):
         llm=llm,
         registry=registry,
         event_bus=event_bus,
-        approval_handler=lambda event: ApprovalDecision.reject("rejected"),
         approval_policy=RecordingApprovalPolicy(),
     )
+
+    async def collect(event):
+        events.append(event)
+        if isinstance(event, ApprovalRequestEvent):
+            runtime.decide_approval(
+                event.approval_id,
+                ApprovalDecision.reject("rejected"),
+            )
+
+    event_bus.subscribe(collect)
 
     await runtime.arun("Reject tool.")
 
@@ -452,23 +514,7 @@ async def test_runtime_executes_edited_tool_after_approval(tmp_path):
     )
 
     events = []
-
-    async def collect(event):
-        events.append(event)
-
-    def edit(event):
-        return ApprovalDecision.edit(
-            ToolCall(
-                tool=event.tool,
-                args={"label": "edited"},
-                purpose="edited by user",
-            ),
-            reason="edited",
-        )
-
     event_bus = EventBus()
-    event_bus.subscribe(collect)
-
     registry = create_tool_registry(
         providers=[RecordingProvider(markers)],
         workspace_root=tmp_path,
@@ -477,9 +523,25 @@ async def test_runtime_executes_edited_tool_after_approval(tmp_path):
         llm=llm,
         registry=registry,
         event_bus=event_bus,
-        approval_handler=edit,
         approval_policy=RecordingApprovalPolicy(),
     )
+
+    async def collect(event):
+        events.append(event)
+        if isinstance(event, ApprovalRequestEvent):
+            runtime.decide_approval(
+                event.approval_id,
+                ApprovalDecision.edit(
+                    ToolCall(
+                        tool=event.tool,
+                        args={"label": "edited"},
+                        purpose="edited by user",
+                    ),
+                    reason="edited",
+                ),
+            )
+
+    event_bus.subscribe(collect)
 
     await runtime.arun("Run edited tool.")
 

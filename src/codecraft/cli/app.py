@@ -9,7 +9,6 @@ from rich.console import Console
 
 from codecraft.cli.rich_renderer import RichRenderer
 from codecraft.cli.slash import SlashCommandHandler
-from codecraft.core.approval import ApprovalBroker, ApprovalHandler
 from codecraft.core.approval_gate import ApprovalGate
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
@@ -33,7 +32,6 @@ session = PromptSession()
 
 def build_runtime(
         event_bus: EventBus | None = None,
-        approval_handler: ApprovalHandler | None = None,
 ) -> AgentRuntime:
     llm = QwenLLM()
 
@@ -48,13 +46,8 @@ def build_runtime(
         tool_registry=tools,
     )
 
-    approval_broker = ApprovalBroker(
-        handler=approval_handler,
-    )
-
     approval_gate = ApprovalGate(
         approval_policy=DefaultApprovalPolicy(),
-        approval_broker=approval_broker,
         tool_executor=executor,
     )
 
@@ -99,24 +92,8 @@ async def run_chat(verbose: bool = False):
     event_bus.subscribe(renderer.handle)
     event_bus.subscribe(trace_writer.handle)
 
-    async def request_approval(event: ApprovalRequestEvent) -> ApprovalDecision:
-        answer = await session.prompt_async(
-            f"approve {event.tool}? [y/N] "
-        )
-        approved = answer.strip().lower() in {
-            "y",
-            "yes",
-            "approve",
-            "approved",
-        }
-        if approved:
-            return ApprovalDecision.approve("approved by user")
-
-        return ApprovalDecision.reject("rejected by user")
-
     runtime = build_runtime(
         event_bus=event_bus,
-        approval_handler=request_approval,
     )
 
     def set_verbose(value: bool) -> None:
@@ -154,8 +131,26 @@ async def run_chat(verbose: bool = False):
 
             console.print()
 
-            async for _ in runtime.astream(task=user_input):
-                pass
+            async for event in runtime.astream(task=user_input):
+                if isinstance(event, ApprovalRequestEvent):
+                    answer = await session.prompt_async(
+                        f"approve {event.tool}? [y/N] "
+                    )
+                    approved = answer.strip().lower() in {
+                        "y",
+                        "yes",
+                        "approve",
+                        "approved",
+                    }
+                    decision = (
+                        ApprovalDecision.approve("approved by user")
+                        if approved
+                        else ApprovalDecision.reject("rejected by user")
+                    )
+                    runtime.decide_approval(
+                        event.approval_id,
+                        decision,
+                    )
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupted[/yellow]")

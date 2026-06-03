@@ -1,7 +1,6 @@
 from codecraft.core import (
     Agent,
     AgentRuntime,
-    ApprovalBroker,
     ApprovalGate,
     EventBus,
     JsonlTraceWriter,
@@ -52,7 +51,6 @@ __all__ = [
     "AgentState",
     "ApprovalDecision",
     "ApprovalDecisionEvent",
-    "ApprovalBroker",
     "ApprovalGate",
     "ApprovalRequest",
     "ApprovalRequestEvent",

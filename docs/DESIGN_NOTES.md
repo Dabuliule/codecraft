@@ -37,7 +37,7 @@ Tool 描述自己能做什么，Approval 决定当前调用是否需要人工确
 
 - 只读文件工具直接执行。
 - 写入、删除、创建目录和 shell 命令默认需要审批。
-- `ApprovalBroker` 获取用户决策，`ApprovalGate` 根据 approve / reject / edit 决定是否执行工具。
+- Runtime 创建 pending approval 并发出 `ApprovalRequestEvent`，外部通过 `decide_approval()` 提交用户决策，`ApprovalGate` 根据 approve / reject / edit 决定是否执行工具。
 
 这建立了一个重要边界：高风险 generic tool 不会因为模型生成了调用就自动运行。即使审批通过，`ShellExecTool` 也会使用 `shell=False`、限制 cwd 到 workspace、过滤环境变量、截断输出，并把非零退出码标记为失败。后续更完整的审批能力应该继续扩展 `ApprovalDecision`、Runtime event 和持久化状态，而不是绕过审批入口。
 

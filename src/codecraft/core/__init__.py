@@ -1,4 +1,3 @@
-from codecraft.core.approval import ApprovalBroker
 from codecraft.core.approval_gate import ApprovalGate, ApprovalGateOutcome
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
@@ -9,7 +8,6 @@ from codecraft.core.trace import JsonlTraceWriter, TraceSummary
 __all__ = [
     "Agent",
     "AgentRuntime",
-    "ApprovalBroker",
     "ApprovalGate",
     "EventBus",
     "ExecutionResult",

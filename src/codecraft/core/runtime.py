@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
+
 from codecraft.core.approval_gate import ApprovalGate, ApprovalGateRequest
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
+from codecraft.schema.approval import ApprovalDecision, ApprovalRequest
 from codecraft.schema.event import (
+    ApprovalRequestEvent,
     FinalResultEvent,
     ObservationEvent,
     RuntimeEvent,
@@ -14,6 +19,13 @@ from codecraft.schema.result import AgentResult
 from codecraft.schema.state import AgentState
 from codecraft.schema.step import Step
 from codecraft.schema.strategy import Strategy
+
+
+@dataclass(frozen=True)
+class PendingApproval:
+    request: ApprovalRequest
+    event: ApprovalRequestEvent
+    decision: asyncio.Future[ApprovalDecision]
 
 
 class AgentRuntime:
@@ -43,6 +55,7 @@ class AgentRuntime:
 
         self.max_steps = max_steps
         self.current_state: AgentState | None = None
+        self.pending_approvals: dict[str, PendingApproval] = {}
 
     async def _emit(
             self,
@@ -100,17 +113,59 @@ class AgentRuntime:
             )
 
             step_id = f"step-{step_count + 1}"
-            outcome = await self.approval_gate.run(
+            approval_request = self.approval_gate.build_request(
                 ApprovalGateRequest(
                     step_id=step_id,
                     tool_call=tool_call,
-                ),
+                )
             )
 
-            for event in outcome.events:
-                yield await self._emit(event)
+            if approval_request is None:
+                outcome = await self.approval_gate.run_tool(
+                    tool_call=tool_call,
+                    emit=self._emit,
+                )
+
+                for event in outcome.events:
+                    yield event
+
+            else:
+                request_event = self.approval_gate.build_request_event(
+                    approval_request
+                )
+                pending = self._create_pending_approval(
+                    approval_request=approval_request,
+                    request_event=request_event,
+                )
+
+                yield await self._emit(request_event)
+
+                try:
+                    approval_decision = await pending.decision
+                finally:
+                    self.pending_approvals.pop(
+                        approval_request.approval_id,
+                        None,
+                    )
+
+                yield await self._emit(
+                    self.approval_gate.build_decision_event(
+                        approval_request,
+                        approval_decision,
+                    )
+                )
+
+                outcome = await self.approval_gate.apply_decision(
+                    approval_request=approval_request,
+                    decision=approval_decision,
+                    emit=self._emit,
+                )
+
+                for event in outcome.events:
+                    yield event
 
             tool_result = outcome.execution.result
+            executed_tool_call = outcome.tool_call
 
             yield await self._emit(
                 ObservationEvent(
@@ -125,11 +180,11 @@ class AgentRuntime:
             step = Step(
                 step_id=step_id,
                 thought=decision.rationale,
-                tool_call=tool_call,
+                tool_call=executed_tool_call,
                 observation=tool_result,
                 success=tool_result.success,
                 summary=self._build_step_summary(
-                    tool_call=tool_call,
+                    tool_call=executed_tool_call,
                     tool_result=tool_result,
                 ),
             )
@@ -145,7 +200,7 @@ class AgentRuntime:
                 step,
             )
 
-            if tool_call.tool == "final_answer":
+            if executed_tool_call.tool == "final_answer":
                 state.done = True
 
                 state.final_answer = (
@@ -172,6 +227,45 @@ class AgentRuntime:
                 return
 
             step_count += 1
+
+    def decide_approval(
+            self,
+            approval_id: str,
+            decision: ApprovalDecision,
+    ) -> None:
+        pending = self.pending_approvals.get(approval_id)
+        if pending is None:
+            raise KeyError(f"Unknown pending approval: {approval_id}")
+
+        if pending.decision.done():
+            raise RuntimeError(f"Approval already decided: {approval_id}")
+
+        pending.decision.set_result(decision)
+
+    def list_pending_approvals(self) -> tuple[ApprovalRequestEvent, ...]:
+        return tuple(
+            pending.event
+            for pending in self.pending_approvals.values()
+        )
+
+    def _create_pending_approval(
+            self,
+            *,
+            approval_request: ApprovalRequest,
+            request_event: ApprovalRequestEvent,
+    ) -> PendingApproval:
+        if approval_request.approval_id in self.pending_approvals:
+            raise RuntimeError(
+                f"Duplicate pending approval: {approval_request.approval_id}"
+            )
+
+        pending = PendingApproval(
+            request=approval_request,
+            event=request_event,
+            decision=asyncio.get_running_loop().create_future(),
+        )
+        self.pending_approvals[approval_request.approval_id] = pending
+        return pending
 
     async def arun(
             self,
