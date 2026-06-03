@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from codecraft.core.tool_executor import ExecutionResult, ToolExecutor
@@ -9,13 +8,9 @@ from codecraft.schema.approval import ApprovalDecision, ApprovalRequest
 from codecraft.schema.event import (
     ApprovalDecisionEvent,
     ApprovalRequestEvent,
-    RuntimeEvent,
-    ToolExecutionEvent,
 )
 from codecraft.schema.tool import ToolCall
 from codecraft.tool.base import ToolResult
-
-EventEmitter = Callable[[RuntimeEvent], Awaitable[RuntimeEvent]]
 
 
 @dataclass(frozen=True)
@@ -26,9 +21,9 @@ class ApprovalGateRequest:
 
 @dataclass(frozen=True)
 class ApprovalGateOutcome:
-    events: list[RuntimeEvent]
     tool_call: ToolCall
     execution: ExecutionResult
+    tool_executed: bool
 
 
 class ApprovalGate:
@@ -87,17 +82,16 @@ class ApprovalGate:
             *,
             approval_request: ApprovalRequest,
             decision: ApprovalDecision,
-            emit: EventEmitter | None = None,
     ) -> ApprovalGateOutcome:
         if decision.action == "reject":
             return ApprovalGateOutcome(
-                events=[],
                 tool_call=approval_request.tool_call,
                 execution=self._rejected_result(
                     tool_call=approval_request.tool_call,
                     reason=decision.reason,
                     approval_id=approval_request.approval_id,
                 ),
+                tool_executed=False,
             )
 
         if decision.action == "edit":
@@ -108,45 +102,18 @@ class ApprovalGate:
 
         return await self.run_tool(
             tool_call=tool_call,
-            emit=emit,
         )
 
     async def run_tool(
             self,
             *,
             tool_call: ToolCall,
-            emit: EventEmitter | None = None,
     ) -> ApprovalGateOutcome:
-        event = ToolExecutionEvent(
-            tool=tool_call.tool,
-            tool_input=tool_call.args,
-        )
-        execution = await self.tool_executor.execute(tool_call)
-        events: list[RuntimeEvent] = []
-        await self._record_event(
-            events=events,
-            event=event,
-            emit=emit,
-        )
-
         return ApprovalGateOutcome(
-            events=events,
             tool_call=tool_call,
-            execution=execution,
+            execution=await self.tool_executor.execute(tool_call),
+            tool_executed=True,
         )
-
-    @staticmethod
-    async def _record_event(
-            *,
-            events: list[RuntimeEvent],
-            event: RuntimeEvent,
-            emit: EventEmitter | None,
-    ) -> None:
-        if emit is None:
-            events.append(event)
-            return
-
-        events.append(await emit(event))
 
     @staticmethod
     def _rejected_result(

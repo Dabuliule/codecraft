@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from codecraft.core.approval_gate import ApprovalGate, ApprovalGateRequest
 from codecraft.core.agent import Agent
 from codecraft.core.event_bus import EventBus
-from codecraft.schema.approval import ApprovalDecision, ApprovalRequest
+from codecraft.schema.approval import ApprovalDecision
 from codecraft.schema.event import (
     ApprovalRequestEvent,
     FinalResultEvent,
@@ -14,6 +14,7 @@ from codecraft.schema.event import (
     RuntimeEvent,
     ThoughtEvent,
     ToolCallEvent,
+    ToolExecutionEvent,
 )
 from codecraft.schema.result import AgentResult
 from codecraft.schema.state import AgentState
@@ -23,9 +24,8 @@ from codecraft.schema.strategy import Strategy
 
 @dataclass(frozen=True)
 class PendingApproval:
-    request: ApprovalRequest
     event: ApprovalRequestEvent
-    decision: asyncio.Future[ApprovalDecision]
+    decision_future: asyncio.Future[ApprovalDecision]
 
 
 class AgentRuntime:
@@ -123,25 +123,20 @@ class AgentRuntime:
             if approval_request is None:
                 outcome = await self.approval_gate.run_tool(
                     tool_call=tool_call,
-                    emit=self._emit,
                 )
-
-                for event in outcome.events:
-                    yield event
 
             else:
                 request_event = self.approval_gate.build_request_event(
                     approval_request
                 )
                 pending = self._create_pending_approval(
-                    approval_request=approval_request,
                     request_event=request_event,
                 )
 
                 yield await self._emit(request_event)
 
                 try:
-                    approval_decision = await pending.decision
+                    approval_decision = await pending.decision_future
                 finally:
                     self.pending_approvals.pop(
                         approval_request.approval_id,
@@ -158,14 +153,18 @@ class AgentRuntime:
                 outcome = await self.approval_gate.apply_decision(
                     approval_request=approval_request,
                     decision=approval_decision,
-                    emit=self._emit,
                 )
-
-                for event in outcome.events:
-                    yield event
 
             tool_result = outcome.execution.result
             executed_tool_call = outcome.tool_call
+
+            if outcome.tool_executed:
+                yield await self._emit(
+                    ToolExecutionEvent(
+                        tool=executed_tool_call.tool,
+                        tool_input=executed_tool_call.args,
+                    )
+                )
 
             yield await self._emit(
                 ObservationEvent(
@@ -237,10 +236,10 @@ class AgentRuntime:
         if pending is None:
             raise KeyError(f"Unknown pending approval: {approval_id}")
 
-        if pending.decision.done():
+        if pending.decision_future.done():
             raise RuntimeError(f"Approval already decided: {approval_id}")
 
-        pending.decision.set_result(decision)
+        pending.decision_future.set_result(decision)
 
     def list_pending_approvals(self) -> tuple[ApprovalRequestEvent, ...]:
         return tuple(
@@ -251,20 +250,18 @@ class AgentRuntime:
     def _create_pending_approval(
             self,
             *,
-            approval_request: ApprovalRequest,
             request_event: ApprovalRequestEvent,
     ) -> PendingApproval:
-        if approval_request.approval_id in self.pending_approvals:
+        if request_event.approval_id in self.pending_approvals:
             raise RuntimeError(
-                f"Duplicate pending approval: {approval_request.approval_id}"
+                f"Duplicate pending approval: {request_event.approval_id}"
             )
 
         pending = PendingApproval(
-            request=approval_request,
             event=request_event,
-            decision=asyncio.get_running_loop().create_future(),
+            decision_future=asyncio.get_running_loop().create_future(),
         )
-        self.pending_approvals[approval_request.approval_id] = pending
+        self.pending_approvals[request_event.approval_id] = pending
         return pending
 
     async def arun(

@@ -83,6 +83,25 @@ def render_trace_summary(
         console.print(f"final_answer: {summary.final_answer}")
 
 
+async def prompt_approval_decision(
+        event: ApprovalRequestEvent,
+) -> ApprovalDecision:
+    answer = await session.prompt_async(
+        f"approve {event.tool}? [y/N] "
+    )
+    approved = answer.strip().lower() in {
+        "y",
+        "yes",
+        "approve",
+        "approved",
+    }
+
+    if approved:
+        return ApprovalDecision.approve("approved by user")
+
+    return ApprovalDecision.reject("rejected by user")
+
+
 async def run_chat(verbose: bool = False):
     load_dotenv()
 
@@ -133,23 +152,9 @@ async def run_chat(verbose: bool = False):
 
             async for event in runtime.astream(task=user_input):
                 if isinstance(event, ApprovalRequestEvent):
-                    answer = await session.prompt_async(
-                        f"approve {event.tool}? [y/N] "
-                    )
-                    approved = answer.strip().lower() in {
-                        "y",
-                        "yes",
-                        "approve",
-                        "approved",
-                    }
-                    decision = (
-                        ApprovalDecision.approve("approved by user")
-                        if approved
-                        else ApprovalDecision.reject("rejected by user")
-                    )
                     runtime.decide_approval(
                         event.approval_id,
-                        decision,
+                        await prompt_approval_decision(event),
                     )
 
         except KeyboardInterrupt:
