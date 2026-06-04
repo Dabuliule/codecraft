@@ -1,15 +1,48 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Literal, Optional
+from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-RiskLevel = Literal["low", "medium", "high"]
+
+class ToolEffect(StrEnum):
+    READ_ONLY = "read_only"
+    WORKSPACE_WRITE = "workspace_write"
+    PROCESS_EXEC = "process_exec"
+    NETWORK = "network"
+    EXTERNAL = "external"
+
+
+class ToolSpec(BaseModel):
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    effects: set[ToolEffect] = Field(default_factory=set)
+    requires_approval: bool = False
+    enabled: bool = True
 
 
 class ToolCall(BaseModel):
-    """LLM 输出的工具调用请求。"""
+    call_id: str
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
-    tool: str = Field(description="工具名称，例如 read_file")
-    args: Dict[str, Any] = Field(default_factory=dict, description="工具输入参数")
-    purpose: Optional[str] = Field(default=None, description="为什么需要调用该工具")
+
+class ToolResult(BaseModel):
+    success: bool
+    content: str
+    data: dict[str, Any] | None = None
+    error: str | None = None
+    suggestion: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_error_shape(self) -> ToolResult:
+        if self.success and self.error is not None:
+            raise ValueError("successful tool results cannot include error")
+
+        if not self.success and not self.error:
+            raise ValueError("failed tool results must include error")
+
+        return self
