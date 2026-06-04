@@ -7,16 +7,20 @@ import pytest
 from pydantic import BaseModel
 
 from codecraft import (
+    AgentRuntime,
     BaseTool,
     EventBus,
     LLMProvider,
+    LLMProviderRegistry,
     ModelEvent,
     ModelEventType,
     ModelMessage,
     ModelRole,
+    MockProvider,
     RuntimeEvent,
     RuntimeEventType,
     SessionConfig,
+    SessionInput,
     SessionSource,
     SessionStore,
     ToolEffect,
@@ -288,5 +292,136 @@ def test_session_store_rejects_seq_gaps(tmp_path):
 
         with pytest.raises(Exception, match="sequence"):
             await store.load_events(config.session_id)
+
+    asyncio.run(run_test())
+
+
+def test_agent_runtime_creates_thread_and_runs_basic_turn(tmp_path):
+    async def run_test() -> None:
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_DELTA,
+                    payload={"text": "hello "},
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_DELTA,
+                    payload={"text": "runtime"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry(),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "say hello"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert [event.type for event in snapshot.events] == [
+            RuntimeEventType.SESSION_STARTED,
+            RuntimeEventType.TURN_STARTED,
+            RuntimeEventType.USER_MESSAGE,
+            RuntimeEventType.ASSISTANT_MESSAGE_DELTA,
+            RuntimeEventType.ASSISTANT_MESSAGE_DELTA,
+            RuntimeEventType.ASSISTANT_MESSAGE,
+            RuntimeEventType.TURN_FINISHED,
+        ]
+        assert [event.seq for event in snapshot.events] == list(range(1, 8))
+        assert snapshot.events[-1].payload["answer"] == "hello runtime"
+        assert provider.calls[0][0][0].content == "say hello"
+
+    asyncio.run(run_test())
+
+
+def test_agent_thread_next_event_sees_session_started_and_turn_events(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry(
+                [
+                    MockProvider(
+                        script=[
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_COMPLETED,
+                                payload={"text": "done"},
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
+                        ]
+                    )
+                ]
+            ),
+            tool_registry=ToolRegistry(),
+        )
+
+        thread = await runtime.create_thread(config)
+        first = await thread.next_event()
+        await thread.submit(SessionInput.user_message("inp_test", "finish"))
+        await thread.wait_until_idle()
+        second = await thread.next_event()
+        third = await thread.next_event()
+
+        assert first.type == RuntimeEventType.SESSION_STARTED
+        assert second.type == RuntimeEventType.TURN_STARTED
+        assert third.type == RuntimeEventType.USER_MESSAGE
+
+    asyncio.run(run_test())
+
+
+def test_runtime_resume_reconstructs_conversation_without_replaying_turn(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        first_provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "first answer"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        first_runtime = AgentRuntime(
+            session_store=store,
+            llm_providers=LLMProviderRegistry([first_provider]),
+            tool_registry=ToolRegistry(),
+        )
+        thread = await first_runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_one", "first"))
+        await thread.wait_until_idle()
+
+        second_provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "second answer"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        second_runtime = AgentRuntime(
+            session_store=store,
+            llm_providers=LLMProviderRegistry([second_provider]),
+            tool_registry=ToolRegistry(),
+        )
+        resumed = await second_runtime.resume_thread(config.session_id)
+        restored = await resumed.next_event()
+        await resumed.submit(SessionInput.user_message("inp_two", "second"))
+        await resumed.wait_until_idle()
+
+        assert restored.type == RuntimeEventType.SESSION_RESTORED
+        assert len(first_provider.calls) == 1
+        assert len(second_provider.calls) == 1
+        assert [message.content for message in second_provider.calls[0][0]] == [
+            "first",
+            "first answer",
+            "second",
+        ]
 
     asyncio.run(run_test())
