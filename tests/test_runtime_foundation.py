@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from codecraft import (
     AgentRuntime,
+    ApplyPatchTool,
     BaseTool,
     EventBus,
     LLMProvider,
@@ -291,6 +292,98 @@ def test_write_file_tool_rejects_missing_parent_by_default(tmp_path):
         assert result.success is False
         assert result.error == "parent_directory_missing"
         assert not (tmp_path / "missing" / "out.txt").exists()
+
+    asyncio.run(run_test())
+
+
+def test_apply_patch_tool_modifies_workspace_file(tmp_path):
+    async def run_test() -> None:
+        target = tmp_path / "note.txt"
+        target.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        patch = """--- a/note.txt
++++ b/note.txt
+@@ -1,3 +1,3 @@
+ alpha
+-beta
++bravo
+ gamma
+"""
+        tool = ApplyPatchTool()
+        call = ToolCall(
+            call_id="call_patch",
+            name="apply_patch",
+            arguments={"patch": patch},
+        )
+
+        result = await tool.arun(
+            tool.args_schema.model_validate(call.arguments),
+            ToolContext(context=context, call=call),
+        )
+
+        assert result.success is True
+        assert target.read_text(encoding="utf-8") == "alpha\nbravo\ngamma\n"
+        assert result.data["modified"] == 1
+        assert str(target) in result.data["changed_files"]
+
+    asyncio.run(run_test())
+
+
+def test_apply_patch_tool_rejects_workspace_escape(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        patch = """--- a/../outside.txt
++++ b/../outside.txt
+@@ -1 +1 @@
+-old
++new
+"""
+        tool = ApplyPatchTool()
+        call = ToolCall(
+            call_id="call_patch",
+            name="apply_patch",
+            arguments={"patch": patch},
+        )
+
+        result = await tool.arun(
+            tool.args_schema.model_validate(call.arguments),
+            ToolContext(context=context, call=call),
+        )
+
+        assert result.success is False
+        assert result.error == "workspace_access_denied"
 
     asyncio.run(run_test())
 
@@ -730,5 +823,65 @@ def test_runtime_executes_write_file_tool_call(tmp_path):
         assert finished.payload["result"]["success"] is True
         assert finished.payload["result"]["data"]["status"] == "created"
         assert provider.calls[1][0][-1].content.startswith("created ")
+
+    asyncio.run(run_test())
+
+
+def test_runtime_emits_patch_applied_event(tmp_path):
+    async def run_test() -> None:
+        target = tmp_path / "note.txt"
+        target.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+        patch = """--- a/note.txt
++++ b/note.txt
+@@ -1,3 +1,3 @@
+ alpha
+-beta
++bravo
+ gamma
+"""
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_patch",
+                        "name": "apply_patch",
+                        "arguments": {"patch": patch},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "Patched note.txt"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([ApplyPatchTool()]),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "patch file"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert target.read_text(encoding="utf-8") == "alpha\nbravo\ngamma\n"
+        assert [event.type for event in snapshot.events] == [
+            RuntimeEventType.SESSION_STARTED,
+            RuntimeEventType.TURN_STARTED,
+            RuntimeEventType.USER_MESSAGE,
+            RuntimeEventType.MODEL_TOOL_CALL,
+            RuntimeEventType.TOOL_CALL_STARTED,
+            RuntimeEventType.TOOL_CALL_FINISHED,
+            RuntimeEventType.PATCH_APPLIED,
+            RuntimeEventType.ASSISTANT_MESSAGE,
+            RuntimeEventType.TURN_FINISHED,
+        ]
+        patch_event = snapshot.events[6]
+        assert patch_event.payload["modified"] == 1
+        assert str(target) in patch_event.payload["changed_files"]
 
     asyncio.run(run_test())

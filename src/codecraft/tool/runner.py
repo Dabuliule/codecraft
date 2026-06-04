@@ -67,12 +67,25 @@ class ToolRunner:
                 suggestion="Check the tool arguments, workspace permissions, or runtime environment.",
             )
 
+        finished_payload = {
+            "call_id": call.call_id,
+            "name": call.name,
+            "result": result.model_dump(mode="json"),
+            "duration_ms": int((monotonic() - started_at) * 1000),
+        }
         yield ToolRunnerEvent(
             RuntimeEventType.TOOL_CALL_FINISHED,
-            {
-                "call_id": call.call_id,
-                "name": call.name,
-                "result": result.model_dump(mode="json"),
-                "duration_ms": int((monotonic() - started_at) * 1000),
-            },
+            finished_payload,
         )
+
+        if call.name == "apply_patch" and result.success:
+            yield ToolRunnerEvent(
+                RuntimeEventType.PATCH_APPLIED,
+                {
+                    "call_id": call.call_id,
+                    "changed_files": result.data.get("changed_files", []) if result.data else [],
+                    "modified": result.data.get("modified", 0) if result.data else 0,
+                    "added": result.data.get("added", 0) if result.data else 0,
+                    "deleted": result.data.get("deleted", 0) if result.data else 0,
+                },
+            )

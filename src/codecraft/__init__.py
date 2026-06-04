@@ -41,6 +41,7 @@ from codecraft.schema import (
     ToolSpec,
 )
 from codecraft.tool import (
+    ApplyPatchTool,
     BaseTool,
     ListFilesTool,
     ReadFileTool,
@@ -56,6 +57,7 @@ __all__ = [
     "ApprovalDeniedError",
     "AgentRuntime",
     "AgentThread",
+    "ApplyPatchTool",
     "CodecraftError",
     "CommandDeniedError",
     "EventBus",
