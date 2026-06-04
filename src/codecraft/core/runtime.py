@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from codecraft.approval.manager import ApprovalManager
 from codecraft.core.conversation import Conversation
 from codecraft.core.event_bus import EventBus
 from codecraft.core.session import Session
@@ -20,11 +21,13 @@ class AgentRuntime:
         session_store: SessionStore,
         llm_providers: LLMProviderRegistry,
         tool_registry: ToolRegistry,
+        approval_manager: ApprovalManager | None = None,
         event_bus: EventBus | None = None,
     ) -> None:
         self.session_store = session_store
         self.llm_providers = llm_providers
         self.tool_registry = tool_registry
+        self.approval_manager = approval_manager or ApprovalManager()
         self.event_bus = event_bus
 
     async def create_thread(self, config: SessionConfig) -> AgentThread:
@@ -34,6 +37,7 @@ class AgentRuntime:
             session_store=self.session_store,
             llm_provider=self.llm_providers.get(config.model_provider),
             tool_registry=self.tool_registry,
+            approval_manager=self.approval_manager,
             event_bus=self.event_bus,
         )
         thread = AgentThread(session)
@@ -57,6 +61,7 @@ class AgentRuntime:
             session_store=self.session_store,
             llm_provider=self.llm_providers.get(snapshot.config.model_provider),
             tool_registry=self.tool_registry,
+            approval_manager=self.approval_manager,
             event_bus=self.event_bus,
             conversation=conversation,
             seq=snapshot.events[-1].seq if snapshot.events else 0,

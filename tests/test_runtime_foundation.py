@@ -8,7 +8,10 @@ from pydantic import BaseModel
 
 from codecraft import (
     AgentRuntime,
+    ApprovalManager,
+    ApprovalPolicy,
     ApplyPatchTool,
+    AutoApprovalReviewer,
     BashTool,
     BaseTool,
     EventBus,
@@ -998,6 +1001,106 @@ def test_runtime_executes_bash_tool_call(tmp_path):
         ][0]
         assert finished.payload["result"]["success"] is True
         assert str(tmp_path) in finished.payload["result"]["data"]["stdout"]
+        assert snapshot.events[-1].type == RuntimeEventType.TURN_FINISHED
+
+    asyncio.run(run_test())
+
+
+def test_tool_runner_emits_approval_events_and_runs_approved_prompt_command(tmp_path):
+    async def run_test() -> None:
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_bash",
+                        "name": "bash",
+                        "arguments": {"command": "rm missing.txt"},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "Approval path exercised"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        reviewer = AutoApprovalReviewer(approved=True, reason="test approved")
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([BashTool()]),
+            approval_manager=ApprovalManager(
+                policy=ApprovalPolicy.ON_REQUEST,
+                reviewer=reviewer,
+            ),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "remove file"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert [event.type for event in snapshot.events] == [
+            RuntimeEventType.SESSION_STARTED,
+            RuntimeEventType.TURN_STARTED,
+            RuntimeEventType.USER_MESSAGE,
+            RuntimeEventType.MODEL_TOOL_CALL,
+            RuntimeEventType.TOOL_CALL_STARTED,
+            RuntimeEventType.APPROVAL_REQUESTED,
+            RuntimeEventType.APPROVAL_DECIDED,
+            RuntimeEventType.TOOL_CALL_FINISHED,
+            RuntimeEventType.ASSISTANT_MESSAGE,
+            RuntimeEventType.TURN_FINISHED,
+        ]
+        assert reviewer.requests[0].tool_name == "bash"
+        assert snapshot.events[6].payload["approved"] is True
+        assert snapshot.events[7].payload["result"]["error"] == "command_failed"
+
+    asyncio.run(run_test())
+
+
+def test_tool_runner_denies_rejected_workspace_write(tmp_path):
+    async def run_test() -> None:
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_write",
+                        "name": "write_file",
+                        "arguments": {"path": "blocked.txt", "content": "nope"},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "Write was denied"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        reviewer = AutoApprovalReviewer(approved=False, reason="test denied")
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([WriteFileTool()]),
+            approval_manager=ApprovalManager(
+                policy=ApprovalPolicy.ON_REQUEST,
+                reviewer=reviewer,
+            ),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "write blocked"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert not (tmp_path / "blocked.txt").exists()
+        assert snapshot.events[5].type == RuntimeEventType.APPROVAL_REQUESTED
+        assert snapshot.events[6].payload["approved"] is False
+        assert snapshot.events[7].payload["result"]["error"] == "approval_denied"
         assert snapshot.events[-1].type == RuntimeEventType.TURN_FINISHED
 
     asyncio.run(run_test())

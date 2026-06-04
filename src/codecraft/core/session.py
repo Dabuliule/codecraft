@@ -4,6 +4,7 @@ import asyncio
 from enum import StrEnum
 from typing import Any
 
+from codecraft.approval.manager import ApprovalManager
 from codecraft.core.conversation import Conversation
 from codecraft.core.event_bus import EventBus
 from codecraft.core.ids import new_id
@@ -35,6 +36,7 @@ class Session:
         session_store: SessionStore,
         llm_provider: LLMProvider,
         tool_registry: ToolRegistry,
+        approval_manager: ApprovalManager | None = None,
         event_bus: EventBus | None = None,
         conversation: Conversation | None = None,
         seq: int = 0,
@@ -51,7 +53,8 @@ class Session:
         self.seq = seq
         self.llm_provider = llm_provider
         self.tool_registry = tool_registry
-        self.tool_runner = ToolRunner(tool_registry)
+        self.approval_manager = approval_manager or ApprovalManager()
+        self.tool_runner = ToolRunner(tool_registry, approval_manager=self.approval_manager)
         self._emit_lock = asyncio.Lock()
         self._runner_task: asyncio.Task[None] | None = None
 

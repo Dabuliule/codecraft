@@ -11,6 +11,7 @@ from codecraft.schema.tool import ToolCall, ToolEffect, ToolResult, ToolSpec
 class ToolContext(BaseModel):
     context: TurnContext
     call: ToolCall
+    approved: bool = False
 
 
 class BaseTool(ABC):

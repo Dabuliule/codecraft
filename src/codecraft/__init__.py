@@ -1,7 +1,14 @@
+from codecraft.approval import (
+    ApprovalDecision,
+    ApprovalEvaluation,
+    ApprovalManager,
+    ApprovalPolicy,
+    ApprovalRequest,
+    ApprovalReviewer,
+    AutoApprovalReviewer,
+)
 from codecraft.core import (
     ApprovalDeniedError,
-    AgentRuntime,
-    AgentThread,
     CodecraftError,
     CommandDeniedError,
     EventBus,
@@ -15,6 +22,8 @@ from codecraft.core import (
     WorkspaceAccessError,
     new_id,
 )
+from codecraft.core.runtime import AgentRuntime
+from codecraft.core.thread import AgentThread
 from codecraft.llm import (
     LLMConfigError,
     LLMProvider,
@@ -49,16 +58,23 @@ from codecraft.tool import (
     ToolContext,
     ToolProvider,
     ToolRegistry,
-    ToolRunner,
     WorkspaceGuard,
     WriteFileTool,
 )
+from codecraft.tool.runner import ToolRunner
 
 __all__ = [
     "ApprovalDeniedError",
     "AgentRuntime",
     "AgentThread",
+    "ApprovalDecision",
+    "ApprovalEvaluation",
+    "ApprovalManager",
+    "ApprovalPolicy",
+    "ApprovalRequest",
+    "ApprovalReviewer",
     "ApplyPatchTool",
+    "AutoApprovalReviewer",
     "BashTool",
     "CodecraftError",
     "CommandDeniedError",

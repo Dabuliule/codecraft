@@ -45,7 +45,7 @@ class BashTool(BaseTool):
                 metadata={"command": bash_args.command, "risk": decision.risk},
             )
 
-        if decision.requires_approval:
+        if decision.requires_approval and not context.approved:
             return ToolResult(
                 success=False,
                 content="Command requires approval.",

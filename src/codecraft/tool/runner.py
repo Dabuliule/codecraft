@@ -6,6 +6,7 @@ from time import monotonic
 
 from pydantic import ValidationError
 
+from codecraft.approval.manager import ApprovalManager
 from codecraft.core.errors import CodecraftError
 from codecraft.core.turn_context import TurnContext
 from codecraft.schema.event import RuntimeEventType
@@ -21,8 +22,13 @@ class ToolRunnerEvent:
 
 
 class ToolRunner:
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        approval_manager: ApprovalManager | None = None,
+    ) -> None:
         self.registry = registry
+        self.approval_manager = approval_manager or ApprovalManager()
 
     async def run(
         self,
@@ -40,10 +46,49 @@ class ToolRunner:
 
         started_at = monotonic()
         result: ToolResult
+        approved = False
         try:
             tool = self.registry.get(call.name)
             args = tool.args_schema.model_validate(call.arguments)
-            result = await tool.arun(args, ToolContext(context=context, call=call))
+            evaluation = await self.approval_manager.evaluate(tool, call, args, context)
+            if evaluation.requires_approval:
+                approval_request = self.approval_manager.build_request(
+                    call=call,
+                    context=context,
+                    evaluation=evaluation,
+                )
+                yield ToolRunnerEvent(
+                    RuntimeEventType.APPROVAL_REQUESTED,
+                    approval_request.model_dump(mode="json"),
+                )
+                approval_decision = await self.approval_manager.request(approval_request)
+                yield ToolRunnerEvent(
+                    RuntimeEventType.APPROVAL_DECIDED,
+                    approval_decision.model_dump(mode="json"),
+                )
+                if not approval_decision.approved:
+                    result = ToolResult(
+                        success=False,
+                        content="Tool execution denied by approval.",
+                        error="approval_denied",
+                        suggestion=approval_decision.reason,
+                        metadata={
+                            "approval_id": approval_decision.approval_id,
+                            "tool": call.name,
+                        },
+                    )
+                    yield ToolRunnerEvent(
+                        RuntimeEventType.TOOL_CALL_FINISHED,
+                        {
+                            "call_id": call.call_id,
+                            "name": call.name,
+                            "result": result.model_dump(mode="json"),
+                            "duration_ms": int((monotonic() - started_at) * 1000),
+                        },
+                    )
+                    return
+                approved = True
+            result = await tool.arun(args, ToolContext(context=context, call=call, approved=approved))
         except ValidationError as exc:
             result = ToolResult(
                 success=False,
