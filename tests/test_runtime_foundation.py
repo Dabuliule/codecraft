@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from codecraft import (
     AgentRuntime,
     ApplyPatchTool,
+    BashTool,
     BaseTool,
     EventBus,
     LLMProvider,
@@ -36,6 +37,7 @@ from codecraft import (
     WriteFileTool,
     new_id,
 )
+from codecraft.sandbox import CommandPolicy, CommandRisk
 from codecraft.tool import ToolContext
 
 
@@ -143,6 +145,17 @@ def test_tool_registry_registers_and_lists_specs():
             effects={ToolEffect.READ_ONLY},
         )
     ]
+
+
+def test_command_policy_classifies_safe_prompt_and_deny_commands():
+    policy = CommandPolicy()
+
+    assert policy.classify("pwd").risk == CommandRisk.SAFE
+    assert policy.classify("git status").risk == CommandRisk.SAFE
+    assert policy.classify("rm temp.txt").risk == CommandRisk.PROMPT
+    assert policy.classify("curl https://example.com").risk == CommandRisk.DENY
+    assert policy.classify("curl https://example.com", network_access=True).risk == CommandRisk.PROMPT
+    assert policy.classify("sudo true").risk == CommandRisk.DENY
 
 
 def test_workspace_guard_rejects_path_escape(tmp_path):
@@ -384,6 +397,66 @@ def test_apply_patch_tool_rejects_workspace_escape(tmp_path):
 
         assert result.success is False
         assert result.error == "workspace_access_denied"
+
+    asyncio.run(run_test())
+
+
+def test_bash_tool_runs_safe_command_and_blocks_prompt_or_denied(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        tool = BashTool()
+        safe_call = ToolCall(
+            call_id="call_bash",
+            name="bash",
+            arguments={"command": "pwd"},
+        )
+        prompt_call = ToolCall(
+            call_id="call_rm",
+            name="bash",
+            arguments={"command": "rm file.txt"},
+        )
+        denied_call = ToolCall(
+            call_id="call_sudo",
+            name="bash",
+            arguments={"command": "sudo true"},
+        )
+
+        safe = await tool.arun(
+            tool.args_schema.model_validate(safe_call.arguments),
+            ToolContext(context=context, call=safe_call),
+        )
+        prompt = await tool.arun(
+            tool.args_schema.model_validate(prompt_call.arguments),
+            ToolContext(context=context, call=prompt_call),
+        )
+        denied = await tool.arun(
+            tool.args_schema.model_validate(denied_call.arguments),
+            ToolContext(context=context, call=denied_call),
+        )
+
+        assert safe.success is True
+        assert safe.data["exit_code"] == 0
+        assert str(tmp_path) in safe.content
+        assert prompt.success is False
+        assert prompt.error == "command_requires_approval"
+        assert denied.success is False
+        assert denied.error == "command_denied"
 
     asyncio.run(run_test())
 
@@ -883,5 +956,48 @@ def test_runtime_emits_patch_applied_event(tmp_path):
         patch_event = snapshot.events[6]
         assert patch_event.payload["modified"] == 1
         assert str(target) in patch_event.payload["changed_files"]
+
+    asyncio.run(run_test())
+
+
+def test_runtime_executes_bash_tool_call(tmp_path):
+    async def run_test() -> None:
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_bash",
+                        "name": "bash",
+                        "arguments": {"command": "pwd"},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "Ran pwd"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([BashTool()]),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "run pwd"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        finished = [
+            event
+            for event in snapshot.events
+            if event.type == RuntimeEventType.TOOL_CALL_FINISHED
+        ][0]
+        assert finished.payload["result"]["success"] is True
+        assert str(tmp_path) in finished.payload["result"]["data"]["stdout"]
+        assert snapshot.events[-1].type == RuntimeEventType.TURN_FINISHED
 
     asyncio.run(run_test())

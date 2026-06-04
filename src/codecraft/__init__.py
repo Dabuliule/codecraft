@@ -42,6 +42,7 @@ from codecraft.schema import (
 )
 from codecraft.tool import (
     ApplyPatchTool,
+    BashTool,
     BaseTool,
     ListFilesTool,
     ReadFileTool,
@@ -58,6 +59,7 @@ __all__ = [
     "AgentRuntime",
     "AgentThread",
     "ApplyPatchTool",
+    "BashTool",
     "CodecraftError",
     "CommandDeniedError",
     "EventBus",
