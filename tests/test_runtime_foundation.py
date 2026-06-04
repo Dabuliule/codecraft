@@ -12,22 +12,26 @@ from codecraft import (
     EventBus,
     LLMProvider,
     LLMProviderRegistry,
+    ListFilesTool,
     ModelEvent,
     ModelEventType,
     ModelMessage,
     ModelRole,
     MockProvider,
+    ReadFileTool,
     RuntimeEvent,
     RuntimeEventType,
     SessionConfig,
     SessionInput,
     SessionSource,
     SessionStore,
+    ToolCall,
     ToolEffect,
     ToolRegistry,
     ToolResult,
     ToolSpec,
     TurnContext,
+    WorkspaceGuard,
     new_id,
 )
 from codecraft.tool import ToolContext
@@ -137,6 +141,68 @@ def test_tool_registry_registers_and_lists_specs():
             effects={ToolEffect.READ_ONLY},
         )
     ]
+
+
+def test_workspace_guard_rejects_path_escape(tmp_path):
+    guard = WorkspaceGuard([tmp_path])
+
+    with pytest.raises(Exception, match="outside workspace"):
+        guard.resolve_read_path("../outside.txt", tmp_path)
+
+
+def test_read_file_and_list_files_tools(tmp_path):
+    async def run_test() -> None:
+        nested = tmp_path / "pkg"
+        nested.mkdir()
+        target = nested / "note.txt"
+        target.write_text("hello tools\n", encoding="utf-8")
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+
+        read_tool = ReadFileTool()
+        list_tool = ListFilesTool()
+        read_call = ToolCall(
+            call_id="call_read",
+            name="read_file",
+            arguments={"path": "pkg/note.txt"},
+        )
+        list_call = ToolCall(
+            call_id="call_list",
+            name="list_files",
+            arguments={"path": "pkg"},
+        )
+
+        read_result = await read_tool.arun(
+            read_tool.args_schema.model_validate(read_call.arguments),
+            ToolContext(context=context, call=read_call),
+        )
+        list_result = await list_tool.arun(
+            list_tool.args_schema.model_validate(list_call.arguments),
+            ToolContext(context=context, call=list_call),
+        )
+
+        assert read_result.success is True
+        assert read_result.content == "hello tools\n"
+        assert read_result.data["line_count"] == 1
+        assert list_result.success is True
+        assert list_result.content == "note.txt"
+
+    asyncio.run(run_test())
 
 
 def test_session_config_normalizes_paths(tmp_path):
@@ -423,5 +489,103 @@ def test_runtime_resume_reconstructs_conversation_without_replaying_turn(tmp_pat
             "first answer",
             "second",
         ]
+
+    asyncio.run(run_test())
+
+
+def test_runtime_executes_read_file_tool_call_and_continues_turn(tmp_path):
+    async def run_test() -> None:
+        (tmp_path / "note.txt").write_text("tool loop works", encoding="utf-8")
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_read",
+                        "name": "read_file",
+                        "arguments": {"path": "note.txt"},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "The file says: tool loop works"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([ReadFileTool()]),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "read note"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert [event.type for event in snapshot.events] == [
+            RuntimeEventType.SESSION_STARTED,
+            RuntimeEventType.TURN_STARTED,
+            RuntimeEventType.USER_MESSAGE,
+            RuntimeEventType.MODEL_TOOL_CALL,
+            RuntimeEventType.TOOL_CALL_STARTED,
+            RuntimeEventType.TOOL_CALL_FINISHED,
+            RuntimeEventType.ASSISTANT_MESSAGE,
+            RuntimeEventType.TURN_FINISHED,
+        ]
+        finished = snapshot.events[5]
+        assert finished.payload["result"]["success"] is True
+        assert finished.payload["result"]["content"] == "tool loop works"
+        assert snapshot.events[-1].payload["steps"] == 1
+        assert [message.content for message in provider.calls[1][0]] == [
+            "read note",
+            "{'path': 'note.txt'}",
+            "tool loop works",
+        ]
+
+    asyncio.run(run_test())
+
+
+def test_runtime_records_failed_unknown_tool(tmp_path):
+    async def run_test() -> None:
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_missing",
+                        "name": "missing_tool",
+                        "arguments": {},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "Missing tool was reported."},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry(),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "call missing"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        finished = [
+            event
+            for event in snapshot.events
+            if event.type == RuntimeEventType.TOOL_CALL_FINISHED
+        ][0]
+        assert finished.payload["result"]["success"] is False
+        assert finished.payload["result"]["error"] == "tool_not_found"
+        assert snapshot.events[-1].type == RuntimeEventType.TURN_FINISHED
 
     asyncio.run(run_test())

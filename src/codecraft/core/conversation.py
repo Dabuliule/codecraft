@@ -52,6 +52,28 @@ class Conversation(BaseModel):
         self.append(item)
         return item
 
+    def append_model_tool_call(self, tool_call_id: str, name: str, content: str) -> ConversationItem:
+        item = ConversationItem(
+            item_id=new_id("item_"),
+            role=ConversationRole.ASSISTANT,
+            content=content,
+            tool_call_id=tool_call_id,
+            name=name,
+        )
+        self.append(item)
+        return item
+
+    def append_tool_result(self, tool_call_id: str, name: str, content: str) -> ConversationItem:
+        item = ConversationItem(
+            item_id=new_id("item_"),
+            role=ConversationRole.TOOL,
+            content=content,
+            tool_call_id=tool_call_id,
+            name=name,
+        )
+        self.append(item)
+        return item
+
     def build_model_messages(self) -> list[ModelMessage]:
         messages: list[ModelMessage] = []
         for item in self.items:

@@ -15,6 +15,7 @@ from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 from codecraft.schema.input import SessionInput, SessionInputType
 from codecraft.schema.session import SessionConfig
 from codecraft.tool.registry import ToolRegistry
+from codecraft.tool.runner import ToolRunner
 
 
 class SessionStatus(StrEnum):
@@ -50,6 +51,7 @@ class Session:
         self.seq = seq
         self.llm_provider = llm_provider
         self.tool_registry = tool_registry
+        self.tool_runner = ToolRunner(tool_registry)
         self._emit_lock = asyncio.Lock()
         self._runner_task: asyncio.Task[None] | None = None
 

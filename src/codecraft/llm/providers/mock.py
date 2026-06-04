@@ -23,5 +23,5 @@ class MockProvider(LLMProvider):
         context: TurnContext,
     ) -> AsyncIterator[ModelEvent]:
         self.calls.append((messages, tools, context))
-        for event in self.script:
-            yield event
+        while self.script:
+            yield self.script.pop(0)

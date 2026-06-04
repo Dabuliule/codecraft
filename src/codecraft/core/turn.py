@@ -9,6 +9,7 @@ from codecraft.core.turn_context import TurnContext
 from codecraft.llm.events import ModelEventType
 from codecraft.schema.event import RuntimeEventType
 from codecraft.schema.input import SessionInput
+from codecraft.schema.tool import ToolCall, ToolResult
 
 if TYPE_CHECKING:
     from codecraft.core.session import Session
@@ -54,72 +55,84 @@ class Turn:
         )
         self.session.conversation.append_user_message(text)
 
-        assistant_parts: list[str] = []
-        completed_message: str | None = None
+        answer = ""
 
-        async for model_event in self.session.llm_provider.stream(
-            self.session.conversation.build_model_messages(),
-            self.context.available_tools,
-            self.context,
-        ):
-            if self.cancel_requested:
-                await self._abort("user_interrupt", "Turn interrupted by user.")
+        while True:
+            if self.step_count >= self.context.max_steps:
+                await self._abort("max_steps_exceeded", "Turn exceeded max tool/model steps.")
                 return
 
-            if model_event.type == ModelEventType.MESSAGE_DELTA:
-                delta = str(model_event.payload.get("text", ""))
-                assistant_parts.append(delta)
-                await self.session.emit(
-                    RuntimeEventType.ASSISTANT_MESSAGE_DELTA,
-                    {"text": delta},
-                    turn_id=self.turn_id,
-                )
+            tool_was_called = False
+            assistant_parts: list[str] = []
+            completed_message: str | None = None
 
-            elif model_event.type == ModelEventType.MESSAGE_COMPLETED:
-                completed_message = str(model_event.payload.get("text", ""))
-                await self.session.emit(
-                    RuntimeEventType.ASSISTANT_MESSAGE,
-                    {"text": completed_message},
-                    turn_id=self.turn_id,
-                )
-                self.session.conversation.append_assistant_message(completed_message)
+            async for model_event in self.session.llm_provider.stream(
+                self.session.conversation.build_model_messages(),
+                self.context.available_tools,
+                self.context,
+            ):
+                if self.cancel_requested:
+                    await self._abort("user_interrupt", "Turn interrupted by user.")
+                    return
 
-            elif model_event.type == ModelEventType.TOKEN_COUNT:
-                await self.session.emit(
-                    RuntimeEventType.TOKEN_COUNT,
-                    dict(model_event.payload),
-                    turn_id=self.turn_id,
-                )
+                if model_event.type == ModelEventType.MESSAGE_DELTA:
+                    delta = str(model_event.payload.get("text", ""))
+                    assistant_parts.append(delta)
+                    await self.session.emit(
+                        RuntimeEventType.ASSISTANT_MESSAGE_DELTA,
+                        {"text": delta},
+                        turn_id=self.turn_id,
+                    )
 
-            elif model_event.type == ModelEventType.TOOL_CALL:
-                await self._abort(
-                    "tool_calls_not_supported",
-                    "Tool calls are not implemented in this phase.",
-                )
-                return
+                elif model_event.type == ModelEventType.MESSAGE_COMPLETED:
+                    completed_message = str(model_event.payload.get("text", ""))
+                    await self.session.emit(
+                        RuntimeEventType.ASSISTANT_MESSAGE,
+                        {"text": completed_message},
+                        turn_id=self.turn_id,
+                    )
+                    self.session.conversation.append_assistant_message(completed_message)
 
-            elif model_event.type == ModelEventType.ERROR:
-                await self.session.emit(
-                    RuntimeEventType.ERROR,
-                    dict(model_event.payload),
-                    turn_id=self.turn_id,
-                )
-                await self._abort("model_error", str(model_event.payload.get("message", "")))
-                return
+                elif model_event.type == ModelEventType.TOKEN_COUNT:
+                    await self.session.emit(
+                        RuntimeEventType.TOKEN_COUNT,
+                        dict(model_event.payload),
+                        turn_id=self.turn_id,
+                    )
 
-            elif model_event.type == ModelEventType.COMPLETED:
-                break
+                elif model_event.type == ModelEventType.TOOL_CALL:
+                    tool_was_called = True
+                    await self._run_tool_call(model_event.payload)
+                    break
 
-        answer = completed_message
-        if answer is None:
-            answer = "".join(assistant_parts)
-            if answer:
-                await self.session.emit(
-                    RuntimeEventType.ASSISTANT_MESSAGE,
-                    {"text": answer},
-                    turn_id=self.turn_id,
-                )
-                self.session.conversation.append_assistant_message(answer)
+                elif model_event.type == ModelEventType.ERROR:
+                    await self.session.emit(
+                        RuntimeEventType.ERROR,
+                        dict(model_event.payload),
+                        turn_id=self.turn_id,
+                    )
+                    await self._abort("model_error", str(model_event.payload.get("message", "")))
+                    return
+
+                elif model_event.type == ModelEventType.COMPLETED:
+                    break
+
+            if tool_was_called:
+                self.step_count += 1
+                continue
+
+            if completed_message is None:
+                completed_message = "".join(assistant_parts)
+                if completed_message:
+                    await self.session.emit(
+                        RuntimeEventType.ASSISTANT_MESSAGE,
+                        {"text": completed_message},
+                        turn_id=self.turn_id,
+                    )
+                    self.session.conversation.append_assistant_message(completed_message)
+
+            answer = completed_message or ""
+            break
 
         self.status = TurnStatus.FINISHED
         await self.session.emit(
@@ -131,6 +144,54 @@ class Turn:
                 "duration_ms": int((monotonic() - started_at) * 1000),
             },
             turn_id=self.turn_id,
+        )
+
+    async def _run_tool_call(self, payload: dict) -> ToolResult:
+        call = self._build_tool_call(payload)
+        await self.session.emit(
+            RuntimeEventType.MODEL_TOOL_CALL,
+            call.model_dump(mode="json"),
+            turn_id=self.turn_id,
+        )
+        self.session.conversation.append_model_tool_call(
+            call.call_id,
+            call.name,
+            str(call.arguments),
+        )
+
+        result: ToolResult | None = None
+        async for runner_event in self.session.tool_runner.run(call, self.context):
+            await self.session.emit(
+                runner_event.type,
+                runner_event.payload,
+                turn_id=self.turn_id,
+            )
+            if runner_event.type == RuntimeEventType.TOOL_CALL_FINISHED:
+                result = ToolResult.model_validate(runner_event.payload["result"])
+
+        if result is None:
+            result = ToolResult(
+                success=False,
+                content="Tool did not produce a result.",
+                error="tool_result_missing",
+            )
+
+        self.session.conversation.append_tool_result(
+            call.call_id,
+            call.name,
+            result.content,
+        )
+        return result
+
+    @staticmethod
+    def _build_tool_call(payload: dict) -> ToolCall:
+        if "call_id" in payload and "name" in payload:
+            return ToolCall.model_validate(payload)
+
+        return ToolCall(
+            call_id=str(payload.get("call_id", "")) or "call_auto",
+            name=str(payload.get("name") or payload.get("tool")),
+            arguments=dict(payload.get("arguments") or payload.get("args") or {}),
         )
 
     def _build_context(self) -> TurnContext:
