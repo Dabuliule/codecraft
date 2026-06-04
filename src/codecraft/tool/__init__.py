@@ -1,4 +1,4 @@
-from codecraft.tool.builtin import ListFilesTool, ReadFileTool
+from codecraft.tool.builtin import ListFilesTool, ReadFileTool, WriteFileTool
 from codecraft.tool.base import BaseTool, ToolContext
 from codecraft.tool.provider import ToolProvider
 from codecraft.tool.registry import ToolRegistry
@@ -15,4 +15,5 @@ __all__ = [
     "ToolRunner",
     "ToolRunnerEvent",
     "WorkspaceGuard",
+    "WriteFileTool",
 ]

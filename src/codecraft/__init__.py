@@ -49,6 +49,7 @@ from codecraft.tool import (
     ToolRegistry,
     ToolRunner,
     WorkspaceGuard,
+    WriteFileTool,
 )
 
 __all__ = [
@@ -95,5 +96,6 @@ __all__ = [
     "TurnContext",
     "WorkspaceAccessError",
     "WorkspaceGuard",
+    "WriteFileTool",
     "new_id",
 ]

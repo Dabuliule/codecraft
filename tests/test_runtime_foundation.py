@@ -32,6 +32,7 @@ from codecraft import (
     ToolSpec,
     TurnContext,
     WorkspaceGuard,
+    WriteFileTool,
     new_id,
 )
 from codecraft.tool import ToolContext
@@ -201,6 +202,95 @@ def test_read_file_and_list_files_tools(tmp_path):
         assert read_result.data["line_count"] == 1
         assert list_result.success is True
         assert list_result.content == "note.txt"
+
+    asyncio.run(run_test())
+
+
+def test_write_file_tool_creates_and_updates_workspace_file(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        tool = WriteFileTool()
+        call = ToolCall(
+            call_id="call_write",
+            name="write_file",
+            arguments={"path": "notes/out.txt", "content": "hello", "create_parent_dirs": True},
+        )
+
+        created = await tool.arun(
+            tool.args_schema.model_validate(call.arguments),
+            ToolContext(context=context, call=call),
+        )
+        updated_call = ToolCall(
+            call_id="call_write_2",
+            name="write_file",
+            arguments={"path": "notes/out.txt", "content": "hello again"},
+        )
+        updated = await tool.arun(
+            tool.args_schema.model_validate(updated_call.arguments),
+            ToolContext(context=context, call=updated_call),
+        )
+
+        assert (tmp_path / "notes" / "out.txt").read_text(encoding="utf-8") == "hello again"
+        assert created.success is True
+        assert created.data["status"] == "created"
+        assert updated.success is True
+        assert updated.data["status"] == "modified"
+        assert "-hello" in updated.data["diff"]
+        assert "+hello again" in updated.data["diff"]
+
+    asyncio.run(run_test())
+
+
+def test_write_file_tool_rejects_missing_parent_by_default(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        tool = WriteFileTool()
+        call = ToolCall(
+            call_id="call_write",
+            name="write_file",
+            arguments={"path": "missing/out.txt", "content": "hello"},
+        )
+
+        result = await tool.arun(
+            tool.args_schema.model_validate(call.arguments),
+            ToolContext(context=context, call=call),
+        )
+
+        assert result.success is False
+        assert result.error == "parent_directory_missing"
+        assert not (tmp_path / "missing" / "out.txt").exists()
 
     asyncio.run(run_test())
 
@@ -587,5 +677,58 @@ def test_runtime_records_failed_unknown_tool(tmp_path):
         assert finished.payload["result"]["success"] is False
         assert finished.payload["result"]["error"] == "tool_not_found"
         assert snapshot.events[-1].type == RuntimeEventType.TURN_FINISHED
+
+    asyncio.run(run_test())
+
+
+def test_runtime_executes_write_file_tool_call(tmp_path):
+    async def run_test() -> None:
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_write",
+                        "name": "write_file",
+                        "arguments": {
+                            "path": "generated.txt",
+                            "content": "created by runtime",
+                        },
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "Wrote generated.txt"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([WriteFileTool()]),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "write file"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert (tmp_path / "generated.txt").read_text(encoding="utf-8") == "created by runtime"
+        assert [event.type for event in snapshot.events] == [
+            RuntimeEventType.SESSION_STARTED,
+            RuntimeEventType.TURN_STARTED,
+            RuntimeEventType.USER_MESSAGE,
+            RuntimeEventType.MODEL_TOOL_CALL,
+            RuntimeEventType.TOOL_CALL_STARTED,
+            RuntimeEventType.TOOL_CALL_FINISHED,
+            RuntimeEventType.ASSISTANT_MESSAGE,
+            RuntimeEventType.TURN_FINISHED,
+        ]
+        finished = snapshot.events[5]
+        assert finished.payload["result"]["success"] is True
+        assert finished.payload["result"]["data"]["status"] == "created"
+        assert provider.calls[1][0][-1].content.startswith("created ")
 
     asyncio.run(run_test())
