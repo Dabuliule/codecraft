@@ -4,7 +4,8 @@ import asyncio
 from enum import StrEnum
 from typing import Any
 
-from codecraft.approval.manager import ApprovalManager
+from codecraft.approval.manager import ApprovalDecision, ApprovalManager
+from codecraft.approval.thread_reviewer import ThreadApprovalReviewer
 from codecraft.core.conversation import Conversation
 from codecraft.core.event_bus import EventBus
 from codecraft.core.ids import new_id
@@ -53,7 +54,8 @@ class Session:
         self.seq = seq
         self.llm_provider = llm_provider
         self.tool_registry = tool_registry
-        self.approval_manager = approval_manager or ApprovalManager()
+        self.approval_reviewer = ThreadApprovalReviewer()
+        self.approval_manager = approval_manager or ApprovalManager(reviewer=self.approval_reviewer)
         self.tool_runner = ToolRunner(tool_registry, approval_manager=self.approval_manager)
         self._emit_lock = asyncio.Lock()
         self._runner_task: asyncio.Task[None] | None = None
@@ -71,8 +73,24 @@ class Session:
             await self.interrupt(str(input.payload.get("reason", "user_interrupt")))
             return input.input_id
 
+        if input.type == SessionInputType.APPROVAL_DECISION:
+            self.submit_approval_decision(input)
+            return input.input_id
+
         await self.input_queue.put(input)
         return input.input_id
+
+    def submit_approval_decision(self, input: SessionInput) -> None:
+        decision = ApprovalDecision(
+            approval_id=str(input.payload["approval_id"]),
+            approved=bool(input.payload["approved"]),
+            reviewer="user",
+            reason=input.payload.get("reason"),
+        )
+        reviewer = self.approval_manager.reviewer
+        if not isinstance(reviewer, ThreadApprovalReviewer):
+            raise RuntimeError("current approval reviewer does not accept thread decisions")
+        reviewer.decide(decision)
 
     async def start_turn_if_idle(self) -> None:
         if self.status != SessionStatus.IDLE:

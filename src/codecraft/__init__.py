@@ -6,6 +6,7 @@ from codecraft.approval import (
     ApprovalRequest,
     ApprovalReviewer,
     AutoApprovalReviewer,
+    ThreadApprovalReviewer,
 )
 from codecraft.core import (
     ApprovalDeniedError,
@@ -113,6 +114,7 @@ __all__ = [
     "ToolResult",
     "ToolRunner",
     "ToolSpec",
+    "ThreadApprovalReviewer",
     "TurnContext",
     "WorkspaceAccessError",
     "WorkspaceGuard",

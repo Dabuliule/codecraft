@@ -35,6 +35,7 @@ from codecraft import (
     ToolRegistry,
     ToolResult,
     ToolSpec,
+    ThreadApprovalReviewer,
     TurnContext,
     WorkspaceGuard,
     WriteFileTool,
@@ -57,6 +58,13 @@ def make_config(tmp_path) -> SessionConfig:
         approval_policy="never",
         sandbox_mode="workspace_write",
     )
+
+
+async def next_event_of_type(thread, event_type: RuntimeEventType) -> RuntimeEvent:
+    while True:
+        event = await thread.next_event()
+        if event.type == event_type:
+            return event
 
 
 def test_runtime_event_is_json_serializable(tmp_path):
@@ -1102,5 +1110,120 @@ def test_tool_runner_denies_rejected_workspace_write(tmp_path):
         assert snapshot.events[6].payload["approved"] is False
         assert snapshot.events[7].payload["result"]["error"] == "approval_denied"
         assert snapshot.events[-1].type == RuntimeEventType.TURN_FINISHED
+
+    asyncio.run(run_test())
+
+
+def test_thread_approval_decision_allows_pending_tool_call(tmp_path):
+    async def run_test() -> None:
+        reviewer = ThreadApprovalReviewer()
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_write",
+                        "name": "write_file",
+                        "arguments": {"path": "approved.txt", "content": "yes"},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "Write approved"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([WriteFileTool()]),
+            approval_manager=ApprovalManager(
+                policy=ApprovalPolicy.ON_REQUEST,
+                reviewer=reviewer,
+            ),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "write approved"))
+        approval_event = await next_event_of_type(thread, RuntimeEventType.APPROVAL_REQUESTED)
+        assert thread.list_pending_approvals()[0].approval_id == approval_event.payload["approval_id"]
+
+        await thread.submit(
+            SessionInput.approval_decision(
+                "inp_approve",
+                approval_id=approval_event.payload["approval_id"],
+                approved=True,
+                reason="approved in test",
+            )
+        )
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert (tmp_path / "approved.txt").read_text(encoding="utf-8") == "yes"
+        decided = [
+            event
+            for event in snapshot.events
+            if event.type == RuntimeEventType.APPROVAL_DECIDED
+        ][0]
+        assert decided.payload["approved"] is True
+        assert decided.payload["reviewer"] == "user"
+
+    asyncio.run(run_test())
+
+
+def test_thread_approval_decision_denies_pending_tool_call(tmp_path):
+    async def run_test() -> None:
+        reviewer = ThreadApprovalReviewer()
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_write",
+                        "name": "write_file",
+                        "arguments": {"path": "denied.txt", "content": "no"},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "Write denied"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([WriteFileTool()]),
+            approval_manager=ApprovalManager(
+                policy=ApprovalPolicy.ON_REQUEST,
+                reviewer=reviewer,
+            ),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "write denied"))
+        approval_event = await next_event_of_type(thread, RuntimeEventType.APPROVAL_REQUESTED)
+        await thread.submit(
+            SessionInput.approval_decision(
+                "inp_deny",
+                approval_id=approval_event.payload["approval_id"],
+                approved=False,
+                reason="denied in test",
+            )
+        )
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert not (tmp_path / "denied.txt").exists()
+        finished = [
+            event
+            for event in snapshot.events
+            if event.type == RuntimeEventType.TOOL_CALL_FINISHED
+        ][0]
+        assert finished.payload["result"]["error"] == "approval_denied"
 
     asyncio.run(run_test())

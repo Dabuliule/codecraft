@@ -7,6 +7,7 @@ from codecraft.approval.manager import (
     AutoApprovalReviewer,
 )
 from codecraft.approval.policy import ApprovalPolicy
+from codecraft.approval.thread_reviewer import ThreadApprovalReviewer
 
 __all__ = [
     "ApprovalDecision",
@@ -16,4 +17,5 @@ __all__ = [
     "ApprovalRequest",
     "ApprovalReviewer",
     "AutoApprovalReviewer",
+    "ThreadApprovalReviewer",
 ]

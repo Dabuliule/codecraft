@@ -4,6 +4,8 @@ import asyncio
 from collections.abc import AsyncIterator
 
 from codecraft.core.session import Session, SessionStatus
+from codecraft.approval.manager import ApprovalRequest
+from codecraft.approval.thread_reviewer import ThreadApprovalReviewer
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 from codecraft.schema.input import SessionInput
 from codecraft.schema.session import SessionSnapshot
@@ -33,6 +35,12 @@ class AgentThread:
 
     async def close(self) -> None:
         await self.session.close()
+
+    def list_pending_approvals(self) -> list[ApprovalRequest]:
+        reviewer = self.session.approval_manager.reviewer
+        if isinstance(reviewer, ThreadApprovalReviewer):
+            return reviewer.list_pending()
+        return []
 
     async def read_snapshot(self) -> SessionSnapshot:
         events = await self.session.session_store.load_events(self.session.session_id)

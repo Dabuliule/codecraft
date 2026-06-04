@@ -27,3 +27,22 @@ class SessionInput(BaseModel):
             type=SessionInputType.USER_MESSAGE,
             payload={"text": text},
         )
+
+    @classmethod
+    def approval_decision(
+        cls,
+        input_id: str,
+        *,
+        approval_id: str,
+        approved: bool,
+        reason: str | None = None,
+    ) -> SessionInput:
+        return cls(
+            input_id=input_id,
+            type=SessionInputType.APPROVAL_DECISION,
+            payload={
+                "approval_id": approval_id,
+                "approved": approved,
+                "reason": reason,
+            },
+        )
