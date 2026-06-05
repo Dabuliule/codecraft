@@ -4,11 +4,15 @@ import asyncio
 
 from typer.testing import CliRunner
 
+from codecraft.cli import app as cli_app
 from codecraft.cli.app import app
+from codecraft.core.runtime import AgentRuntime
 from codecraft.core.ids import new_id
 from codecraft.core.session_store import SessionStore
+from codecraft.llm import LLMProviderRegistry, MockProvider, ModelEvent, ModelEventType
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 from codecraft.schema.session import SessionConfig, SessionSource
+from codecraft.tool import ToolRegistry
 
 
 runner = CliRunner()
@@ -103,3 +107,107 @@ def test_resume_last_prints_latest_session(tmp_path):
     assert result.exit_code == 0
     assert "session_id: ses_cli" in result.output
     assert "events: 2" in result.output
+
+
+def test_exec_command_runs_runtime_and_prints_answer(tmp_path, monkeypatch):
+    seen_configs: list[SessionConfig] = []
+
+    def fake_runtime(config: SessionConfig) -> AgentRuntime:
+        seen_configs.append(config)
+        return AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry(
+                [
+                    MockProvider(
+                        [
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_COMPLETED,
+                                payload={"text": "exec answer"},
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
+                        ]
+                    )
+                ]
+            ),
+            tool_registry=ToolRegistry(),
+        )
+
+    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
+
+    result = runner.invoke(
+        app,
+        [
+            "exec",
+            "answer",
+            "--provider",
+            "mock",
+            "--model",
+            "mock-model",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "exec answer" in result.output
+    assert seen_configs[0].model_provider == "mock"
+    assert seen_configs[0].model == "mock-model"
+
+    sessions_result = runner.invoke(
+        app,
+        ["sessions", "--codecraft-home", str(tmp_path / ".codecraft")],
+    )
+    assert sessions_result.exit_code == 0
+    assert "events=5" in sessions_result.output
+
+
+def test_exec_command_loads_config_file_defaults(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[model]
+provider = "mock"
+name = "configured-model"
+""",
+        encoding="utf-8",
+    )
+    seen_configs: list[SessionConfig] = []
+
+    def fake_runtime(config: SessionConfig) -> AgentRuntime:
+        seen_configs.append(config)
+        return AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry(
+                [
+                    MockProvider(
+                        [
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_COMPLETED,
+                                payload={"text": "configured answer"},
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
+                        ]
+                    )
+                ]
+            ),
+            tool_registry=ToolRegistry(),
+        )
+
+    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
+
+    result = runner.invoke(
+        app,
+        [
+            "exec",
+            "answer",
+            "--config",
+            str(config_path),
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "configured answer" in result.output
+    assert seen_configs[0].model_provider == "mock"
+    assert seen_configs[0].model == "configured-model"
