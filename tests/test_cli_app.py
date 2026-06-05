@@ -97,6 +97,87 @@ def test_inspect_command_prints_summary_and_events(tmp_path):
     assert "2 turn_finished" in result.output
 
 
+def test_inspect_command_prints_tool_and_error_summaries(tmp_path):
+    async def seed() -> SessionConfig:
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        await store.create_session(config)
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                seq=1,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": config.model_dump(mode="json")},
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_cli",
+                seq=2,
+                type=RuntimeEventType.MODEL_TOOL_CALL,
+                payload={
+                    "call_id": "call_read",
+                    "name": "read_file",
+                    "arguments": {"path": "README.md"},
+                },
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_cli",
+                seq=3,
+                type=RuntimeEventType.TOOL_CALL_FINISHED,
+                payload={
+                    "call_id": "call_read",
+                    "name": "read_file",
+                    "result": {
+                        "success": False,
+                        "content": "File does not exist.",
+                        "error": "file_not_found",
+                        "metadata": {},
+                    },
+                    "duration_ms": 4,
+                },
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_cli",
+                seq=4,
+                type=RuntimeEventType.ERROR,
+                payload={"message": "runtime failed"},
+            )
+        )
+        return config
+
+    config = asyncio.run(seed())
+
+    result = runner.invoke(
+        app,
+        [
+            "inspect",
+            config.session_id,
+            "--codecraft-home",
+            str(config.codecraft_home),
+            "--tools",
+            "--errors",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "2 model_tool_call read_file args={'path': 'README.md'}" in result.output
+    assert "3 [tool] read_file failed (4ms): File does not exist." in result.output
+    assert "3 tool_error read_file" in result.output
+    assert "4 error turn=turn_cli" in result.output
+
+
 def test_resume_last_prints_latest_session(tmp_path):
     config = seed_session(tmp_path)
 
@@ -390,3 +471,4 @@ def test_exec_command_prints_bash_approval_details(tmp_path, monkeypatch):
     assert "[approval] bash" in result.output
     assert "command: python -c 'print(1)'" in result.output
     assert "Approve?" in result.output
+    assert "[tool] bash failed" in result.output

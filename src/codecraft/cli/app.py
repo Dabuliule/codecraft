@@ -174,6 +174,14 @@ def inspect(
         bool,
         typer.Option("--events", help="Print every event."),
     ] = False,
+    tools: Annotated[
+        bool,
+        typer.Option("--tools", help="Print tool call summaries."),
+    ] = False,
+    errors: Annotated[
+        bool,
+        typer.Option("--errors", help="Print error and aborted events."),
+    ] = False,
 ) -> None:
     loaded = asyncio.run(_load_events(codecraft_home, session_id))
     typer.echo(f"session_id: {session_id}")
@@ -190,6 +198,10 @@ def inspect(
             typer.echo(
                 f"{event.seq} {event.type} turn={event.turn_id or '-'} payload={event.payload}"
             )
+    if tools:
+        _print_tool_events(loaded)
+    if errors:
+        _print_error_events(loaded)
 
 
 async def _latest_summary(codecraft_home: Path):
@@ -357,6 +369,8 @@ async def _consume_turn(thread) -> int:
                     typer.echo(text)
             elif event.type == RuntimeEventType.TOOL_CALL_STARTED:
                 typer.echo(_format_tool_started(event.payload))
+            elif event.type == RuntimeEventType.TOOL_CALL_FINISHED:
+                typer.echo(_format_tool_finished(event.payload))
             elif event.type == RuntimeEventType.APPROVAL_REQUESTED:
                 _print_approval_request(event.payload)
                 approved = typer.confirm("Approve?", default=False)
@@ -410,6 +424,19 @@ def _format_tool_started(payload: dict) -> str:
     return f"[tool] {name}"
 
 
+def _format_tool_finished(payload: dict) -> str:
+    name = payload.get("name")
+    result = payload.get("result")
+    duration_ms = payload.get("duration_ms")
+    if not isinstance(result, dict):
+        return f"[tool] {name} finished"
+
+    status = "ok" if result.get("success") is True else "failed"
+    content = _preview(str(result.get("content") or result.get("error") or ""))
+    duration = f" ({duration_ms}ms)" if isinstance(duration_ms, int) else ""
+    return f"[tool] {name} {status}{duration}: {content}"
+
+
 def _print_approval_request(payload: dict) -> None:
     tool_name = payload.get("tool_name")
     typer.echo(f"[approval] {tool_name} risk={payload.get('risk')} reason={payload.get('reason')}")
@@ -421,6 +448,38 @@ def _print_approval_request(payload: dict) -> None:
             typer.echo(f"command: {command}")
         if isinstance(cwd, str) and cwd:
             typer.echo(f"cwd: {cwd}")
+
+
+def _print_tool_events(events: list[RuntimeEvent]) -> None:
+    for event in events:
+        if event.type == RuntimeEventType.MODEL_TOOL_CALL:
+            typer.echo(
+                f"{event.seq} model_tool_call {event.payload.get('name')} "
+                f"args={event.payload.get('arguments')}"
+            )
+        elif event.type == RuntimeEventType.TOOL_CALL_STARTED:
+            typer.echo(f"{event.seq} {_format_tool_started(event.payload)}")
+        elif event.type == RuntimeEventType.TOOL_CALL_FINISHED:
+            typer.echo(f"{event.seq} {_format_tool_finished(event.payload)}")
+
+
+def _print_error_events(events: list[RuntimeEvent]) -> None:
+    for event in events:
+        if event.type == RuntimeEventType.ERROR:
+            typer.echo(f"{event.seq} error turn={event.turn_id or '-'} payload={event.payload}")
+        elif event.type == RuntimeEventType.TURN_ABORTED:
+            typer.echo(f"{event.seq} aborted turn={event.turn_id or '-'} payload={event.payload}")
+        elif event.type == RuntimeEventType.TOOL_CALL_FINISHED:
+            result = event.payload.get("result")
+            if isinstance(result, dict) and result.get("success") is False:
+                typer.echo(f"{event.seq} tool_error {event.payload.get('name')} payload={result}")
+
+
+def _preview(value: str, *, max_chars: int = 160) -> str:
+    compact = " ".join(value.split())
+    if len(compact) <= max_chars:
+        return compact
+    return compact[: max_chars - 3] + "..."
 
 
 def _build_runtime(config: SessionConfig) -> AgentRuntime:
