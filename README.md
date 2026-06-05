@@ -1,268 +1,278 @@
 # CodeCraft
 
-`CodeCraft` 是一个面向代码仓库的开源 Coding Agent，重点不在封装某个大模型接口，而在把 Agent 执行过程拆成可治理、可观察、可扩展的运行时闭环。
+[中文文档](README.zh-CN.md)
 
-项目围绕一个核心问题展开：
+CodeCraft is a local coding-agent runtime for working inside a repository. It is focused on the runtime pieces that make an agent governable: configuration, prompt/instruction loading, model providers, tool execution, approval, session event logs, resume, and inspection.
 
-> 当 LLM 需要调用本地工具完成任务时，Runtime 如何接管工具调度、审批拦截、事件输出和执行轨迹，而不是把所有风险都交给模型自由发挥？
+The project is currently being rebuilt toward a v1.0 runtime. It already runs real multi-turn CLI sessions with Qwen or OpenAI-compatible providers, but it is still an application-level sandbox, not an OS-level isolation system.
 
-当前版本已经实现了单 Agent 的 step loop、Tool 注册与解析、执行前审批拦截、CLI 审批、事件流式输出、JSONL trace、CLI 交互和基础测试。后续会继续补强工作目录沙箱、端到端测试和更多 LLM provider。
+## What It Does
 
-## 当前能力
+- Runs coding tasks from the CLI with `exec`, `chat`, and `resume`.
+- Loads configuration from user, profile, project, and explicit config files.
+- Injects runtime instructions from built-in instructions plus `AGENTS.md` / `CODECRAFT.md`.
+- Calls OpenAI-compatible providers, including Qwen and OpenAI.
+- Exposes tools to the model through structured tool schemas, not by hardcoding tool descriptions into the prompt.
+- Executes all tool calls through `ToolRunner`.
+- Gates write, patch, bash, and risky commands through approval policy.
+- Stores session events as JSONL under `~/.codecraft/sessions`.
+- Reconstructs conversation history from session events for resume.
+- Provides CLI inspection for events, tools, errors, raw logs, and invalid sessions.
 
-- **Step-based Agent loop**：每轮由 Agent 基于当前 `AgentState` 生成 `Decision`，Runtime 调度工具并把结果写回状态。
-- **Tool abstraction**：通过 `BaseTool` 统一工具 schema、参数校验、timeout、retry、异常归一化和返回格式。
-- **Tool provider / registry**：工具由 `ToolProvider` 暴露，`ToolRegistry` 负责注册、按名称查找和按 tag 分类。
-- **Approval gate before execution**：`ApprovalGate` 通过 `ApprovalPolicy` 判断工具调用是否需要人工审批，批准或编辑后才交给 `ToolExecutor` 执行。
-- **Workspace-constrained filesystem**：内置文件系统工具会把路径解析到 workspace 内，拒绝 `..` 或绝对路径逃逸。
-- **Streaming runtime events**：运行时输出 `thought`、`tool_call`、`tool_execution`、`observation`、`final_result` 等事件。
-- **JSONL trace output**：CLI 运行时会把 RuntimeEvent 写入 `.codecraft/traces/{trace_id}.jsonl`，并支持 `/trace` 查看当前摘要。
-- **CLI interaction**：提供 `codecraft` 命令，支持 Rich 渲染、verbose 模式和 `/status`、`/history` 等 slash command。
-- **Pluggable LLM layer**：当前提供 Qwen/OpenAI-compatible provider，后续计划补充 mock provider 和更多模型适配。
+## Current CLI
 
-## 架构总览
+Run a single task:
+
+```zsh
+uv run codecraft exec "summarize this repository"
+```
+
+Start a multi-turn session:
+
+```zsh
+uv run codecraft chat
+```
+
+Resume the latest valid session:
+
+```zsh
+uv run codecraft resume --last
+```
+
+Print only the latest valid session summary:
+
+```zsh
+uv run codecraft resume --last --summary
+```
+
+List valid sessions:
+
+```zsh
+uv run codecraft sessions
+```
+
+List valid and invalid sessions:
+
+```zsh
+uv run codecraft sessions --all
+```
+
+Inspect a session:
+
+```zsh
+uv run codecraft inspect <session_id>
+uv run codecraft inspect <session_id> --events
+uv run codecraft inspect <session_id> --tools
+uv run codecraft inspect <session_id> --errors
+uv run codecraft inspect <session_id> --raw
+```
+
+`inspect --raw` prints JSONL lines without validation, so it can diagnose a damaged session log.
+
+## Configuration
+
+CodeCraft uses TOML configuration. Precedence is highest to lowest:
 
 ```text
-User Task
-   |
-   v
-AgentRuntime
-   |
-   | builds / updates AgentState
-   v
-Agent
-   |
-   | LLM returns Decision(JSON)
-   v
-ToolCall
-   |
-   v
-ApprovalGate
-   |
-   v
-ApprovalPolicy / Runtime Pending Approval
-   |
-   v
-ToolExecutor
-   |
-   v
-ToolResolver -----> ToolRegistry -----> ToolProvider
-   |
-   v
-BaseTool.arun()
-   |
-   v
-ToolResult
-   |
-   v
-RuntimeEvent + Step History + Memory
+CLI explicit options / --config
+> project .codecraft/config.toml
+> profile ~/.codecraft/profiles/<name>.toml
+> user ~/.codecraft/config.toml
+> built-in defaults
 ```
 
-更详细的模块说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，关键设计取舍见 [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md)。
+Recommended user-level config:
 
-## 执行流程
+```toml
+# ~/.codecraft/config.toml
+[model]
+provider = "qwen"
+name = "qwen-plus"
+api_key_env = "DASHSCOPE_API_KEY"
 
-一次任务的典型执行顺序如下：
+[approval]
+policy = "on_request"
 
-1. 用户通过 CLI 输入任务。
-2. `AgentRuntime` 初始化 `AgentState`，包含任务目标、策略、历史步骤和压缩记忆。
-3. `Agent` 将当前状态、可用工具 schema 和输出 schema 组装成 prompt。
-4. LLM 返回结构化 `Decision`，其中包含 `rationale` 和单个 `ToolCall`。
-5. Runtime 依次发出 `ThoughtEvent` 和 `ToolCallEvent`。
-6. `ApprovalGate` 根据 `ApprovalPolicy` 判断是否需要人工审批。
-7. 需要审批时，Runtime 发出 `ApprovalRequestEvent` 并暂停当前 step，外部通过 `decide_approval()` 提交 approve / reject / edit 决策。
-8. `ApprovalGate` 执行已放行的 `ToolCall`。
-9. `ToolExecutor` 使用 `ToolResolver` 将 `ToolCall` 解析为确定工具和参数，并调用 `BaseTool.arun()`。
-10. Runtime 将 `ToolResult` 记录为 `Step`，发出 `ObservationEvent`。
-11. 如果工具是 `final_answer`，Runtime 生成 `AgentResult` 并发出 `FinalResultEvent`。
+[sandbox]
+mode = "workspace_write"
+network_access = false
 
-事件顺序通常是：
+[instructions]
+user = "Answer concisely."
+```
+
+Then set the API key through the environment:
+
+```zsh
+export DASHSCOPE_API_KEY="your key"
+```
+
+CodeCraft intentionally uses `api_key_env` instead of recommending plaintext API keys in TOML.
+
+Useful CLI overrides:
+
+```zsh
+uv run codecraft chat --provider qwen --model qwen-plus
+uv run codecraft chat --config ./my-config.toml
+uv run codecraft chat --profile work
+uv run codecraft chat --approval-policy on_request
+uv run codecraft chat --network
+```
+
+## Providers
+
+Current providers:
+
+- `qwen`
+- `openai`
+
+Both use an OpenAI-compatible provider base. Qwen is implemented as an OpenAI-compatible provider because DashScope exposes an OpenAI-compatible API surface for chat/function-style calls.
+
+Default built-in model settings:
+
+```toml
+[model]
+provider = "qwen"
+name = "qwen-plus"
+api_key_env = "DASHSCOPE_API_KEY"
+```
+
+## Prompt And Instructions
+
+Each model call receives a system message assembled from:
 
 ```text
-Thought -> ToolCall -> ToolExecution -> Observation -> ... -> FinalResult
+base_instructions
+project_instructions
+user_instructions
+turn_context
+conversation
 ```
 
-## 内置工具
-
-| Tool | 作用 | 操作类型 | 风险级别 |
-| --- | --- | --- | --- |
-| `read_file` | 读取本地文件 | read | low |
-| `write_file` | 写入或追加文件 | write | medium |
-| `delete_file` | 删除文件 | write / delete | medium |
-| `file_exists` | 检查路径是否存在 | read | low |
-| `list_dir` | 列出目录内容 | read | low |
-| `make_dir` | 创建目录 | write | medium |
-| `final_answer` | 输出最终回答 | response | low |
-| `shell_exec` | 通用 shell 入口 | generic | high |
-
-当前策略下，`shell_exec` 默认需要 CLI 审批；用户可以批准、拒绝，或在后续 UI 中扩展为编辑参数后批准。即使审批通过，`shell_exec` 也会限制 `cwd` 在 workspace 内、使用 `shell=False` 执行解析后的 argv、过滤环境变量、截断 stdout/stderr，并把非零退出码标记为失败。
-
-CLI 使用时，文件系统工具默认以启动 `codecraft` 命令时的当前目录作为 workspace，用户不需要额外配置。程序化嵌入 Runtime 时，也可以显式传入 workspace：
-
-```python
-from codecraft import create_tool_registry
-
-
-registry = create_tool_registry(workspace_root="/path/to/project")
-```
-
-## 目录结构
+Project instructions are loaded from these files inside the workspace:
 
 ```text
-.
-├── README.md
-├── docs/
-│   ├── ARCHITECTURE.md
-│   └── DESIGN_NOTES.md
-├── pyproject.toml
-├── src/
-│   └── codecraft/
-│       ├── cli/          # CLI、Rich 渲染、slash command
-│       ├── core/         # Runtime、Agent、ToolExecutor、EventBus
-│       ├── llm/          # LLM 抽象与 provider
-│       ├── policy/       # 审批规则
-│       ├── schema/       # Decision、State、Step、Event、Result
-│       └── tool/         # Tool 抽象、注册、解析、内置工具
-└── tests/
-    ├── test_event_bus.py
-    ├── test_rich_renderer.py
-    ├── test_slash.py
-    └── test_tool_registry.py
+AGENTS.md
+CODECRAFT.md
 ```
 
-## 安装
+CodeCraft searches upward from the current working directory within the workspace root. Nearby instruction files have higher priority.
 
-项目使用 Python 3.11+，推荐通过 `uv` 创建环境并 editable install。
+Tool schemas are not embedded in the prompt. They are passed through the provider `tools` parameter as structured schemas.
+
+## Built-In Tools
+
+Current tools:
+
+| Tool | Purpose | Notes |
+| --- | --- | --- |
+| `read_file` | Read a text file inside the workspace | Read-only |
+| `list_files` | List files/directories inside the workspace | Skips common noisy folders |
+| `write_file` | Write a text file inside the workspace | Requires approval |
+| `apply_patch` | Apply a unified diff inside the workspace | Requires approval |
+| `bash` | Run a shell command from inside the workspace | Command policy + approval |
+
+All tools execute through `ToolRunner`. `ToolRegistry` only registers and looks up tools; it does not execute them.
+
+## Approval And Safety
+
+Approval policies:
+
+| Policy | Behavior |
+| --- | --- |
+| `never` | Do not ask for approval |
+| `on_request` | Ask for tools/commands that require approval |
+| `untrusted` | Ask for side-effecting tools |
+
+The CLI prints approval details, including bash commands:
+
+```text
+[tool] bash: python -c 'print(1)'
+[approval] bash risk=prompt reason=unknown command requires approval
+command: python -c 'print(1)'
+Approve? [y/N]:
+```
+
+Command policy classifies obvious safe commands, prompt-required commands, denied commands, and network commands. `python --version` and `python -V` are safe; arbitrary Python commands require approval.
+
+Important boundary: CodeCraft v1.0 uses application-level workspace guards and command policy. It does not claim OS-level sandboxing.
+
+## Sessions And Resume
+
+Session events are stored as JSONL:
+
+```text
+~/.codecraft/sessions/YYYY/MM/DD/<session_id>.jsonl
+```
+
+The event log includes session, turn, user, assistant, model tool call, tool start/finish, approval, token, error, and finish events.
+
+`resume --last` loads the latest valid session, reconstructs conversation from events, and continues without replaying historical tools.
+
+If a session log is invalid, normal listing skips it. To see invalid logs:
+
+```zsh
+uv run codecraft sessions --all
+```
+
+To inspect a damaged log:
+
+```zsh
+uv run codecraft inspect <session_id> --raw
+```
+
+## Development
+
+Install and run from the repository:
 
 ```zsh
 uv pip install -e .
+uv run codecraft chat
 ```
 
-配置环境变量：
+Quality checks:
 
 ```zsh
-cp .env.example .env
+uv run ruff check .
+uv run pytest
 ```
 
-`.env` 中需要配置：
+Current test coverage includes runtime events, session store, resume, config loading, prompt injection, providers, tool runner, workspace tools, bash policy, approval flow, and CLI behavior.
+
+## Current Limitations
+
+- No OS-level sandbox.
+- No automatic pruning of invalid sessions yet.
+- No streaming token-by-token provider implementation yet; provider responses are converted into runtime events.
+- No web/GitHub/cloud tools in v1.0 scope.
+- `resume --last` resumes the latest valid session; targeted interactive resume by explicit session id is not implemented yet.
+
+## Runtime Shape
+
+High-level flow:
 
 ```text
-DASHSCOPE_API_KEY=your_api_key
-QWEN_MODEL=your_model_name
+CLI
+  -> ConfigLoader
+  -> AgentRuntime
+  -> AgentThread / Session / Turn
+  -> LLMProvider
+  -> ToolRunner
+  -> ApprovalManager
+  -> SessionStore JSONL events
 ```
 
-如果缺少上述配置，CLI 会在启动 provider 时给出明确错误提示。
+Core package layout:
 
-## 使用
-
-启动 CLI：
-
-```zsh
-codecraft
+```text
+src/codecraft/
+  approval/      approval policies and reviewers
+  cli/           Typer CLI
+  config/        TOML config models and loader
+  core/          runtime, sessions, turns, event log reconstruction
+  llm/           provider interfaces and OpenAI-compatible providers
+  prompt/        base instructions, project instruction loading, prompt builder
+  sandbox/       command and sandbox policy
+  schema/        runtime, session, input, and tool schemas
+  tool/          tool abstraction, registry, runner, built-in tools
 ```
-
-或直接运行：
-
-```zsh
-uv run codecraft
-```
-
-常用命令：
-
-| 命令 | 说明 |
-| --- | --- |
-| `/help` | 查看 CLI 命令 |
-| `/status` | 查看当前 AgentState 摘要 |
-| `/history` | 查看最近 step 轨迹 |
-| `/trace` | 查看当前 trace 文件摘要 |
-| `/verbose` | 切换详细事件输出 |
-| `/exit` | 退出 |
-
-离线查看 trace 摘要：
-
-```zsh
-uv run codecraft trace-summary .codecraft/traces/<trace_id>.jsonl
-uv run codecraft trace-summary <trace_id>
-```
-
-## 测试与质量检查
-
-```zsh
-uv run pytest
-uv run ruff check .
-```
-
-当前测试覆盖：
-
-- `EventBus` 异步事件分发顺序
-- `ToolRegistry` provider 注册、重复工具名校验、内置工具注册
-- CLI slash command 行为
-- Rich renderer 输出截断与 JSON 展示
-- JSONL trace 写入与 `/trace` 摘要
-
-待补强测试：
-
-- trace replay / summary 命令的端到端测试
-- 真实仓库示例的回归测试
-
-## 设计取舍
-
-### Runtime owns orchestration
-
-LLM 只负责生成结构化 `Decision`，不直接执行工具。Runtime 是唯一调度者，负责状态管理、审批治理、工具执行和事件输出。
-
-取舍：模型输出不合法时会快速失败，而不是尽量猜测修复。这样做牺牲了一部分容错性，但能保持执行权和审计边界清晰。
-
-### Tool is deterministic capability
-
-Tool 被建模为确定性执行单元，必须声明输入 schema、风险级别、前置条件、副作用和 tag。这样 Runtime 可以在执行前进行审批治理，而不是让 Agent 自由调用任意函数。
-
-取舍：新增能力需要写 Tool 和 Provider，不能随手塞函数进 Runtime。好处是 Tool 能被 registry、approval、trace 和测试统一处理。
-
-### Approval before execution
-
-所有工具调用都必须先经过 `ApprovalGate`，由 `ApprovalPolicy` 判断是否需要人工确认，再把已放行的调用交给 `ToolExecutor`。当前版本已经把 `shell_exec` 作为 high risk generic tool，并接入 CLI 用户确认；后续会加入更强的进程级沙箱和更细的权限级别。
-
-取舍：当前高风险 shell 调用必须由用户批准后才会恢复执行。这让行为更保守，但避免模型生成 shell 命令后被静默执行。
-
-### Events as integration boundary
-
-Runtime 不直接绑定某种 UI。CLI 只是订阅事件的一种 consumer。后续可以把同一套事件流接到 Web UI、trace viewer、日志系统或测试断言中。
-
-取舍：事件是运行过程的集成边界，不是完整状态数据库。JSONL trace 用于摘要、排障和回放展示；如果后续要支持恢复运行，需要单独设计 state persistence。
-
-更完整的设计说明见 [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md)。
-
-## 项目定位
-
-这个项目不是 LangChain 的替代品，也不是一个完整生产级 Agent 平台。当前定位是：
-
-- 构建面向代码仓库的开源 Coding Agent
-- 学习和展示 Coding Agent Runtime 的核心工程拆分
-- 验证工具治理、事件流和状态闭环的设计
-- 为后续扩展沙箱、审批、trace 和多 provider 打基础
-
-和直接调用 LLM function calling 相比，本项目更关注：
-
-- 工具执行权属于 Runtime，而不是模型
-- 审批治理独立于 Tool 实现
-- 每一步都有结构化事件和 step 记录
-- Tool 能被 provider 化注册和治理
-
-## 未来扩展
-
-上线前后优先考虑这些方向：
-
-- 完善 approval audit：记录更完整的审批上下文、决策人和恢复状态。
-- 更强执行隔离：为高风险工具补进程级沙箱、资源限制和审计日志。
-- State persistence：区分 trace 和可恢复 state，支持 resumable run。
-- 多 provider 策略：支持模型 provider 选择、fallback、超时和配额策略。
-- 可观测性增强：将 RuntimeEvent 接入 metrics、OpenTelemetry 或外部 trace viewer。
-- 更完整的测试矩阵：覆盖 CLI 端到端、provider 错误分支和审批路径。
-
-近期优先级：
-
-1. 强化高风险工具隔离和审计。
-2. 增加可恢复 state persistence。
-3. 扩展多 provider LLM 支持和 fallback 策略。
-4. 补 CLI 端到端测试和上线前回归场景。
