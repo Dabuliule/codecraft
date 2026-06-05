@@ -35,6 +35,9 @@ from codecraft.llm import (
     ModelMessage,
     ModelRole,
     MockProvider,
+    OpenAICompatibleProvider,
+    OpenAIProvider,
+    QwenProvider,
 )
 from codecraft.schema import (
     RuntimeEvent,
@@ -91,6 +94,9 @@ __all__ = [
     "ModelProviderError",
     "ModelRole",
     "MockProvider",
+    "OpenAICompatibleProvider",
+    "OpenAIProvider",
+    "QwenProvider",
     "RuntimeEvent",
     "RuntimeEventType",
     "ReadFileTool",

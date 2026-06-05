@@ -23,6 +23,9 @@ from codecraft import (
     ModelMessage,
     ModelRole,
     MockProvider,
+    OpenAICompatibleProvider,
+    OpenAIProvider,
+    QwenProvider,
     ReadFileTool,
     RuntimeEvent,
     RuntimeEventType,
@@ -562,6 +565,158 @@ def test_llm_provider_stream_contract(tmp_path):
         ModelEventType.COMPLETED,
     ]
     assert events[0].payload["text"] == "hello"
+
+
+def test_openai_provider_converts_response_to_model_events(tmp_path):
+    class FakeResponses:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        async def create(self, **kwargs):
+            self.kwargs = kwargs
+            return {
+                "output": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_read",
+                        "name": "read_file",
+                        "arguments": {"path": "README.md"},
+                    },
+                    {
+                        "type": "message",
+                        "content": [{"text": "done"}],
+                    },
+                ],
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "reasoning_tokens": 2,
+                },
+            }
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.responses = FakeResponses()
+
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model="gpt-test",
+            model_provider="openai",
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[
+                ToolSpec(
+                    name="read_file",
+                    description="Read file.",
+                    input_schema={"type": "object"},
+                )
+            ],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        client = FakeClient()
+        provider = OpenAIProvider(client=client)
+
+        events = [
+            event
+            async for event in provider.stream(
+                [ModelMessage(role=ModelRole.USER, content="read")],
+                context.available_tools,
+                context,
+            )
+        ]
+
+        assert client.responses.kwargs["model"] == "gpt-test"
+        assert client.responses.kwargs["input"] == [{"role": "user", "content": "read"}]
+        assert client.responses.kwargs["tools"][0]["name"] == "read_file"
+        assert [event.type for event in events] == [
+            ModelEventType.MESSAGE_COMPLETED,
+            ModelEventType.TOOL_CALL,
+            ModelEventType.TOKEN_COUNT,
+            ModelEventType.COMPLETED,
+        ]
+        assert events[0].payload["text"] == "done"
+        assert events[1].payload["arguments"] == {"path": "README.md"}
+        assert events[2].payload["total_tokens"] == 17
+
+    asyncio.run(run_test())
+
+
+def test_qwen_provider_uses_openai_compatible_response_conversion(tmp_path):
+    class FakeResponses:
+        async def create(self, **kwargs):
+            return {
+                "output_text": "qwen answer",
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 4,
+                },
+            }
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.responses = FakeResponses()
+
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model="qwen-plus",
+            model_provider="qwen",
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        provider = QwenProvider(client=FakeClient())
+
+        events = [
+            event
+            async for event in provider.stream(
+                [ModelMessage(role=ModelRole.USER, content="hello")],
+                [],
+                context,
+            )
+        ]
+
+        assert [event.type for event in events] == [
+            ModelEventType.MESSAGE_COMPLETED,
+            ModelEventType.TOKEN_COUNT,
+            ModelEventType.COMPLETED,
+        ]
+        assert events[0].payload["text"] == "qwen answer"
+        assert events[1].payload["total_tokens"] == 7
+
+    asyncio.run(run_test())
+
+
+def test_openai_and_qwen_share_compatible_provider_base():
+    assert isinstance(OpenAIProvider(client=object()), OpenAICompatibleProvider)
+    assert isinstance(QwenProvider(client=object()), OpenAICompatibleProvider)
+    assert not isinstance(QwenProvider(client=object()), OpenAIProvider)
+
+
+def test_qwen_provider_requires_dashscope_api_key(monkeypatch):
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    provider = QwenProvider()
+
+    with pytest.raises(Exception, match="DASHSCOPE_API_KEY"):
+        provider._default_client()
 
 
 def test_session_store_appends_loads_lists_and_resumes(tmp_path):
