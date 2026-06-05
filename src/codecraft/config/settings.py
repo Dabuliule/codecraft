@@ -33,8 +33,13 @@ class PathsSettings(BaseModel):
         return value.expanduser()
 
 
+class InstructionSettings(BaseModel):
+    user: str | None = None
+
+
 class RuntimeSettings(BaseModel):
     model: ModelSettings = Field(default_factory=ModelSettings)
     approval: ApprovalSettings = Field(default_factory=ApprovalSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
+    instructions: InstructionSettings = Field(default_factory=InstructionSettings)

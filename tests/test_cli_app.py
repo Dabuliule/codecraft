@@ -168,6 +168,9 @@ def test_exec_command_loads_config_file_defaults(tmp_path, monkeypatch):
 [model]
 provider = "mock"
 name = "configured-model"
+
+[instructions]
+user = "Be terse."
 """,
         encoding="utf-8",
     )
@@ -211,6 +214,7 @@ name = "configured-model"
     assert "configured answer" in result.output
     assert seen_configs[0].model_provider == "mock"
     assert seen_configs[0].model == "configured-model"
+    assert seen_configs[0].user_instructions == "Be terse."
 
 
 def test_chat_command_runs_multiple_turns_until_exit(tmp_path, monkeypatch):

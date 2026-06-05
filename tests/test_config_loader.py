@@ -39,6 +39,9 @@ provider = "qwen"
 
 [sandbox]
 network_access = true
+
+[instructions]
+user = "Always answer in Chinese."
 """,
         encoding="utf-8",
     )
@@ -61,6 +64,7 @@ policy = "untrusted"
     assert settings.model.name == "qwen-cli"
     assert settings.approval.policy == "untrusted"
     assert settings.sandbox.network_access is True
+    assert settings.instructions.user == "Always answer in Chinese."
 
 
 def test_config_loader_uses_builtin_defaults_when_files_are_missing(tmp_path):
@@ -72,3 +76,4 @@ def test_config_loader_uses_builtin_defaults_when_files_are_missing(tmp_path):
     assert settings.approval.policy == "on_request"
     assert settings.sandbox.mode == "workspace_write"
     assert settings.sandbox.network_access is False
+    assert settings.instructions.user is None

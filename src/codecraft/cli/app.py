@@ -307,6 +307,7 @@ def _load_session_config(
         approval_policy=settings.approval.policy,
         sandbox_mode=settings.sandbox.mode,
         network_access=settings.sandbox.network_access,
+        user_instructions=settings.instructions.user,
     )
 
 

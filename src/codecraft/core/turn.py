@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from codecraft.core.turn_context import TurnContext
 from codecraft.llm.events import ModelEventType
+from codecraft.prompt import PromptBuilder
 from codecraft.schema.event import RuntimeEventType
 from codecraft.schema.input import SessionInput
 from codecraft.schema.tool import ToolCall, ToolResult
@@ -38,6 +39,7 @@ class Turn:
         self.status = TurnStatus.CREATED
         self.step_count = 0
         self.cancel_requested = False
+        self.prompt_builder = PromptBuilder()
 
     async def run(self, user_input: SessionInput) -> None:
         started_at = monotonic()
@@ -67,7 +69,11 @@ class Turn:
             completed_message: str | None = None
 
             async for model_event in self.session.llm_provider.stream(
-                self.session.conversation.build_model_messages(),
+                self.prompt_builder.build(
+                    config=self.session.config,
+                    conversation=self.session.conversation,
+                    context=self.context,
+                ),
                 self.context.available_tools,
                 self.context,
             ):

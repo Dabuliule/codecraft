@@ -46,6 +46,7 @@ from codecraft import (
     new_id,
 )
 from codecraft.sandbox import CommandPolicy, CommandRisk
+from codecraft.prompt import InstructionLoader
 from codecraft.tool import ToolContext
 
 
@@ -205,6 +206,25 @@ def test_command_policy_classifies_safe_prompt_and_deny_commands():
     assert policy.classify("curl https://example.com").risk == CommandRisk.DENY
     assert policy.classify("curl https://example.com", network_access=True).risk == CommandRisk.PROMPT
     assert policy.classify("sudo true").risk == CommandRisk.DENY
+
+
+def test_instruction_loader_reads_workspace_instruction_files(tmp_path):
+    workspace = tmp_path / "workspace"
+    package = workspace / "pkg"
+    package.mkdir(parents=True)
+    (workspace / "AGENTS.md").write_text("root agents", encoding="utf-8")
+    (package / "CODECRAFT.md").write_text("package codecraft", encoding="utf-8")
+
+    loaded = InstructionLoader().load_project_instructions(
+        cwd=package,
+        workspace_roots=[workspace],
+    )
+
+    assert loaded is not None
+    assert "# pkg/CODECRAFT.md" in loaded
+    assert "package codecraft" in loaded
+    assert "# AGENTS.md" in loaded
+    assert loaded.index("package codecraft") < loaded.index("root agents")
 
 
 def test_workspace_guard_rejects_path_escape(tmp_path):
@@ -936,7 +956,8 @@ def test_agent_runtime_creates_thread_and_runs_basic_turn(tmp_path):
         ]
         assert [event.seq for event in snapshot.events] == list(range(1, 8))
         assert snapshot.events[-1].payload["answer"] == "hello runtime"
-        assert provider.calls[0][0][0].content == "say hello"
+        assert provider.calls[0][0][0].role == ModelRole.SYSTEM
+        assert provider.calls[0][0][1].content == "say hello"
 
     asyncio.run(run_test())
 
@@ -1020,7 +1041,7 @@ def test_runtime_resume_reconstructs_conversation_without_replaying_turn(tmp_pat
         assert restored.type == RuntimeEventType.SESSION_RESTORED
         assert len(first_provider.calls) == 1
         assert len(second_provider.calls) == 1
-        assert [message.content for message in second_provider.calls[0][0]] == [
+        assert [message.content for message in second_provider.calls[0][0][1:]] == [
             "first",
             "first answer",
             "second",
@@ -1081,23 +1102,61 @@ def test_runtime_resume_reconstructs_tool_call_and_result_history(tmp_path):
 
         assert len(first_provider.calls) == 2
         assert len(second_provider.calls) == 1
-        assert [message.content for message in second_provider.calls[0][0]] == [
+        messages = second_provider.calls[0][0]
+        assert [message.content for message in messages[1:]] == [
             "read note",
             '{"path":"note.txt"}',
             "resume sees tool result",
             "first answer",
             "continue",
         ]
-        assert [message.role.value for message in second_provider.calls[0][0]] == [
+        assert [message.role.value for message in messages[1:]] == [
             "user",
             "assistant",
             "tool",
             "assistant",
             "user",
         ]
-        assert second_provider.calls[0][0][1].type == ModelMessageType.FUNCTION_CALL
-        assert second_provider.calls[0][0][1].arguments == {"path": "note.txt"}
-        assert second_provider.calls[0][0][2].type == ModelMessageType.FUNCTION_CALL_OUTPUT
+        assert messages[2].type == ModelMessageType.FUNCTION_CALL
+        assert messages[2].arguments == {"path": "note.txt"}
+        assert messages[3].type == ModelMessageType.FUNCTION_CALL_OUTPUT
+
+    asyncio.run(run_test())
+
+
+def test_runtime_injects_system_instructions_before_conversation(tmp_path):
+    async def run_test() -> None:
+        (tmp_path / "AGENTS.md").write_text("Project rule: inspect files first.", encoding="utf-8")
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "answer"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path).model_copy(
+            update={"user_instructions": "User rule: answer briefly."}
+        )
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([ReadFileTool()]),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_one", "hello"))
+        await thread.wait_until_idle()
+
+        messages = provider.calls[0][0]
+        assert messages[0].role == ModelRole.SYSTEM
+        assert "<base_instructions>" in messages[0].content
+        assert "Project rule: inspect files first." in messages[0].content
+        assert "User rule: answer briefly." in messages[0].content
+        assert "approval_policy: never" in messages[0].content
+        assert messages[1].role == ModelRole.USER
+        assert messages[1].content == "hello"
 
     asyncio.run(run_test())
 
@@ -1155,11 +1214,13 @@ def test_runtime_resume_uses_context_compaction_summary(tmp_path):
         await resumed.submit(SessionInput.user_message("inp_two", "new user"))
         await resumed.wait_until_idle()
 
-        assert [message.content for message in provider.calls[0][0]] == [
+        messages = provider.calls[0][0]
+        assert "<base_instructions>" in messages[0].content
+        assert [message.content for message in messages[1:]] == [
             "old conversation summary",
             "new user",
         ]
-        assert [message.role.value for message in provider.calls[0][0]] == [
+        assert [message.role.value for message in messages[1:]] == [
             "system",
             "user",
         ]
@@ -1213,13 +1274,14 @@ def test_runtime_executes_read_file_tool_call_and_continues_turn(tmp_path):
         assert finished.payload["result"]["success"] is True
         assert finished.payload["result"]["content"] == "tool loop works"
         assert snapshot.events[-1].payload["steps"] == 1
-        assert [message.content for message in provider.calls[1][0]] == [
+        messages = provider.calls[1][0]
+        assert [message.content for message in messages[1:]] == [
             "read note",
             '{"path":"note.txt"}',
             "tool loop works",
         ]
-        assert provider.calls[1][0][1].type == ModelMessageType.FUNCTION_CALL
-        assert provider.calls[1][0][2].type == ModelMessageType.FUNCTION_CALL_OUTPUT
+        assert messages[2].type == ModelMessageType.FUNCTION_CALL
+        assert messages[3].type == ModelMessageType.FUNCTION_CALL_OUTPUT
 
     asyncio.run(run_test())
 
