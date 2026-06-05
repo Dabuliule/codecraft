@@ -6,6 +6,7 @@ from typing import Any
 
 from codecraft.approval.manager import ApprovalDecision, ApprovalManager
 from codecraft.approval.thread_reviewer import ThreadApprovalReviewer
+from codecraft.core.errors import CodecraftError
 from codecraft.core.conversation import Conversation
 from codecraft.core.event_bus import EventBus
 from codecraft.core.ids import new_id
@@ -155,19 +156,18 @@ class Session:
             await turn.run(user_input)
         except Exception as exc:
             self.status = SessionStatus.FAILED
+            error_payload = self._error_payload(exc)
             await self.emit(
                 RuntimeEventType.ERROR,
-                {
-                    "code": "runtime_error",
-                    "message": str(exc),
-                },
+                error_payload,
                 turn_id=turn.turn_id,
             )
             await self.emit(
                 RuntimeEventType.TURN_ABORTED,
                 {
-                    "reason": "runtime_error",
-                    "message": str(exc),
+                    "reason": error_payload["code"],
+                    "message": error_payload["message"],
+                    "metadata": error_payload.get("metadata", {}),
                     "steps": turn.step_count,
                 },
                 turn_id=turn.turn_id,
@@ -178,3 +178,19 @@ class Session:
                 if self.status != SessionStatus.FAILED:
                     self.status = SessionStatus.IDLE
                 await self.start_turn_if_idle()
+
+    @staticmethod
+    def _error_payload(exc: Exception) -> dict[str, Any]:
+        if isinstance(exc, CodecraftError):
+            return {
+                "code": exc.code,
+                "message": exc.message,
+                "metadata": exc.metadata,
+                "suggestion": exc.suggestion,
+            }
+        return {
+            "code": "runtime_error",
+            "message": str(exc),
+            "metadata": {},
+            "suggestion": None,
+        }

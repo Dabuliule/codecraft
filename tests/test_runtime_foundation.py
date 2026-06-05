@@ -31,6 +31,7 @@ from codecraft import (
     RuntimeEvent,
     RuntimeEventType,
     SessionConfig,
+    SessionError,
     SessionInput,
     SessionSource,
     SessionStore,
@@ -130,6 +131,44 @@ def test_session_emit_rolls_back_seq_when_append_fails(tmp_path):
 
         assert event.seq == 2
         assert [item.seq for item in loaded] == [1, 2]
+
+    asyncio.run(run_test())
+
+
+def test_session_turn_error_preserves_codecraft_error_metadata(tmp_path):
+    class FailingStore(SessionStore):
+        async def append_event(self, event: RuntimeEvent) -> None:
+            if event.type == RuntimeEventType.USER_MESSAGE:
+                raise SessionError(
+                    "failed to append session event",
+                    code="session_event_append_failed",
+                    metadata={
+                        "event_type": event.type.value,
+                        "seq": event.seq,
+                        "cause": "synthetic failure",
+                    },
+                )
+            await super().append_event(event)
+
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=FailingStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([MockProvider()]),
+            tool_registry=ToolRegistry(),
+        )
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "failed"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        error = snapshot.events[-2]
+        aborted = snapshot.events[-1]
+        assert error.type == RuntimeEventType.ERROR
+        assert error.payload["code"] == "session_event_append_failed"
+        assert error.payload["metadata"]["event_type"] == "user_message"
+        assert error.payload["metadata"]["cause"] == "synthetic failure"
+        assert aborted.payload["reason"] == "session_event_append_failed"
 
     asyncio.run(run_test())
 
