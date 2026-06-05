@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, Coroutine
 
 import typer
 
-from codecraft.approval import ApprovalManager, ApprovalPolicy
+from codecraft.approval import ApprovalManager, ApprovalPolicy, ThreadApprovalReviewer
 from codecraft.config import ConfigLoader, ConfigOverrides
 from codecraft.core.ids import new_id
 from codecraft.core.runtime import AgentRuntime
@@ -235,7 +235,7 @@ async def _run_chat(
     profile: str | None,
     approval_policy: ApprovalPolicy | None,
     network: bool | None,
-) -> int:
+) -> int | None:
     config = _load_session_config(
         source=SessionSource.CLI_CHAT,
         provider=provider,
@@ -254,14 +254,14 @@ async def _run_chat(
         try:
             text = typer.prompt("codecraft").strip()
         except (EOFError, KeyboardInterrupt):
-            await thread.close()
+            await _shutdown_thread(thread)
             typer.echo()
             return 0
 
         if not text:
             continue
         if text in {"/exit", "/quit", "exit", "quit"}:
-            await thread.close()
+            await _shutdown_thread(thread)
             return 0
 
         await thread.submit(SessionInput.user_message(new_id("inp_"), text))
@@ -312,40 +312,83 @@ def _load_session_config(
 
 
 async def _consume_turn(thread) -> int:
-    while True:
-        event = await thread.next_event()
-        if event.type == RuntimeEventType.ASSISTANT_MESSAGE_DELTA:
-            text = event.payload.get("text")
-            if isinstance(text, str):
-                typer.echo(text, nl=False)
-        elif event.type == RuntimeEventType.ASSISTANT_MESSAGE:
-            text = event.payload.get("text")
-            if isinstance(text, str):
-                typer.echo(text)
-        elif event.type == RuntimeEventType.TOOL_CALL_STARTED:
-            typer.echo(f"[tool] {event.payload.get('name')}")
-        elif event.type == RuntimeEventType.APPROVAL_REQUESTED:
-            approved = typer.confirm(
-                f"Approve {event.payload.get('tool_name')}? {event.payload.get('reason')}",
-                default=False,
-            )
-            await thread.submit(
-                SessionInput.approval_decision(
-                    new_id("inp_"),
-                    approval_id=str(event.payload["approval_id"]),
-                    approved=approved,
-                    reason="approved by CLI" if approved else "rejected by CLI",
+    try:
+        while True:
+            event = await thread.next_event()
+            if event.type == RuntimeEventType.ASSISTANT_MESSAGE_DELTA:
+                text = event.payload.get("text")
+                if isinstance(text, str):
+                    typer.echo(text, nl=False)
+            elif event.type == RuntimeEventType.ASSISTANT_MESSAGE:
+                text = event.payload.get("text")
+                if isinstance(text, str):
+                    typer.echo(text)
+            elif event.type == RuntimeEventType.TOOL_CALL_STARTED:
+                typer.echo(_format_tool_started(event.payload))
+            elif event.type == RuntimeEventType.APPROVAL_REQUESTED:
+                _print_approval_request(event.payload)
+                approved = typer.confirm("Approve?", default=False)
+                await thread.submit(
+                    SessionInput.approval_decision(
+                        new_id("inp_"),
+                        approval_id=str(event.payload["approval_id"]),
+                        approved=approved,
+                        reason="approved by CLI" if approved else "rejected by CLI",
+                    )
                 )
+            elif event.type == RuntimeEventType.ERROR:
+                typer.echo(f"error: {event.payload.get('message')}", err=True)
+            elif event.type == RuntimeEventType.TURN_FINISHED:
+                await thread.wait_until_idle()
+                return 0
+            elif event.type == RuntimeEventType.TURN_ABORTED:
+                typer.echo(f"aborted: {event.payload.get('message')}", err=True)
+                await thread.wait_until_idle()
+                return 1
+    except KeyboardInterrupt:
+        await _shutdown_thread(thread)
+        raise
+
+
+async def _shutdown_thread(thread) -> None:
+    for approval in thread.list_pending_approvals():
+        await thread.submit(
+            SessionInput.approval_decision(
+                new_id("inp_"),
+                approval_id=approval.approval_id,
+                approved=False,
+                reason="interrupted by CLI",
             )
-        elif event.type == RuntimeEventType.ERROR:
-            typer.echo(f"error: {event.payload.get('message')}", err=True)
-        elif event.type == RuntimeEventType.TURN_FINISHED:
-            await thread.wait_until_idle()
-            return 0
-        elif event.type == RuntimeEventType.TURN_ABORTED:
-            typer.echo(f"aborted: {event.payload.get('message')}", err=True)
-            await thread.wait_until_idle()
-            return 1
+        )
+    await thread.interrupt("interrupted by CLI")
+    await thread.close()
+    try:
+        await asyncio.wait_for(thread.wait_until_idle(), timeout=1)
+    except TimeoutError:
+        return
+
+
+def _format_tool_started(payload: dict) -> str:
+    name = payload.get("name")
+    arguments = payload.get("arguments")
+    if name == "bash" and isinstance(arguments, dict):
+        command = arguments.get("command")
+        if isinstance(command, str) and command:
+            return f"[tool] bash: {command}"
+    return f"[tool] {name}"
+
+
+def _print_approval_request(payload: dict) -> None:
+    tool_name = payload.get("tool_name")
+    typer.echo(f"[approval] {tool_name} risk={payload.get('risk')} reason={payload.get('reason')}")
+    arguments = payload.get("arguments")
+    if tool_name == "bash" and isinstance(arguments, dict):
+        command = arguments.get("command")
+        cwd = arguments.get("cwd")
+        if isinstance(command, str) and command:
+            typer.echo(f"command: {command}")
+        if isinstance(cwd, str) and cwd:
+            typer.echo(f"cwd: {cwd}")
 
 
 def _build_runtime(config: SessionConfig) -> AgentRuntime:
@@ -355,6 +398,7 @@ def _build_runtime(config: SessionConfig) -> AgentRuntime:
         tool_registry=_build_tool_registry(),
         approval_manager=ApprovalManager(
             policy=ApprovalPolicy(config.approval_policy),
+            reviewer=ThreadApprovalReviewer(),
         ),
     )
 

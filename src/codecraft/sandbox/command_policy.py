@@ -136,4 +136,7 @@ class CommandPolicy:
         if executable == "python" and len(parts) >= 3:
             return parts[1:3] == ["-m", "pytest"]
 
+        if executable == "python" and len(parts) == 2:
+            return parts[1] in {"--version", "-V"}
+
         return executable in {"pwd", "ls", "rg", "grep", "cat", "sed", "pytest", "mvn"}

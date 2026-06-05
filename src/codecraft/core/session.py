@@ -145,6 +145,8 @@ class Session:
     async def close(self) -> None:
         if self.status == SessionStatus.CLOSED:
             return
+        if self.active_turn is not None:
+            self.active_turn.cancel_requested = True
         await self.emit(RuntimeEventType.SESSION_CLOSED)
         self.status = SessionStatus.CLOSED
 

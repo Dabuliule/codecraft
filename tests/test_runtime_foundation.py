@@ -202,6 +202,7 @@ def test_command_policy_classifies_safe_prompt_and_deny_commands():
 
     assert policy.classify("pwd").risk == CommandRisk.SAFE
     assert policy.classify("git status").risk == CommandRisk.SAFE
+    assert policy.classify("python --version").risk == CommandRisk.SAFE
     assert policy.classify("rm temp.txt").risk == CommandRisk.PROMPT
     assert policy.classify("curl https://example.com").risk == CommandRisk.DENY
     assert policy.classify("curl https://example.com", network_access=True).risk == CommandRisk.PROMPT

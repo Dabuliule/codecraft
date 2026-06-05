@@ -4,6 +4,7 @@ import asyncio
 
 from typer.testing import CliRunner
 
+from codecraft.approval import ApprovalManager, ApprovalPolicy, ThreadApprovalReviewer
 from codecraft.cli import app as cli_app
 from codecraft.cli.app import app
 from codecraft.core.runtime import AgentRuntime
@@ -12,7 +13,7 @@ from codecraft.core.session_store import SessionStore
 from codecraft.llm import LLMProviderRegistry, MockProvider, ModelEvent, ModelEventType
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 from codecraft.schema.session import SessionConfig, SessionSource
-from codecraft.tool import ToolRegistry
+from codecraft.tool import BashTool, ToolRegistry
 
 
 runner = CliRunner()
@@ -267,3 +268,57 @@ def test_chat_command_runs_multiple_turns_until_exit(tmp_path, monkeypatch):
     assert "second answer" in result.output
     assert seen_configs[0].source == SessionSource.CLI_CHAT
     assert seen_configs[0].model_provider == "mock"
+
+
+def test_exec_command_prints_bash_approval_details(tmp_path, monkeypatch):
+    def fake_runtime(config: SessionConfig) -> AgentRuntime:
+        return AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry(
+                [
+                    MockProvider(
+                        [
+                            ModelEvent(
+                                type=ModelEventType.TOOL_CALL,
+                                payload={
+                                    "call_id": "call_bash",
+                                    "name": "bash",
+                                    "arguments": {"command": "python -c 'print(1)'"},
+                                },
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
+                        ]
+                    )
+                ]
+            ),
+            tool_registry=ToolRegistry([BashTool()]),
+            approval_manager=ApprovalManager(
+                policy=ApprovalPolicy(config.approval_policy),
+                reviewer=ThreadApprovalReviewer(),
+            ),
+        )
+
+    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
+
+    result = runner.invoke(
+        app,
+        [
+            "exec",
+            "check python",
+            "--provider",
+            "mock",
+            "--model",
+            "mock-model",
+            "--approval-policy",
+            "on_request",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+        input="n\n",
+    )
+
+    assert result.exit_code == 0
+    assert "[tool] bash: python -c 'print(1)'" in result.output
+    assert "[approval] bash" in result.output
+    assert "command: python -c 'print(1)'" in result.output
+    assert "Approve?" in result.output
