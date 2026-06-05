@@ -18,7 +18,9 @@ def reconstruct_conversation(events: list[RuntimeEvent]) -> Conversation:
             call_id = str(event.payload.get("call_id", ""))
             name = str(event.payload.get("name", ""))
             arguments = event.payload.get("arguments", {})
-            conversation.append_model_tool_call(call_id, name, str(arguments))
+            if not isinstance(arguments, dict):
+                arguments = {}
+            conversation.append_model_tool_call(call_id, name, arguments)
 
         elif event.type == RuntimeEventType.TOOL_CALL_FINISHED:
             call_id = str(event.payload.get("call_id", ""))

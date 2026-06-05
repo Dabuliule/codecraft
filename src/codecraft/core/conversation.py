@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+import json
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from codecraft.core.ids import new_id
-from codecraft.llm.messages import ModelMessage, ModelRole
+from codecraft.llm.messages import ModelMessage, ModelMessageType, ModelRole
 
 
 class ConversationRole(StrEnum):
@@ -52,13 +53,19 @@ class Conversation(BaseModel):
         self.append(item)
         return item
 
-    def append_model_tool_call(self, tool_call_id: str, name: str, content: str) -> ConversationItem:
+    def append_model_tool_call(
+        self,
+        tool_call_id: str,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> ConversationItem:
         item = ConversationItem(
             item_id=new_id("item_"),
             role=ConversationRole.ASSISTANT,
-            content=content,
+            content=json.dumps(arguments, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
             tool_call_id=tool_call_id,
             name=name,
+            metadata={"type": ModelMessageType.FUNCTION_CALL.value, "arguments": arguments},
         )
         self.append(item)
         return item
@@ -90,12 +97,22 @@ class Conversation(BaseModel):
             if role is None:
                 continue
 
+            message_type = ModelMessageType(item.metadata.get("type", ModelMessageType.MESSAGE))
+            arguments = item.metadata.get("arguments")
+            if not isinstance(arguments, dict):
+                arguments = None
+
+            if item.role == ConversationRole.TOOL:
+                message_type = ModelMessageType.FUNCTION_CALL_OUTPUT
+
             messages.append(
                 ModelMessage(
+                    type=message_type,
                     role=role,
                     content=item.content,
                     name=item.name,
                     tool_call_id=item.tool_call_id,
+                    arguments=arguments,
                     metadata=item.metadata,
                 )
             )

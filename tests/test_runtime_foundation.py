@@ -21,6 +21,7 @@ from codecraft import (
     ModelEvent,
     ModelEventType,
     ModelMessage,
+    ModelMessageType,
     ModelRole,
     MockProvider,
     OpenAICompatibleProvider,
@@ -580,7 +581,7 @@ def test_openai_provider_converts_response_to_model_events(tmp_path):
                         "type": "function_call",
                         "call_id": "call_read",
                         "name": "read_file",
-                        "arguments": {"path": "README.md"},
+                        "arguments": '{"path": "README.md"}',
                     },
                     {
                         "type": "message",
@@ -646,6 +647,85 @@ def test_openai_provider_converts_response_to_model_events(tmp_path):
         assert events[0].payload["text"] == "done"
         assert events[1].payload["arguments"] == {"path": "README.md"}
         assert events[2].payload["total_tokens"] == 17
+
+    asyncio.run(run_test())
+
+
+def test_openai_provider_serializes_tool_history_as_response_items(tmp_path):
+    class FakeResponses:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        async def create(self, **kwargs):
+            self.kwargs = kwargs
+            return {"output_text": "final"}
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.responses = FakeResponses()
+
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model="gpt-test",
+            model_provider="openai",
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        client = FakeClient()
+        provider = OpenAIProvider(client=client)
+
+        events = [
+            event
+            async for event in provider.stream(
+                [
+                    ModelMessage(role=ModelRole.USER, content="read README"),
+                    ModelMessage(
+                        type=ModelMessageType.FUNCTION_CALL,
+                        role=ModelRole.ASSISTANT,
+                        content='{"path": "README.md"}',
+                        name="read_file",
+                        tool_call_id="call_read",
+                        arguments={"path": "README.md"},
+                    ),
+                    ModelMessage(
+                        type=ModelMessageType.FUNCTION_CALL_OUTPUT,
+                        role=ModelRole.TOOL,
+                        content="README contents",
+                        name="read_file",
+                        tool_call_id="call_read",
+                    ),
+                ],
+                [],
+                context,
+            )
+        ]
+
+        assert client.responses.kwargs["input"] == [
+            {"role": "user", "content": "read README"},
+            {
+                "type": "function_call",
+                "call_id": "call_read",
+                "name": "read_file",
+                "arguments": '{"path":"README.md"}',
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_read",
+                "output": "README contents",
+            },
+        ]
+        assert events[0].payload["text"] == "final"
 
     asyncio.run(run_test())
 
@@ -969,7 +1049,7 @@ def test_runtime_resume_reconstructs_tool_call_and_result_history(tmp_path):
         assert len(second_provider.calls) == 1
         assert [message.content for message in second_provider.calls[0][0]] == [
             "read note",
-            "{'path': 'note.txt'}",
+            '{"path":"note.txt"}',
             "resume sees tool result",
             "first answer",
             "continue",
@@ -981,6 +1061,9 @@ def test_runtime_resume_reconstructs_tool_call_and_result_history(tmp_path):
             "assistant",
             "user",
         ]
+        assert second_provider.calls[0][0][1].type == ModelMessageType.FUNCTION_CALL
+        assert second_provider.calls[0][0][1].arguments == {"path": "note.txt"}
+        assert second_provider.calls[0][0][2].type == ModelMessageType.FUNCTION_CALL_OUTPUT
 
     asyncio.run(run_test())
 
@@ -1098,9 +1181,11 @@ def test_runtime_executes_read_file_tool_call_and_continues_turn(tmp_path):
         assert snapshot.events[-1].payload["steps"] == 1
         assert [message.content for message in provider.calls[1][0]] == [
             "read note",
-            "{'path': 'note.txt'}",
+            '{"path":"note.txt"}',
             "tool loop works",
         ]
+        assert provider.calls[1][0][1].type == ModelMessageType.FUNCTION_CALL
+        assert provider.calls[1][0][2].type == ModelMessageType.FUNCTION_CALL_OUTPUT
 
     asyncio.run(run_test())
 

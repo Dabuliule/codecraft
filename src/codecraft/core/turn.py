@@ -156,7 +156,7 @@ class Turn:
         self.session.conversation.append_model_tool_call(
             call.call_id,
             call.name,
-            str(call.arguments),
+            call.arguments,
         )
 
         result: ToolResult | None = None

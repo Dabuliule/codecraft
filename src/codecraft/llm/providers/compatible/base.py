@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+import json
 from typing import Any
 
 from codecraft.core.turn_context import TurnContext
 from codecraft.llm.base import LLMProvider, LLMProviderError
 from codecraft.llm.events import ModelEvent, ModelEventType
-from codecraft.llm.messages import ModelMessage
+from codecraft.llm.messages import ModelMessage, ModelMessageType
 from codecraft.schema.tool import ToolSpec
 
 
@@ -35,13 +36,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
     @staticmethod
     def _messages_to_input(messages: list[ModelMessage]) -> list[dict[str, Any]]:
-        return [
-            {
-                "role": message.role.value,
-                "content": message.content,
-            }
-            for message in messages
-        ]
+        return [_message_to_input_item(message) for message in messages]
 
     @staticmethod
     def _tools_to_openai(tools: list[ToolSpec]) -> list[dict[str, Any]]:
@@ -114,7 +109,7 @@ class OpenAICompatibleProvider(LLMProvider):
                 {
                     "call_id": str(_get(item, "call_id") or _get(item, "id") or ""),
                     "name": str(_get(item, "name") or ""),
-                    "arguments": _get(item, "arguments") or {},
+                    "arguments": _parse_arguments(_get(item, "arguments") or {}),
                 }
             )
         return calls
@@ -142,3 +137,59 @@ def _get(value: Any, key: str, default: Any = None) -> Any:
     if isinstance(value, dict):
         return value.get(key, default)
     return getattr(value, key, default)
+
+
+def _message_to_input_item(message: ModelMessage) -> dict[str, Any]:
+    if message.type == ModelMessageType.FUNCTION_CALL:
+        return {
+            "type": "function_call",
+            "call_id": message.tool_call_id or "",
+            "name": message.name or "",
+            "arguments": _arguments_to_json(message),
+        }
+
+    if message.type == ModelMessageType.FUNCTION_CALL_OUTPUT:
+        return {
+            "type": "function_call_output",
+            "call_id": message.tool_call_id or "",
+            "output": message.content,
+        }
+
+    return {
+        "role": message.role.value,
+        "content": message.content,
+    }
+
+
+def _arguments_to_json(message: ModelMessage) -> str:
+    if message.arguments is not None:
+        return json.dumps(
+            message.arguments,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+    try:
+        parsed = json.loads(message.content)
+    except json.JSONDecodeError:
+        return message.content
+
+    if isinstance(parsed, dict):
+        return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return message.content
+
+
+def _parse_arguments(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+
+    if isinstance(value, str) and value:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+
+    return {}

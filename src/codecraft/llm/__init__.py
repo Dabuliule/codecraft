@@ -1,6 +1,6 @@
 from codecraft.llm.base import LLMConfigError, LLMProvider, LLMProviderError
 from codecraft.llm.events import ModelEvent, ModelEventType
-from codecraft.llm.messages import ModelMessage, ModelRole
+from codecraft.llm.messages import ModelMessage, ModelMessageType, ModelRole
 from codecraft.llm.providers import (
     MockProvider,
     OpenAICompatibleProvider,
@@ -17,6 +17,7 @@ __all__ = [
     "ModelEvent",
     "ModelEventType",
     "ModelMessage",
+    "ModelMessageType",
     "ModelRole",
     "MockProvider",
     "OpenAICompatibleProvider",
