@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from codecraft.approval.manager import ApprovalManager
-from codecraft.core.conversation import Conversation
 from codecraft.core.event_bus import EventBus
+from codecraft.core.reconstruction import reconstruct_conversation
 from codecraft.core.session import Session
 from codecraft.core.session_store import SessionStore
 from codecraft.core.thread import AgentThread
@@ -49,12 +49,7 @@ class AgentRuntime:
 
     async def resume_thread(self, session_id: str) -> AgentThread:
         snapshot = await self.session_store.resume(session_id)
-        conversation = Conversation()
-        for event in snapshot.events:
-            if event.type == RuntimeEventType.USER_MESSAGE:
-                conversation.append_user_message(str(event.payload.get("text", "")))
-            elif event.type == RuntimeEventType.ASSISTANT_MESSAGE:
-                conversation.append_assistant_message(str(event.payload.get("text", "")))
+        conversation = reconstruct_conversation(snapshot.events)
 
         session = Session(
             config=snapshot.config,

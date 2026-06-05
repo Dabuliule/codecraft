@@ -74,6 +74,15 @@ class Conversation(BaseModel):
         self.append(item)
         return item
 
+    def append_summary(self, content: str) -> ConversationItem:
+        item = ConversationItem(
+            item_id=new_id("item_"),
+            role=ConversationRole.SUMMARY,
+            content=content,
+        )
+        self.append(item)
+        return item
+
     def build_model_messages(self) -> list[ModelMessage]:
         messages: list[ModelMessage] = []
         for item in self.items:

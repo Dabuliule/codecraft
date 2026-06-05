@@ -915,6 +915,141 @@ def test_runtime_resume_reconstructs_conversation_without_replaying_turn(tmp_pat
     asyncio.run(run_test())
 
 
+def test_runtime_resume_reconstructs_tool_call_and_result_history(tmp_path):
+    async def run_test() -> None:
+        (tmp_path / "note.txt").write_text("resume sees tool result", encoding="utf-8")
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        first_provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_read",
+                        "name": "read_file",
+                        "arguments": {"path": "note.txt"},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "first answer"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        first_runtime = AgentRuntime(
+            session_store=store,
+            llm_providers=LLMProviderRegistry([first_provider]),
+            tool_registry=ToolRegistry([ReadFileTool()]),
+        )
+        thread = await first_runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_one", "read note"))
+        await thread.wait_until_idle()
+
+        second_provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "second answer"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        second_runtime = AgentRuntime(
+            session_store=store,
+            llm_providers=LLMProviderRegistry([second_provider]),
+            tool_registry=ToolRegistry([ReadFileTool()]),
+        )
+        resumed = await second_runtime.resume_thread(config.session_id)
+        await resumed.next_event()
+        await resumed.submit(SessionInput.user_message("inp_two", "continue"))
+        await resumed.wait_until_idle()
+
+        assert len(first_provider.calls) == 2
+        assert len(second_provider.calls) == 1
+        assert [message.content for message in second_provider.calls[0][0]] == [
+            "read note",
+            "{'path': 'note.txt'}",
+            "resume sees tool result",
+            "first answer",
+            "continue",
+        ]
+        assert [message.role.value for message in second_provider.calls[0][0]] == [
+            "user",
+            "assistant",
+            "tool",
+            "assistant",
+            "user",
+        ]
+
+    asyncio.run(run_test())
+
+
+def test_runtime_resume_uses_context_compaction_summary(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        await store.create_session(config)
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                seq=1,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": config.model_dump(mode="json")},
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_one",
+                seq=2,
+                type=RuntimeEventType.USER_MESSAGE,
+                payload={"text": "old user"},
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_one",
+                seq=3,
+                type=RuntimeEventType.CONTEXT_COMPACTED,
+                payload={"summary": "old conversation summary"},
+            )
+        )
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "after compact"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        runtime = AgentRuntime(
+            session_store=store,
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry(),
+        )
+        resumed = await runtime.resume_thread(config.session_id)
+        await resumed.next_event()
+        await resumed.submit(SessionInput.user_message("inp_two", "new user"))
+        await resumed.wait_until_idle()
+
+        assert [message.content for message in provider.calls[0][0]] == [
+            "old conversation summary",
+            "new user",
+        ]
+        assert [message.role.value for message in provider.calls[0][0]] == [
+            "system",
+            "user",
+        ]
+
+    asyncio.run(run_test())
+
+
 def test_runtime_executes_read_file_tool_call_and_continues_turn(tmp_path):
     async def run_test() -> None:
         (tmp_path / "note.txt").write_text("tool loop works", encoding="utf-8")
