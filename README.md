@@ -243,7 +243,7 @@ Current test coverage includes runtime events, session store, resume, config loa
 
 - No OS-level sandbox.
 - No automatic pruning of invalid sessions yet.
-- No streaming token-by-token provider implementation yet; provider responses are converted into runtime events.
+- OpenAI and Qwen providers stream assistant text through runtime delta events.
 - No web/GitHub/cloud tools in v1.0 scope.
 - `resume --last` resumes the latest valid session; targeted interactive resume by explicit session id is not implemented yet.
 

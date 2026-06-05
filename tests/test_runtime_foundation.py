@@ -91,6 +91,24 @@ def test_runtime_event_is_json_serializable(tmp_path):
     assert decoded.payload["config"]["session_id"] == "ses_test"
 
 
+def test_runtime_event_sanitizes_invalid_unicode_payload():
+    event = RuntimeEvent(
+        event_id="evt_test",
+        session_id="ses_test",
+        seq=1,
+        type=RuntimeEventType.USER_MESSAGE,
+        payload={"text": "bad\udce4text", "nested": {"\udce5": ["ok\udce6"]}},
+    )
+
+    encoded = event.model_dump_json()
+    decoded = RuntimeEvent.model_validate_json(encoded)
+
+    assert "\udce4" not in decoded.payload["text"]
+    assert "bad?text" == decoded.payload["text"]
+    assert "?" in decoded.payload["nested"]
+    assert decoded.payload["nested"]["?"] == ["ok?"]
+
+
 def test_runtime_event_requires_positive_seq():
     with pytest.raises(ValueError):
         RuntimeEvent(
@@ -99,6 +117,13 @@ def test_runtime_event_requires_positive_seq():
             seq=0,
             type=RuntimeEventType.SESSION_STARTED,
         )
+
+
+def test_session_input_sanitizes_invalid_unicode_user_message():
+    input = SessionInput.user_message("inp_test", "你能联网吗\udce4")
+
+    assert input.payload["text"] == "你能联网吗?"
+    input.model_dump_json()
 
 
 def test_session_emit_rolls_back_seq_when_append_fails(tmp_path):
@@ -731,6 +756,7 @@ def test_openai_provider_converts_response_to_model_events(tmp_path):
 
         assert client.responses.kwargs["model"] == "gpt-test"
         assert client.responses.kwargs["input"] == [{"role": "user", "content": "read"}]
+        assert client.responses.kwargs["stream"] is True
         assert client.responses.kwargs["tools"][0]["name"] == "read_file"
         assert [event.type for event in events] == [
             ModelEventType.MESSAGE_COMPLETED,
@@ -741,6 +767,104 @@ def test_openai_provider_converts_response_to_model_events(tmp_path):
         assert events[0].payload["text"] == "done"
         assert events[1].payload["arguments"] == {"path": "README.md"}
         assert events[2].payload["total_tokens"] == 17
+
+    asyncio.run(run_test())
+
+
+def test_openai_provider_streams_response_deltas_and_tool_calls(tmp_path):
+    class FakeStream:
+        def __aiter__(self):
+            self.events = iter(
+                [
+                    {
+                        "type": "response.output_text.delta",
+                        "delta": "hello ",
+                    },
+                    {
+                        "type": "response.output_text.delta",
+                        "delta": "stream",
+                    },
+                    {
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "function_call",
+                            "call_id": "call_read",
+                            "name": "read_file",
+                            "arguments": '{"path":"README.md"}',
+                        },
+                    },
+                    {
+                        "type": "response.completed",
+                        "response": {
+                            "usage": {
+                                "input_tokens": 2,
+                                "output_tokens": 3,
+                            }
+                        },
+                    },
+                ]
+            )
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self.events)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    class FakeResponses:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        async def create(self, **kwargs):
+            self.kwargs = kwargs
+            return FakeStream()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.responses = FakeResponses()
+
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model="gpt-test",
+            model_provider="openai",
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        client = FakeClient()
+        provider = OpenAIProvider(client=client)
+
+        events = [
+            event
+            async for event in provider.stream(
+                [ModelMessage(role=ModelRole.USER, content="read")],
+                [],
+                context,
+            )
+        ]
+
+        assert client.responses.kwargs["stream"] is True
+        assert [event.type for event in events] == [
+            ModelEventType.MESSAGE_DELTA,
+            ModelEventType.MESSAGE_DELTA,
+            ModelEventType.TOOL_CALL,
+            ModelEventType.TOKEN_COUNT,
+            ModelEventType.COMPLETED,
+        ]
+        assert [event.payload.get("text") for event in events[:2]] == ["hello ", "stream"]
+        assert events[2].payload["arguments"] == {"path": "README.md"}
+        assert events[3].payload["total_tokens"] == 5
 
     asyncio.run(run_test())
 
@@ -824,20 +948,59 @@ def test_openai_provider_serializes_tool_history_as_response_items(tmp_path):
     asyncio.run(run_test())
 
 
-def test_qwen_provider_uses_openai_compatible_response_conversion(tmp_path):
-    class FakeResponses:
+def test_qwen_provider_streams_chat_completion_deltas(tmp_path):
+    class FakeStream:
+        def __aiter__(self):
+            self.chunks = iter(
+                [
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "content": "qwen ",
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "content": "stream",
+                                }
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 3,
+                            "completion_tokens": 4,
+                            "total_tokens": 7,
+                        },
+                    },
+                ]
+            )
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self.chunks)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    class FakeCompletions:
+        def __init__(self) -> None:
+            self.kwargs = None
+
         async def create(self, **kwargs):
-            return {
-                "output_text": "qwen answer",
-                "usage": {
-                    "input_tokens": 3,
-                    "output_tokens": 4,
-                },
-            }
+            self.kwargs = kwargs
+            return FakeStream()
+
+    class FakeChat:
+        def __init__(self) -> None:
+            self.completions = FakeCompletions()
 
     class FakeClient:
         def __init__(self) -> None:
-            self.responses = FakeResponses()
+            self.chat = FakeChat()
 
     async def run_test() -> None:
         config = make_config(tmp_path)
@@ -857,7 +1020,8 @@ def test_qwen_provider_uses_openai_compatible_response_conversion(tmp_path):
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
-        provider = QwenProvider(client=FakeClient())
+        client = FakeClient()
+        provider = QwenProvider(client=client)
 
         events = [
             event
@@ -868,13 +1032,183 @@ def test_qwen_provider_uses_openai_compatible_response_conversion(tmp_path):
             )
         ]
 
+        assert client.chat.completions.kwargs["model"] == "qwen-plus"
+        assert client.chat.completions.kwargs["messages"] == [
+            {"role": "user", "content": "hello"}
+        ]
+        assert client.chat.completions.kwargs["stream"] is True
+        assert "tools" not in client.chat.completions.kwargs
         assert [event.type for event in events] == [
-            ModelEventType.MESSAGE_COMPLETED,
+            ModelEventType.MESSAGE_DELTA,
+            ModelEventType.MESSAGE_DELTA,
             ModelEventType.TOKEN_COUNT,
             ModelEventType.COMPLETED,
         ]
-        assert events[0].payload["text"] == "qwen answer"
-        assert events[1].payload["total_tokens"] == 7
+        assert [event.payload.get("text") for event in events[:2]] == ["qwen ", "stream"]
+        assert events[2].payload["total_tokens"] == 7
+
+    asyncio.run(run_test())
+
+
+def test_qwen_provider_streams_chat_completion_tool_calls(tmp_path):
+    class FakeStream:
+        def __aiter__(self):
+            self.chunks = iter(
+                [
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "id": "call_read",
+                                            "type": "function",
+                                            "function": {
+                                                "name": "read_file",
+                                                "arguments": '{"path":',
+                                            },
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "function": {
+                                                "arguments": '"README.md"}',
+                                            },
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                ]
+            )
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self.chunks)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    class FakeCompletions:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        async def create(self, **kwargs):
+            self.kwargs = kwargs
+            return FakeStream()
+
+    class FakeChat:
+        def __init__(self) -> None:
+            self.completions = FakeCompletions()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.chat = FakeChat()
+
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model="qwen-plus",
+            model_provider="qwen",
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[
+                ToolSpec(
+                    name="read_file",
+                    description="Read file.",
+                    input_schema={"type": "object"},
+                )
+            ],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        client = FakeClient()
+        provider = QwenProvider(client=client)
+
+        events = [
+            event
+            async for event in provider.stream(
+                [
+                    ModelMessage(role=ModelRole.USER, content="read README"),
+                    ModelMessage(
+                        type=ModelMessageType.FUNCTION_CALL,
+                        role=ModelRole.ASSISTANT,
+                        content='{"path": "README.md"}',
+                        name="read_file",
+                        tool_call_id="call_previous",
+                        arguments={"path": "README.md"},
+                    ),
+                    ModelMessage(
+                        type=ModelMessageType.FUNCTION_CALL_OUTPUT,
+                        role=ModelRole.TOOL,
+                        content="README contents",
+                        name="read_file",
+                        tool_call_id="call_previous",
+                    ),
+                ],
+                context.available_tools,
+                context,
+            )
+        ]
+
+        assert client.chat.completions.kwargs["tools"] == [
+            {
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "description": "Read file.",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ]
+        assert client.chat.completions.kwargs["messages"][1:] == [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_previous",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": '{"path":"README.md"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_previous",
+                "content": "README contents",
+            },
+        ]
+        assert [event.type for event in events] == [
+            ModelEventType.TOOL_CALL,
+            ModelEventType.COMPLETED,
+        ]
+        assert events[0].payload == {
+            "call_id": "call_read",
+            "name": "read_file",
+            "arguments": {"path": "README.md"},
+        }
 
     asyncio.run(run_test())
 

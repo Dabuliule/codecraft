@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from codecraft.schema.safety import sanitize_json_value
 
 
 class RuntimeEventType(StrEnum):
@@ -43,3 +45,11 @@ class RuntimeEvent(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     type: RuntimeEventType
     payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("payload", mode="after")
+    @classmethod
+    def _sanitize_payload(cls, value: dict[str, Any]) -> dict[str, Any]:
+        sanitized = sanitize_json_value(value)
+        if isinstance(sanitized, dict):
+            return sanitized
+        return {}

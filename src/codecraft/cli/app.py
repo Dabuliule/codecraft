@@ -374,17 +374,23 @@ def _load_session_config(
 
 
 async def _consume_turn(thread) -> int:
+    saw_delta = False
     try:
         while True:
             event = await thread.next_event()
             if event.type == RuntimeEventType.ASSISTANT_MESSAGE_DELTA:
                 text = event.payload.get("text")
                 if isinstance(text, str):
+                    saw_delta = True
                     typer.echo(text, nl=False)
             elif event.type == RuntimeEventType.ASSISTANT_MESSAGE:
                 text = event.payload.get("text")
                 if isinstance(text, str):
-                    typer.echo(text)
+                    if saw_delta:
+                        typer.echo()
+                        saw_delta = False
+                    else:
+                        typer.echo(text)
             elif event.type == RuntimeEventType.TOOL_CALL_STARTED:
                 typer.echo(_format_tool_started(event.payload))
             elif event.type == RuntimeEventType.TOOL_CALL_FINISHED:

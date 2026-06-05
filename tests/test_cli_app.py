@@ -393,6 +393,50 @@ def test_exec_command_runs_runtime_and_prints_answer(tmp_path, monkeypatch):
     assert "events=5" in sessions_result.output
 
 
+def test_exec_command_does_not_duplicate_streamed_assistant_message(tmp_path, monkeypatch):
+    def fake_runtime(config: SessionConfig) -> AgentRuntime:
+        return AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry(
+                [
+                    MockProvider(
+                        [
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_DELTA,
+                                payload={"text": "hello "},
+                            ),
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_DELTA,
+                                payload={"text": "stream"},
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
+                        ]
+                    )
+                ]
+            ),
+            tool_registry=ToolRegistry(),
+        )
+
+    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
+
+    result = runner.invoke(
+        app,
+        [
+            "exec",
+            "answer",
+            "--provider",
+            "mock",
+            "--model",
+            "mock-model",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.output.count("hello stream") == 1
+
+
 def test_exec_command_loads_config_file_defaults(tmp_path, monkeypatch):
     config_path = tmp_path / "config.toml"
     config_path.write_text(

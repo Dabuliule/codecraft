@@ -241,7 +241,7 @@ uv run pytest
 
 - 没有 OS 级沙箱。
 - 还没有自动清理 invalid session。
-- Provider 还没有 token-by-token streaming；当前是把 provider response 转成 runtime events。
+- OpenAI 和 Qwen provider 已经通过 runtime delta events 流式输出 assistant 文本。
 - v1.0 暂不做 Web/GitHub/cloud 工具。
 - `resume --last` 只能恢复最近有效 session；还没有按指定 session id 进入交互式 resume。
 

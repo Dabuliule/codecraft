@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 import os
 from typing import Any
 
+from codecraft.core.turn_context import TurnContext
 from codecraft.llm.base import LLMConfigError
+from codecraft.llm.base import LLMProviderError
+from codecraft.llm.events import ModelEvent
+from codecraft.llm.messages import ModelMessage
 from codecraft.llm.providers.compatible.base import OpenAICompatibleProvider
+from codecraft.schema.tool import ToolSpec
 
 
 class QwenProvider(OpenAICompatibleProvider):
@@ -24,6 +30,35 @@ class QwenProvider(OpenAICompatibleProvider):
 
     def _client(self) -> Any:
         return self.client or self._default_client()
+
+    async def stream(
+        self,
+        messages: list[ModelMessage],
+        tools: list[ToolSpec],
+        context: TurnContext,
+    ) -> AsyncIterator[ModelEvent]:
+        client = self._client()
+        kwargs: dict[str, Any] = {
+            "model": context.model,
+            "messages": self._messages_to_chat(messages),
+            "stream": True,
+        }
+        tool_payload = self._tools_to_chat(tools)
+        if tool_payload:
+            kwargs["tools"] = tool_payload
+
+        try:
+            response = await client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            raise LLMProviderError(str(exc)) from exc
+
+        if hasattr(response, "__aiter__"):
+            async for event in self._events_from_chat_stream(response):
+                yield event
+            return
+
+        for event in self._events_from_chat_response(response):
+            yield event
 
     def _default_client(self) -> Any:
         try:
