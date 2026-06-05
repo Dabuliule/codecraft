@@ -123,7 +123,11 @@ class Session:
                 type=event_type,
                 payload=payload or {},
             )
-            await self.session_store.append_event(event)
+            try:
+                await self.session_store.append_event(event)
+            except Exception:
+                self.seq -= 1
+                raise
             await self.event_bus.emit(event)
             return event
 

@@ -39,7 +39,13 @@ class SessionStore:
             raise SessionError(
                 "failed to append session event",
                 code="session_event_append_failed",
-                metadata={"session_id": event.session_id, "path": str(path)},
+                metadata={
+                    "session_id": event.session_id,
+                    "path": str(path),
+                    "event_type": event.type.value,
+                    "seq": event.seq,
+                    "cause": repr(exc),
+                },
             ) from exc
 
     async def load_events(self, session_id: str) -> list[RuntimeEvent]:

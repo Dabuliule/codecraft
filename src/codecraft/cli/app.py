@@ -82,10 +82,46 @@ def exec(
 
 
 @app.command()
-def chat() -> None:
-    raise typer.BadParameter(
-        "codecraft chat will be connected after a real LLM provider lands."
+def chat(
+    provider: Annotated[
+        str | None,
+        typer.Option("--provider", help="Model provider: openai or qwen."),
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Model name."),
+    ] = None,
+    codecraft_home: CodecraftHomeOption = Path("~/.codecraft"),
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", help="Highest-priority TOML config file."),
+    ] = None,
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", help="Profile name under ~/.codecraft/profiles."),
+    ] = None,
+    approval_policy: Annotated[
+        ApprovalPolicy | None,
+        typer.Option("--approval-policy", help="Approval policy."),
+    ] = None,
+    network: Annotated[
+        bool | None,
+        typer.Option("--network/--no-network", help="Allow network commands."),
+    ] = None,
+) -> None:
+    exit_code = asyncio.run(
+        _run_chat(
+            provider=provider,
+            model=model,
+            codecraft_home=codecraft_home,
+            config_path=config,
+            profile=profile,
+            approval_policy=approval_policy,
+            network=network,
+        )
     )
+    if exit_code:
+        raise typer.Exit(code=exit_code)
 
 
 @app.command()
@@ -174,6 +210,77 @@ async def _run_exec(
     approval_policy: ApprovalPolicy | None,
     network: bool | None,
 ) -> int:
+    config = _load_session_config(
+        source=SessionSource.CLI_EXEC,
+        provider=provider,
+        model=model,
+        codecraft_home=codecraft_home,
+        config_path=config_path,
+        profile=profile,
+        approval_policy=approval_policy,
+        network=network,
+    )
+    runtime = _build_runtime(config)
+    thread = await runtime.create_thread(config)
+    await thread.submit(SessionInput.user_message(new_id("inp_"), task))
+    return await _consume_turn(thread)
+
+
+async def _run_chat(
+    *,
+    provider: str | None,
+    model: str | None,
+    codecraft_home: Path,
+    config_path: Path | None,
+    profile: str | None,
+    approval_policy: ApprovalPolicy | None,
+    network: bool | None,
+) -> int:
+    config = _load_session_config(
+        source=SessionSource.CLI_CHAT,
+        provider=provider,
+        model=model,
+        codecraft_home=codecraft_home,
+        config_path=config_path,
+        profile=profile,
+        approval_policy=approval_policy,
+        network=network,
+    )
+    runtime = _build_runtime(config)
+    thread = await runtime.create_thread(config)
+    typer.echo(f"session_id: {config.session_id}")
+
+    while True:
+        try:
+            text = typer.prompt("codecraft").strip()
+        except (EOFError, KeyboardInterrupt):
+            await thread.close()
+            typer.echo()
+            return 0
+
+        if not text:
+            continue
+        if text in {"/exit", "/quit", "exit", "quit"}:
+            await thread.close()
+            return 0
+
+        await thread.submit(SessionInput.user_message(new_id("inp_"), text))
+        exit_code = await _consume_turn(thread)
+        if exit_code:
+            return exit_code
+
+
+def _load_session_config(
+    *,
+    source: SessionSource,
+    provider: str | None,
+    model: str | None,
+    codecraft_home: Path,
+    config_path: Path | None,
+    profile: str | None,
+    approval_policy: ApprovalPolicy | None,
+    network: bool | None,
+) -> SessionConfig:
     settings = ConfigLoader(
         cwd=Path.cwd(),
         codecraft_home=codecraft_home,
@@ -188,10 +295,10 @@ async def _run_exec(
             codecraft_home=codecraft_home,
         ),
     )
-    config = SessionConfig(
+    return SessionConfig(
         session_id=new_id("ses_"),
         thread_id=new_id("thr_"),
-        source=SessionSource.CLI_EXEC,
+        source=source,
         cwd=Path.cwd(),
         workspace_roots=[Path.cwd()],
         codecraft_home=settings.paths.codecraft_home,
@@ -201,10 +308,9 @@ async def _run_exec(
         sandbox_mode=settings.sandbox.mode,
         network_access=settings.sandbox.network_access,
     )
-    runtime = _build_runtime(config)
-    thread = await runtime.create_thread(config)
-    await thread.submit(SessionInput.user_message(new_id("inp_"), task))
 
+
+async def _consume_turn(thread) -> int:
     while True:
         event = await thread.next_event()
         if event.type == RuntimeEventType.ASSISTANT_MESSAGE_DELTA:

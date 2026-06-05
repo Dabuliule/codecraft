@@ -99,6 +99,40 @@ def test_runtime_event_requires_positive_seq():
         )
 
 
+def test_session_emit_rolls_back_seq_when_append_fails(tmp_path):
+    class FailingStore(SessionStore):
+        def __init__(self, codecraft_home):
+            super().__init__(codecraft_home)
+            self.calls = 0
+
+        async def append_event(self, event: RuntimeEvent) -> None:
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("append failed")
+            await super().append_event(event)
+
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        store = FailingStore(config.codecraft_home)
+        runtime = AgentRuntime(
+            session_store=store,
+            llm_providers=LLMProviderRegistry([MockProvider()]),
+            tool_registry=ToolRegistry(),
+        )
+        thread = await runtime.create_thread(config)
+
+        with pytest.raises(RuntimeError, match="append failed"):
+            await thread.session.emit(RuntimeEventType.USER_MESSAGE, {"text": "failed"})
+
+        event = await thread.session.emit(RuntimeEventType.USER_MESSAGE, {"text": "ok"})
+        loaded = await store.load_events(config.session_id)
+
+        assert event.seq == 2
+        assert [item.seq for item in loaded] == [1, 2]
+
+    asyncio.run(run_test())
+
+
 def test_event_bus_dispatches_runtime_events_in_subscription_order():
     async def run_test() -> None:
         calls: list[tuple[str, int]] = []

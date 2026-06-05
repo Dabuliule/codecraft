@@ -211,3 +211,55 @@ name = "configured-model"
     assert "configured answer" in result.output
     assert seen_configs[0].model_provider == "mock"
     assert seen_configs[0].model == "configured-model"
+
+
+def test_chat_command_runs_multiple_turns_until_exit(tmp_path, monkeypatch):
+    seen_configs: list[SessionConfig] = []
+
+    def fake_runtime(config: SessionConfig) -> AgentRuntime:
+        seen_configs.append(config)
+        return AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry(
+                [
+                    MockProvider(
+                        [
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_COMPLETED,
+                                payload={"text": "first answer"},
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_COMPLETED,
+                                payload={"text": "second answer"},
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
+                        ]
+                    )
+                ]
+            ),
+            tool_registry=ToolRegistry(),
+        )
+
+    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
+
+    result = runner.invoke(
+        app,
+        [
+            "chat",
+            "--provider",
+            "mock",
+            "--model",
+            "mock-model",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+        input="first\nsecond\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "session_id:" in result.output
+    assert "first answer" in result.output
+    assert "second answer" in result.output
+    assert seen_configs[0].source == SessionSource.CLI_CHAT
+    assert seen_configs[0].model_provider == "mock"
