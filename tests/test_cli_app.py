@@ -73,7 +73,53 @@ def test_sessions_command_lists_session(tmp_path):
 
     assert result.exit_code == 0
     assert "ses_cli" in result.output
+    assert "status=valid" in result.output
     assert "events=2" in result.output
+
+
+def test_sessions_all_marks_invalid_session(tmp_path):
+    async def seed() -> None:
+        config = make_config(tmp_path)
+        bad_config = config.model_copy(update={"session_id": "ses_bad"})
+        store = SessionStore(config.codecraft_home)
+        await store.create_session(config)
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                seq=1,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": config.model_dump(mode="json")},
+            )
+        )
+        await store.create_session(bad_config)
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=bad_config.session_id,
+                seq=2,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": bad_config.model_dump(mode="json")},
+            )
+        )
+
+    asyncio.run(seed())
+
+    default_result = runner.invoke(
+        app,
+        ["sessions", "--codecraft-home", str(tmp_path / ".codecraft")],
+    )
+    all_result = runner.invoke(
+        app,
+        ["sessions", "--codecraft-home", str(tmp_path / ".codecraft"), "--all"],
+    )
+
+    assert default_result.exit_code == 0
+    assert "ses_cli" in default_result.output
+    assert "ses_bad" not in default_result.output
+    assert all_result.exit_code == 0
+    assert "ses_cli status=valid" in all_result.output
+    assert "ses_bad status=invalid:session_seq_not_continuous" in all_result.output
 
 
 def test_inspect_command_prints_summary_and_events(tmp_path):
@@ -95,6 +141,42 @@ def test_inspect_command_prints_summary_and_events(tmp_path):
     assert "events: 2" in result.output
     assert "final_answer: done" in result.output
     assert "2 turn_finished" in result.output
+
+
+def test_inspect_raw_prints_invalid_session_lines(tmp_path):
+    async def seed() -> SessionConfig:
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        await store.create_session(config)
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                seq=2,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": config.model_dump(mode="json")},
+            )
+        )
+        return config
+
+    config = asyncio.run(seed())
+
+    raw_result = runner.invoke(
+        app,
+        [
+            "inspect",
+            config.session_id,
+            "--codecraft-home",
+            str(config.codecraft_home),
+            "--raw",
+        ],
+    )
+
+    assert raw_result.exit_code == 0
+    assert "session_id: ses_cli" in raw_result.output
+    assert "raw_lines: 1" in raw_result.output
+    assert '1: {"event_id":' in raw_result.output
+    assert '"seq":2' in raw_result.output
 
 
 def test_inspect_command_prints_tool_and_error_summaries(tmp_path):

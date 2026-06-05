@@ -147,17 +147,23 @@ def resume(
 @app.command()
 def sessions(
     codecraft_home: CodecraftHomeOption = Path("~/.codecraft"),
+    all_sessions: Annotated[
+        bool,
+        typer.Option("--all", help="Include invalid session logs."),
+    ] = False,
 ) -> None:
-    summaries = asyncio.run(SessionStore(codecraft_home).list_sessions())
+    summaries = asyncio.run(SessionStore(codecraft_home).list_sessions(include_invalid=all_sessions))
     if not summaries:
         typer.echo("No sessions found.")
         return
 
     for summary in summaries:
+        status = "valid" if summary.valid else f"invalid:{summary.error_code or '-'}"
         typer.echo(
             " ".join(
                 [
                     summary.session_id,
+                    f"status={status}",
                     f"thread={summary.thread_id or '-'}",
                     f"events={summary.event_count}",
                     f"cwd={summary.cwd or '-'}",
@@ -182,7 +188,19 @@ def inspect(
         bool,
         typer.Option("--errors", help="Print error and aborted events."),
     ] = False,
+    raw: Annotated[
+        bool,
+        typer.Option("--raw", help="Print raw JSONL lines without validation."),
+    ] = False,
 ) -> None:
+    if raw:
+        lines = asyncio.run(SessionStore(codecraft_home).load_raw_lines(session_id))
+        typer.echo(f"session_id: {session_id}")
+        typer.echo(f"raw_lines: {len(lines)}")
+        for line_number, line in enumerate(lines, start=1):
+            typer.echo(f"{line_number}: {line}")
+        return
+
     loaded = asyncio.run(_load_events(codecraft_home, session_id))
     typer.echo(f"session_id: {session_id}")
     typer.echo(f"events: {len(loaded)}")

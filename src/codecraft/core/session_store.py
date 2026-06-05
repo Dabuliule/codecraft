@@ -82,14 +82,43 @@ class SessionStore:
         self._validate_seq(session_id, events)
         return events
 
-    async def list_sessions(self, cwd: Path | None = None) -> list[SessionSummary]:
+    async def load_raw_lines(self, session_id: str) -> list[str]:
+        path = self._path_for_session(session_id)
+        try:
+            return path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise SessionRestoreError(
+                "failed to load raw session lines",
+                code="session_raw_load_failed",
+                metadata={"session_id": session_id, "path": str(path)},
+            ) from exc
+
+    async def list_sessions(
+        self,
+        cwd: Path | None = None,
+        *,
+        include_invalid: bool = False,
+    ) -> list[SessionSummary]:
         summaries: list[SessionSummary] = []
         cwd_resolved = cwd.expanduser().resolve() if cwd else None
 
         for path in self._iter_session_files():
             try:
                 events = await self.load_events(path.stem)
-            except SessionRestoreError:
+            except SessionRestoreError as exc:
+                if include_invalid and cwd_resolved is None:
+                    summaries.append(
+                        SessionSummary(
+                            session_id=path.stem,
+                            thread_id="",
+                            path=path,
+                            valid=False,
+                            error_code=exc.code,
+                            error_message=exc.message,
+                            event_count=self._count_raw_lines(path),
+                            last_event_at=self._mtime(path),
+                        )
+                    )
                 continue
             if not events:
                 summaries.append(
@@ -194,6 +223,21 @@ class SessionStore:
         if not self.sessions_dir.exists():
             return []
         return sorted(self.sessions_dir.glob("**/*.jsonl"))
+
+    @staticmethod
+    def _count_raw_lines(path: Path) -> int:
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                return sum(1 for line in handle if line.strip())
+        except OSError:
+            return 0
+
+    @staticmethod
+    def _mtime(path: Path) -> datetime | None:
+        try:
+            return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+        except OSError:
+            return None
 
     @staticmethod
     def _validate_seq(session_id: str, events: list[RuntimeEvent]) -> None:

@@ -88,6 +88,9 @@ class SessionSummary(BaseModel):
     session_id: str
     thread_id: str
     path: Path
+    valid: bool = True
+    error_code: str | None = None
+    error_message: str | None = None
     cwd: Path | None = None
     source: SessionSource | None = None
     created_at: datetime | None = None

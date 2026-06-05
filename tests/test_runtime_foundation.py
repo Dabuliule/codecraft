@@ -948,9 +948,15 @@ def test_session_store_list_skips_invalid_session_logs(tmp_path):
         )
 
         summaries = await store.list_sessions(cwd=tmp_path)
+        all_summaries = await store.list_sessions(include_invalid=True)
         snapshot = await store.resume_last(cwd=tmp_path)
 
         assert [summary.session_id for summary in summaries] == ["ses_good"]
+        assert {summary.session_id for summary in all_summaries} == {"ses_bad", "ses_good"}
+        invalid = next(summary for summary in all_summaries if summary.session_id == "ses_bad")
+        assert invalid.valid is False
+        assert invalid.error_code == "session_seq_not_continuous"
+        assert invalid.event_count == 1
         assert snapshot.config.session_id == "ses_good"
 
     asyncio.run(run_test())
