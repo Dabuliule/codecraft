@@ -87,7 +87,10 @@ class SessionStore:
         cwd_resolved = cwd.expanduser().resolve() if cwd else None
 
         for path in self._iter_session_files():
-            events = await self.load_events(path.stem)
+            try:
+                events = await self.load_events(path.stem)
+            except SessionRestoreError:
+                continue
             if not events:
                 summaries.append(
                     SessionSummary(

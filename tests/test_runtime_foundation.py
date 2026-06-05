@@ -919,6 +919,43 @@ def test_session_store_rejects_seq_gaps(tmp_path):
     asyncio.run(run_test())
 
 
+def test_session_store_list_skips_invalid_session_logs(tmp_path):
+    async def run_test() -> None:
+        bad_config = make_config(tmp_path).model_copy(update={"session_id": "ses_bad"})
+        good_config = make_config(tmp_path).model_copy(update={"session_id": "ses_good"})
+        store = SessionStore(bad_config.codecraft_home)
+
+        await store.create_session(bad_config)
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=bad_config.session_id,
+                seq=2,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": bad_config.model_dump(mode="json")},
+            )
+        )
+
+        await store.create_session(good_config)
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=good_config.session_id,
+                seq=1,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": good_config.model_dump(mode="json")},
+            )
+        )
+
+        summaries = await store.list_sessions(cwd=tmp_path)
+        snapshot = await store.resume_last(cwd=tmp_path)
+
+        assert [summary.session_id for summary in summaries] == ["ses_good"]
+        assert snapshot.config.session_id == "ses_good"
+
+    asyncio.run(run_test())
+
+
 def test_agent_runtime_creates_thread_and_runs_basic_turn(tmp_path):
     async def run_test() -> None:
         provider = MockProvider(

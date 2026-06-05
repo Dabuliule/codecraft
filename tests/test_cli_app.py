@@ -102,12 +102,80 @@ def test_resume_last_prints_latest_session(tmp_path):
 
     result = runner.invoke(
         app,
-        ["resume", "--last", "--codecraft-home", str(config.codecraft_home)],
+        ["resume", "--last", "--summary", "--codecraft-home", str(config.codecraft_home)],
     )
 
     assert result.exit_code == 0
     assert "session_id: ses_cli" in result.output
     assert "events: 2" in result.output
+
+
+def test_resume_last_continues_latest_session(tmp_path, monkeypatch):
+    async def seed() -> SessionConfig:
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        await store.create_session(config)
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                seq=1,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": config.model_dump(mode="json")},
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_one",
+                seq=2,
+                type=RuntimeEventType.USER_MESSAGE,
+                payload={"text": "first"},
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_one",
+                seq=3,
+                type=RuntimeEventType.ASSISTANT_MESSAGE,
+                payload={"text": "first answer"},
+            )
+        )
+        return config
+
+    config = asyncio.run(seed())
+    provider = MockProvider(
+        [
+            ModelEvent(
+                type=ModelEventType.MESSAGE_COMPLETED,
+                payload={"text": "resumed answer"},
+            ),
+            ModelEvent(type=ModelEventType.COMPLETED),
+        ]
+    )
+    monkeypatch.setattr(
+        cli_app,
+        "_build_provider_registry",
+        lambda: LLMProviderRegistry([provider]),
+    )
+
+    result = runner.invoke(
+        app,
+        ["resume", "--last", "--codecraft-home", str(config.codecraft_home)],
+        input="second\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "session_id: ses_cli" in result.output
+    assert "resumed answer" in result.output
+    assert [message.content for message in provider.calls[0][0][1:]] == [
+        "first",
+        "first answer",
+        "second",
+    ]
 
 
 def test_exec_command_runs_runtime_and_prints_answer(tmp_path, monkeypatch):

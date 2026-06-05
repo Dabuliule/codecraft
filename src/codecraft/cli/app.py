@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Annotated, Any, Coroutine
+from typing import Annotated
 
 import typer
 
@@ -128,22 +128,20 @@ def chat(
 def resume(
     last: Annotated[
         bool,
-        typer.Option("--last", help="Show the latest resumable session."),
+        typer.Option("--last", help="Resume the latest session."),
+    ] = False,
+    summary: Annotated[
+        bool,
+        typer.Option("--summary", help="Only print the latest session summary."),
     ] = False,
     codecraft_home: CodecraftHomeOption = Path("~/.codecraft"),
 ) -> None:
     if not last:
         raise typer.BadParameter("Only resume --last is available right now.")
 
-    summary = asyncio.run(_latest_summary(codecraft_home))
-    if summary is None:
-        typer.echo("No sessions found.")
-        raise typer.Exit(code=1)
-
-    typer.echo(f"session_id: {summary.session_id}")
-    typer.echo(f"thread_id: {summary.thread_id}")
-    typer.echo(f"events: {summary.event_count}")
-    typer.echo(f"file: {summary.path}")
+    exit_code = asyncio.run(_run_resume_last(codecraft_home=codecraft_home, summary_only=summary))
+    if exit_code:
+        raise typer.Exit(code=exit_code)
 
 
 @app.command()
@@ -249,7 +247,28 @@ async def _run_chat(
     runtime = _build_runtime(config)
     thread = await runtime.create_thread(config)
     typer.echo(f"session_id: {config.session_id}")
+    return await _interactive_loop(thread)
 
+
+async def _run_resume_last(*, codecraft_home: Path, summary_only: bool) -> int:
+    summary = await _latest_summary(codecraft_home)
+    if summary is None:
+        typer.echo("No sessions found.")
+        return 1
+
+    if summary_only:
+        _print_session_summary(summary)
+        return 0
+
+    snapshot = await SessionStore(codecraft_home).resume(summary.session_id)
+    runtime = _build_runtime(snapshot.config)
+    thread = await runtime.resume_thread(summary.session_id)
+    await _drain_restore_event(thread)
+    typer.echo(f"session_id: {summary.session_id}")
+    return await _interactive_loop(thread)
+
+
+async def _interactive_loop(thread) -> int:
     while True:
         try:
             text = typer.prompt("codecraft").strip()
@@ -268,6 +287,19 @@ async def _run_chat(
         exit_code = await _consume_turn(thread)
         if exit_code:
             return exit_code
+
+
+async def _drain_restore_event(thread) -> None:
+    event = await thread.next_event()
+    if event.type != RuntimeEventType.SESSION_RESTORED:
+        typer.echo(f"warning: expected session_restored, got {event.type}", err=True)
+
+
+def _print_session_summary(summary) -> None:
+    typer.echo(f"session_id: {summary.session_id}")
+    typer.echo(f"thread_id: {summary.thread_id}")
+    typer.echo(f"events: {summary.event_count}")
+    typer.echo(f"file: {summary.path}")
 
 
 def _load_session_config(
