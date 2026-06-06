@@ -1,63 +1,117 @@
 from __future__ import annotations
 
-import subprocess
-from typing import Any
+import asyncio
+from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
-from codecraft.tool.base import BaseTool, ToolException
-
-
-class ShellExecArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    command: str = Field(..., description="要执行的 shell 命令")
-    cwd: str | None = Field(None, description="命令执行目录")
-    timeout: int = Field(30, description="超时时间（秒）")
+from codecraft.sandbox.command_policy import CommandPolicy, CommandRisk
+from codecraft.schema.tool import ToolEffect, ToolResult
+from codecraft.tool.base import BaseTool, ToolContext
+from codecraft.tool.workspace import WorkspaceGuard
 
 
-class ShellExecTool(BaseTool):
-    name = "shell_exec"
-    description = "执行本地 shell 命令。仅作为高风险通用逃生入口。"
-    input_schema = ShellExecArgs
-    preconditions = ["command 必须非空", "没有更专用 Tool 能满足该工具调用"]
-    side_effects = ["可能读取或修改本地环境，取决于 command"]
-    tags = {"system", "generic"}
-    risk_level = "high"
-    generic = True
+class BashArgs(BaseModel):
+    command: str
+    cwd: str | None = None
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
 
-    def execute(self, **kwargs: Any) -> dict[str, Any]:
-        command = str(kwargs.get("command", "")).strip()
-        if not command:
-            raise ToolException("命令不能为空", suggestion="请提供 args.command。")
 
-        cwd = kwargs.get("cwd")
-        timeout = int(kwargs.get("timeout", 30))
+class BashTool(BaseTool):
+    name = "bash"
+    description = "Run a shell command from inside the workspace."
+    args_schema = BashArgs
+    effects = {ToolEffect.PROCESS_EXEC}
+    requires_approval = True
+
+    def __init__(self, command_policy: CommandPolicy | None = None) -> None:
+        self.command_policy = command_policy or CommandPolicy()
+
+    async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
+        bash_args = BashArgs.model_validate(args)
+        guard = WorkspaceGuard(context.context.workspace_roots)
+        cwd = self._resolve_cwd(bash_args.cwd, context, guard)
+        decision = self.command_policy.classify(
+            bash_args.command,
+            network_access=context.context.network_access,
+        )
+
+        if decision.risk == CommandRisk.DENY:
+            return ToolResult(
+                success=False,
+                content="Command denied by policy.",
+                error="command_denied",
+                suggestion=decision.reason,
+                metadata={"command": bash_args.command, "risk": decision.risk},
+            )
+
+        if decision.requires_approval and not context.approved:
+            return ToolResult(
+                success=False,
+                content="Command requires approval.",
+                error="command_requires_approval",
+                suggestion=decision.reason,
+                metadata={"command": bash_args.command, "risk": decision.risk},
+            )
 
         try:
-            result = subprocess.run(
-                command,
-                shell=True,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+            process = await asyncio.create_subprocess_shell(
+                bash_args.command,
+                cwd=str(cwd),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-        except subprocess.TimeoutExpired as exc:
-            raise ToolException(
-                "命令执行超时",
-                suggestion=f"请增加 timeout，当前超时时间为 {timeout} 秒。",
-            ) from exc
-        except OSError as exc:
-            raise ToolException("命令执行失败", suggestion=str(exc)) from exc
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(),
+                timeout=bash_args.timeout_seconds,
+            )
+            timed_out = False
+        except asyncio.TimeoutError:
+            process.kill()
+            stdout_bytes, stderr_bytes = await process.communicate()
+            timed_out = True
 
-        return {
-            "content": result.stdout.strip(),
-            "data": {
-                "command": command,
-                "cwd": cwd,
-                "returncode": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+        stdout, stdout_truncated = self._truncate(stdout, context.context.max_tool_output_chars)
+        stderr, stderr_truncated = self._truncate(stderr, context.context.max_tool_output_chars)
+        exit_code = process.returncode
+        success = exit_code == 0 and not timed_out
+
+        return ToolResult(
+            success=success,
+            content=stdout if success else stderr or stdout or "Command failed.",
+            data={
+                "exit_code": exit_code,
+                "stdout": stdout,
+                "stderr": stderr,
+                "timed_out": timed_out,
+                "stdout_truncated": stdout_truncated,
+                "stderr_truncated": stderr_truncated,
             },
-        }
+            error=None if success else ("command_timed_out" if timed_out else "command_failed"),
+            metadata={
+                "command": bash_args.command,
+                "cwd": str(cwd),
+                "risk": decision.risk,
+            },
+        )
+
+    @staticmethod
+    def _resolve_cwd(
+        cwd: str | None,
+        context: ToolContext,
+        guard: WorkspaceGuard,
+    ) -> Path:
+        if cwd is None:
+            return context.context.cwd
+        resolved = guard.resolve_read_path(cwd, context.context.cwd)
+        if not resolved.is_dir():
+            raise NotADirectoryError(str(resolved))
+        return resolved
+
+    @staticmethod
+    def _truncate(value: str, max_chars: int) -> tuple[str, bool]:
+        if len(value) <= max_chars:
+            return value, False
+        return value[:max_chars], True

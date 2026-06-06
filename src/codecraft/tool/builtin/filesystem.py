@@ -1,216 +1,224 @@
 from __future__ import annotations
 
-import os
+import difflib
 from pathlib import Path
-from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
-from codecraft.tool.base import BaseTool, ToolException
-
-
-class PathArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    path: str = Field(..., description="文件或目录路径")
+from codecraft.core.errors import WorkspaceAccessError
+from codecraft.schema.tool import ToolEffect, ToolResult
+from codecraft.tool.base import BaseTool, ToolContext
+from codecraft.tool.workspace import WorkspaceGuard
 
 
-class ReadFileArgs(PathArgs):
-    encoding: str = Field("utf-8", description="文件编码")
+class ReadFileArgs(BaseModel):
+    path: str
+    encoding: str = "utf-8"
+    max_chars: int = Field(default=80_000, ge=1)
 
 
-class WriteFileArgs(PathArgs):
-    content: str = Field(..., description="写入内容")
-    encoding: str = Field("utf-8", description="文件编码")
-    append: bool = Field(False, description="是否追加写入")
+class ReadFileTool(BaseTool):
+    name = "read_file"
+    description = "Read a text file inside the workspace."
+    args_schema = ReadFileArgs
+    effects = {ToolEffect.READ_ONLY}
 
+    async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
+        read_args = ReadFileArgs.model_validate(args)
+        guard = WorkspaceGuard(context.context.workspace_roots)
+        path = guard.resolve_read_path(read_args.path, context.context.cwd)
 
-class ListDirArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    path: str = Field(".", description="目录路径")
-
-
-class WorkspaceFileTool(BaseTool):
-    """Base class for filesystem tools constrained to a workspace root."""
-
-    def __init__(
-            self,
-            workspace_root: str | os.PathLike[str] | None = None,
-    ) -> None:
-        self.workspace_root = Path(workspace_root or ".").resolve()
-
-    def _resolve_workspace_path(
-            self,
-            path: str,
-    ) -> Path:
-        raw_path = str(path).strip()
-        if not raw_path:
-            raise ToolException("路径不能为空", suggestion="请提供 args.path。")
-
-        candidate = Path(raw_path)
-        if not candidate.is_absolute():
-            candidate = self.workspace_root / candidate
-
-        resolved = candidate.resolve(strict=False)
-
-        if resolved != self.workspace_root and self.workspace_root not in resolved.parents:
-            raise ToolException(
-                "路径超出 workspace",
-                suggestion=f"请使用 {self.workspace_root} 下的路径。",
+        if path.is_dir():
+            return ToolResult(
+                success=False,
+                content="Cannot read a directory.",
+                error="path_is_directory",
+                metadata={"path": str(path)},
             )
 
-        return resolved
-
-
-class ReadFileTool(WorkspaceFileTool):
-    name = "read_file"
-    description = "读取本地文件内容，返回文本。"
-    input_schema = ReadFileArgs
-    preconditions = ["path 必须存在且是文件"]
-    side_effects: list[str] = []
-    tags = {"filesystem", "read"}
-    risk_level = "low"
-
-    def execute(self, **kwargs: Any) -> dict[str, Any]:
-        path = self._resolve_workspace_path(str(kwargs.get("path", "")))
-        if not path.exists():
-            raise ToolException("文件不存在", suggestion="请检查路径是否正确。")
-        if not path.is_file():
-            raise ToolException("路径不是文件", suggestion="请传入文件路径。")
-
-        encoding = str(kwargs.get("encoding", "utf-8")).strip() or "utf-8"
         try:
-            with path.open("r", encoding=encoding) as handle:
-                content = handle.read()
-        except OSError as exc:
-            raise ToolException("读取文件失败", suggestion=str(exc)) from exc
-        except UnicodeError as exc:
-            raise ToolException("文件编码错误", suggestion="请确认 encoding 参数。") from exc
+            content = path.read_text(encoding=read_args.encoding)
+        except FileNotFoundError:
+            return ToolResult(
+                success=False,
+                content="File does not exist.",
+                error="file_not_found",
+                metadata={"path": str(path)},
+            )
+        except UnicodeDecodeError as exc:
+            return ToolResult(
+                success=False,
+                content="File could not be decoded.",
+                error=str(exc),
+                suggestion="Try a different encoding.",
+                metadata={"path": str(path), "encoding": read_args.encoding},
+            )
 
-        return {"content": content, "data": {"path": str(path), "length": len(content)}}
+        truncated = len(content) > read_args.max_chars
+        visible = content[: read_args.max_chars]
+        return ToolResult(
+            success=True,
+            content=visible,
+            data={
+                "path": str(path),
+                "line_count": len(content.splitlines()),
+                "truncated": truncated,
+            },
+            metadata={
+                "path": str(path),
+                "chars": len(content),
+                "returned_chars": len(visible),
+                "truncated": truncated,
+            },
+        )
 
 
-class WriteFileTool(WorkspaceFileTool):
+class WriteFileArgs(BaseModel):
+    path: str
+    content: str
+    encoding: str = "utf-8"
+    create_parent_dirs: bool = False
+
+
+class WriteFileTool(BaseTool):
     name = "write_file"
-    description = "写入本地文件内容。"
-    input_schema = WriteFileArgs
-    preconditions = ["path 必须非空"]
-    side_effects = ["写入或追加本地文件"]
-    tags = {"filesystem", "write"}
-    risk_level = "medium"
+    description = "Write text content to a file inside the workspace."
+    args_schema = WriteFileArgs
+    effects = {ToolEffect.WORKSPACE_WRITE}
+    requires_approval = True
 
-    def execute(self, **kwargs: Any) -> dict[str, Any]:
-        path = self._resolve_workspace_path(str(kwargs.get("path", "")))
+    async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
+        write_args = WriteFileArgs.model_validate(args)
+        guard = WorkspaceGuard(context.context.workspace_roots)
+        path = guard.resolve_write_path(write_args.path, context.context.cwd)
 
-        content = str(kwargs.get("content", ""))
-        encoding = str(kwargs.get("encoding", "utf-8")).strip() or "utf-8"
-        append = bool(kwargs.get("append", False))
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.is_dir():
+            return ToolResult(
+                success=False,
+                content="Cannot write file because path is a directory.",
+                error="path_is_directory",
+                metadata={"path": str(path)},
+            )
 
-        try:
-            with path.open("a" if append else "w", encoding=encoding) as handle:
-                handle.write(content)
-        except OSError as exc:
-            raise ToolException("写入文件失败", suggestion=str(exc)) from exc
+        if not path.parent.exists():
+            if not write_args.create_parent_dirs:
+                return ToolResult(
+                    success=False,
+                    content="Parent directory does not exist.",
+                    error="parent_directory_missing",
+                    suggestion="Set create_parent_dirs=true or create the parent directory first.",
+                    metadata={"path": str(path), "parent": str(path.parent)},
+                )
+            path.parent.mkdir(parents=True, exist_ok=True)
 
-        return {
-            "content": f"文件写入成功: {path}",
-            "data": {"path": str(path), "length": len(content), "append": append},
-        }
+        previous = path.read_text(encoding=write_args.encoding) if path.exists() else None
+        path.write_text(write_args.content, encoding=write_args.encoding)
+
+        status = "created" if previous is None else "modified"
+        changed = previous != write_args.content
+        diff = self._diff(
+            before=previous or "",
+            after=write_args.content,
+            path=path,
+        )
+        return ToolResult(
+            success=True,
+            content=f"{status} {path}",
+            data={
+                "path": str(path),
+                "status": status,
+                "changed": changed,
+                "diff": diff,
+            },
+            metadata={
+                "path": str(path),
+                "status": status,
+                "changed": changed,
+                "bytes": len(write_args.content.encode(write_args.encoding)),
+            },
+        )
+
+    @staticmethod
+    def _diff(*, before: str, after: str, path: Path) -> str:
+        return "".join(
+            difflib.unified_diff(
+                before.splitlines(keepends=True),
+                after.splitlines(keepends=True),
+                fromfile=f"a/{path.name}",
+                tofile=f"b/{path.name}",
+            )
+        )
 
 
-class DeleteFileTool(WorkspaceFileTool):
-    name = "delete_file"
-    description = "删除本地文件。"
-    input_schema = PathArgs
-    preconditions = ["path 必须存在且是文件"]
-    side_effects = ["删除本地文件"]
-    tags = {"delete", "filesystem", "write"}
-    risk_level = "medium"
+class ListFilesArgs(BaseModel):
+    path: str = "."
+    recursive: bool = False
+    max_entries: int = Field(default=500, ge=1)
 
-    def execute(self, **kwargs: Any) -> dict[str, Any]:
-        path = self._resolve_workspace_path(str(kwargs.get("path", "")))
+
+class ListFilesTool(BaseTool):
+    name = "list_files"
+    description = "List files and directories inside the workspace."
+    args_schema = ListFilesArgs
+    effects = {ToolEffect.READ_ONLY}
+
+    async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
+        list_args = ListFilesArgs.model_validate(args)
+        guard = WorkspaceGuard(context.context.workspace_roots)
+        path = guard.resolve_read_path(list_args.path, context.context.cwd)
+
         if not path.exists():
-            raise ToolException("文件不存在")
-        if not path.is_file():
-            raise ToolException("路径不是文件")
+            return ToolResult(
+                success=False,
+                content="Path does not exist.",
+                error="path_not_found",
+                metadata={"path": str(path)},
+            )
 
+        if path.is_file():
+            entries = [path]
+        else:
+            entries = self._iter_entries(path, recursive=list_args.recursive)
+
+        visible_entries = []
+        skipped_names = {".git", "__pycache__", ".venv", "node_modules"}
+        for entry in entries:
+            if any(part in skipped_names for part in entry.relative_to(path).parts):
+                continue
+            visible_entries.append(entry)
+            if len(visible_entries) >= list_args.max_entries:
+                break
+
+        lines = [self._format_entry(entry, path) for entry in visible_entries]
+        return ToolResult(
+            success=True,
+            content="\n".join(lines),
+            data={
+                "path": str(path),
+                "entries": lines,
+                "truncated": len(visible_entries) >= list_args.max_entries,
+            },
+            metadata={
+                "path": str(path),
+                "count": len(lines),
+                "recursive": list_args.recursive,
+            },
+        )
+
+    @staticmethod
+    def _iter_entries(path: Path, *, recursive: bool) -> list[Path]:
+        if recursive:
+            return sorted(path.rglob("*"))
+        return sorted(path.iterdir())
+
+    @staticmethod
+    def _format_entry(entry: Path, root: Path) -> str:
+        suffix = "/" if entry.is_dir() else ""
         try:
-            path.unlink()
-        except OSError as exc:
-            raise ToolException("删除文件失败", suggestion=str(exc)) from exc
-
-        return {"content": f"文件删除成功: {path}", "data": {"path": str(path)}}
-
-
-class FileExistsTool(WorkspaceFileTool):
-    name = "file_exists"
-    description = "检查文件或目录是否存在。"
-    input_schema = PathArgs
-    preconditions = ["path 必须非空"]
-    side_effects: list[str] = []
-    tags = {"filesystem", "read"}
-    risk_level = "low"
-
-    def execute(self, **kwargs: Any) -> dict[str, Any]:
-        path = self._resolve_workspace_path(str(kwargs.get("path", "")))
-        exists = path.exists()
-        return {
-            "content": f"路径存在: {path}" if exists else f"路径不存在: {path}",
-            "data": {"path": str(path), "exists": exists},
-        }
-
-
-class ListDirTool(WorkspaceFileTool):
-    name = "list_dir"
-    description = "列出目录中的文件和子目录。"
-    input_schema = ListDirArgs
-    preconditions = ["path 必须存在且是目录"]
-    side_effects: list[str] = []
-    tags = {"filesystem", "read"}
-    risk_level = "low"
-
-    def execute(self, **kwargs: Any) -> dict[str, Any]:
-        path = self._resolve_workspace_path(str(kwargs.get("path", ".")).strip() or ".")
-        if not path.exists():
-            raise ToolException("目录不存在", suggestion="请检查 args.path 是否正确。")
-        if not path.is_dir():
-            raise ToolException("路径不是目录", suggestion="请提供目录路径。")
-
-        try:
-            items = sorted(path.iterdir(), key=lambda item: item.name)
-        except OSError as exc:
-            raise ToolException("读取目录失败", suggestion=str(exc)) from exc
-
-        result = []
-        for item in items:
-            result.append({"name": item.name, "is_dir": item.is_dir()})
-
-        return {
-            "content": "\n".join(
-                f"[DIR] {x['name']}" if x["is_dir"] else f"[FILE] {x['name']}"
-                for x in result
-            ),
-            "data": {"path": str(path), "items": result, "count": len(result)},
-        }
-
-
-class MakeDirTool(WorkspaceFileTool):
-    name = "make_dir"
-    description = "创建目录。"
-    input_schema = PathArgs
-    preconditions = ["path 必须非空"]
-    side_effects = ["创建本地目录"]
-    tags = {"filesystem", "write"}
-    risk_level = "medium"
-
-    def execute(self, **kwargs: Any) -> dict[str, Any]:
-        path = self._resolve_workspace_path(str(kwargs.get("path", "")))
-
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise ToolException("创建目录失败", suggestion=str(exc)) from exc
-
-        return {"content": f"目录创建成功: {path}", "data": {"path": str(path)}}
+            relative = entry.relative_to(root)
+        except ValueError as exc:
+            raise WorkspaceAccessError(
+                "listed path escaped root",
+                code="workspace_access_denied",
+            ) from exc
+        return f"{relative}{suffix}"
