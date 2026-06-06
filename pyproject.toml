@@ -5,13 +5,8 @@ description = "Open-source coding agent with governed tool execution and traceab
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "jsonschema>=4.26.0",
     "openai>=2.36.0",
-    "prompt-toolkit>=3.0.52",
     "pydantic>=2.13.4",
-    "pydantic-settings>=2.14.1",
-    "python-dotenv>=1.2.2",
-    "rich>=15.0.0",
     "typer>=0.25.1",
 ]
 

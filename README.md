@@ -89,6 +89,7 @@ Recommended user-level config:
 provider = "qwen"
 name = "qwen-plus"
 api_key_env = "DASHSCOPE_API_KEY"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 [approval]
 policy = "on_request"
@@ -107,7 +108,7 @@ Then set the API key through the environment:
 export DASHSCOPE_API_KEY="your key"
 ```
 
-CodeCraft intentionally uses `api_key_env` instead of recommending plaintext API keys in TOML.
+CodeCraft intentionally uses `api_key_env` instead of recommending plaintext API keys in TOML. If `api_key_env` is omitted, CodeCraft uses provider defaults: `DASHSCOPE_API_KEY` for Qwen and `OPENAI_API_KEY` for OpenAI. `base_url` is optional; Qwen defaults to DashScope's compatible-mode endpoint.
 
 Useful CLI overrides:
 
@@ -134,7 +135,8 @@ Default built-in model settings:
 [model]
 provider = "qwen"
 name = "qwen-plus"
-api_key_env = "DASHSCOPE_API_KEY"
+# api_key_env defaults to DASHSCOPE_API_KEY for qwen
+# base_url defaults to DashScope compatible mode for qwen
 ```
 
 ## Prompt And Instructions
@@ -195,6 +197,14 @@ Approve? [y/N]:
 
 Command policy classifies obvious safe commands, prompt-required commands, denied commands, and network commands. `python --version` and `python -V` are safe; arbitrary Python commands require approval.
 
+Sandbox modes:
+
+| Mode | Behavior |
+| --- | --- |
+| `read_only` | Allows read-only tools only |
+| `workspace_write` | Allows workspace writes/process execution, still governed by approval and command policy |
+| `danger_full_access` | Reserved for future expansion; still application-level, not OS isolation |
+
 Important boundary: CodeCraft v1.0 uses application-level workspace guards and command policy. It does not claim OS-level sandboxing.
 
 ## Sessions And Resume
@@ -243,9 +253,9 @@ Current test coverage includes runtime events, session store, resume, config loa
 
 - No OS-level sandbox.
 - No automatic pruning of invalid sessions yet.
-- OpenAI and Qwen providers stream assistant text through runtime delta events.
 - No web/GitHub/cloud tools in v1.0 scope.
 - `resume --last` resumes the latest valid session; targeted interactive resume by explicit session id is not implemented yet.
+- Full automatic context compaction is v1.1 scope.
 
 ## Runtime Shape
 

@@ -1,115 +1,154 @@
 # Design Notes
 
-本文档记录 `CodeCraft` 当前已经落地的关键设计取舍。`ARCHITECTURE.md` 解释模块结构；本文更关注为什么这样做，以及这些选择带来的边界。
+This document records current implementation choices and boundaries. For the full design, see `docs/design/codecraft-runtime-sdd.md`.
 
-## Runtime 拥有执行权
+## Runtime Owns Execution
 
-LLM 只负责生成结构化 `Decision`，不直接执行工具。所有工具调用必须经过 Runtime 的 step loop，再由 `ApprovalGate` 处理 human-in-loop 拦截，最后由 `ApprovalGate` 调用 `ToolExecutor` 执行已放行的工具调用。
+The model can request work, but it never receives direct execution authority. A tool call emitted by a provider must pass through:
 
-这个取舍让系统有一个明确的控制点：
+```text
+Turn -> ToolRunner -> SandboxPolicy -> ApprovalManager -> BaseTool
+```
 
-- Runtime 可以限制最大 step 数，避免无限循环。
-- Runtime 可以把每次工具调用记录成 `Step`。
-- Runtime 可以在每个阶段发出结构化事件。
-- LLM 输出即使符合 JSON schema，也仍然不能绕过 resolver 和 approval。
+This gives the runtime one place to enforce:
 
-代价是 prompt 和 schema 需要更严格，模型输出不合法时会直接失败。当前项目接受这个代价，因为运行时治理比“尽量容错地执行模型意图”更重要。
+- max turn steps;
+- event emission;
+- argument validation;
+- workspace and sandbox rules;
+- human approval;
+- error normalization.
 
-## Tool 是受控能力，不是任意函数
+The tradeoff is that tool execution is more structured and less permissive than a free-form agent loop. That is intentional: CodeCraft prioritizes auditability and recovery over silently doing what the model appears to want.
 
-`BaseTool` 统一处理参数校验、同步/异步适配、timeout、retry、`ToolException` 归一化和 `ToolResult` 包装。具体工具只实现自己的业务动作。
+## Events Are The Integration Boundary
 
-每个工具必须声明：
+`RuntimeEvent` is the boundary between core runtime, CLI rendering, session logs, and future UI surfaces.
 
-- 输入 schema
-- 风险等级
-- tag
-- 副作用
-- 是否 generic
+Important rules:
 
-这些元数据不是展示用的装饰信息，而是 approval、trace、CLI 和测试断言的输入。也因此，新增工具应该优先通过 `ToolProvider` 注册，而不是在 Runtime 里写特殊分支。
+- `Session.emit()` is the only event creation path during a session.
+- Events are written to `SessionStore` before being published through `EventBus`.
+- CLI consumes events; it does not inspect or mutate session internals.
+- JSONL session logs are the source for inspect, resume, and debugging.
 
-## Approval 独立于 Tool 实现
+This is why assistant streaming, tool starts/finishes, approvals, errors, token counts, and final turn status are all represented as events.
 
-Tool 描述自己能做什么，Approval 决定当前调用是否需要人工确认。两者不互相嵌套。
+## JSONL Is A Fact Log, Not A Hidden Database
 
-当前 `ApprovalPolicy` 的重点是拦截有副作用或高风险的工具：
+The session log is intentionally simple JSONL:
 
-- 只读文件工具直接执行。
-- 写入、删除、创建目录和 shell 命令默认需要审批。
-- Runtime 创建 pending approval 并发出 `ApprovalRequestEvent`，外部通过 `decide_approval()` 提交用户决策，`ApprovalGate` 根据 approve / reject / edit 决定是否执行工具。
+```text
+~/.codecraft/sessions/YYYY/MM/DD/<session_id>.jsonl
+```
 
-这建立了一个重要边界：高风险 generic tool 不会因为模型生成了调用就自动运行。即使审批通过，`ShellExecTool` 也会使用 `shell=False`、限制 cwd 到 workspace、过滤环境变量、截断输出，并把非零退出码标记为失败。后续更完整的审批能力应该继续扩展 `ApprovalDecision`、Runtime event 和持久化状态，而不是绕过审批入口。
+It is used for:
 
-## Filesystem 默认限制在 Workspace 内
+- audit;
+- resume;
+- diagnostics;
+- invalid session inspection;
+- tests.
 
-内置文件系统工具统一通过 `WorkspaceFileTool` 解析路径。相对路径基于 workspace，workspace 内绝对路径允许访问，任何逃逸 workspace 的路径都会被拒绝。
+It is not an OS-level lock manager, a transactional database, or a replacement for future long-term storage. If future versions need stronger persistence semantics, they should add that explicitly instead of hiding database behavior inside JSONL append.
 
-这个策略的目标不是提供完整沙箱，而是先阻断最容易出现的路径越权：
+## Resume Reconstructs Conversation, Not Effects
 
-- `..` 逃逸
-- 绝对路径探测
-- `file_exists` 对 workspace 外路径做存在性检查
+Resume rebuilds conversation history from events. It must not replay historical tool calls, because that would repeat side effects such as file writes, patches, or shell commands.
 
-真正生产环境仍需要进程级沙箱、权限隔离和审计。本项目当前只把工具层边界做清楚。
+Current reconstruction handles:
 
-## Event 是集成边界
+- user messages;
+- assistant messages;
+- function/tool call messages;
+- tool results;
+- compaction summaries.
 
-Runtime 通过 `EventBus` 发出 `thought`、`tool_call`、`tool_execution`、`observation`、`final_result` 等事件。CLI、JSONL trace writer 和测试 probe 都应作为事件订阅者存在。
+This design makes session logs useful without turning resume into a dangerous re-execution mechanism.
 
-这样可以避免 Runtime 绑定某一种 UI 或日志实现：
+## Tool Metadata Drives Governance
 
-- CLI 负责渲染，不负责调度。
-- JSONL writer 负责持久化事件，不影响执行逻辑。
-- 测试可以订阅事件断言顺序和内容。
+Tools declare `effects` and `requires_approval`. These are not just documentation; `ToolRunner`, `SandboxPolicy`, `ApprovalManager`, provider tool schemas, and tests depend on them.
 
-新增可观测性能力时，优先订阅事件，而不是把日志逻辑塞进 Runtime 主循环。
+Current effect categories:
 
-## Trace 是事件回放材料，不是状态数据库
+- `read_only`
+- `workspace_write`
+- `process_exec`
+- `network`
+- `external`
 
-JSONL trace 文件记录 RuntimeEvent，用于理解一次运行中发生了什么。它适合做摘要、排障、回放展示和测试材料。
+The practical rule is: add a new tool by giving it a Pydantic args schema, accurate effects, and a `ToolResult` contract. Do not add special execution branches in CLI or `Session`.
 
-它不承担以下职责：
+## Sandbox Is Application-Level
 
-- 恢复正在运行的 AgentState
-- 替代数据库
-- 作为权限审批的唯一审计来源
+CodeCraft v1.0 does not provide OS-level isolation. The sandbox layer is an application-level policy check.
 
-如果后续要支持 resumable run 或长期状态，应单独引入 state persistence，而不是把 JSONL trace 扩展成隐式状态存储。
+It currently enforces:
 
-## LLM Provider 错误要归一化
+- workspace path guard for filesystem tools;
+- bash cwd guard;
+- `read_only` mode blocks side-effecting tools;
+- network effects are denied when `network_access=false`;
+- command policy denies or prompts for risky shell commands.
 
-`BaseLLM` 定义通用异常：
+This blocks common accidental escapes and gives clear audit events, but it does not protect against all malicious local process behavior. Stronger isolation would need a separate process/container sandbox.
 
-- `LLMConfigError`：本地配置缺失或非法。
-- `LLMProviderError`：provider 调用或响应解析失败。
+## Approval Is Independent From Tool Code
 
-具体 provider 可以保留原始异常链，但向上层暴露稳定异常类型。这样 CLI、Runtime 和测试不需要依赖 OpenAI SDK 或某个供应商的异常细节。
+Tools describe capabilities; approval decides whether the current call may run. Keeping those separate matters because:
 
-Qwen provider 当前做了两件事：
+- tests can verify approval events without executing the tool;
+- future UI reviewers can approve/reject through `AgentThread`;
+- policy can change without editing individual tools;
+- rejected calls still produce structured tool-finished events.
 
-- 启动时校验 `DASHSCOPE_API_KEY` 和 `QWEN_MODEL`。
-- completion 请求失败时按配置重试，重试耗尽后抛 `LLMProviderError`。
+`ApprovalManager` is intentionally not a tool executor. It evaluates and requests approval; `ToolRunner` owns the execution sequence.
 
-## Public API 保守导出
+## Provider Compatibility Is A Transport Detail
 
-根包 `codecraft` 导出程序化嵌入最常用的对象，例如 `AgentRuntime`、`Agent`、`ToolExecutor`、`EventBus`、`BaseLLM`、`QwenLLM`、`BaseTool` 和 `create_tool_registry`。
+`OpenAICompatibleProvider` is a shared adapter for OpenAI-shaped APIs and event conversion. It is not a claim that OpenAI is a formal industry standard.
 
-这不表示所有内部模块都是稳定 API。当前约定是：
+Qwen extends the compatible provider because DashScope exposes an OpenAI-compatible chat API. Qwen still has its own provider class and uses Chat Completions streaming, while OpenAI can use Responses-style streaming.
 
-- 根包和子包 `__all__` 中的名字是优先稳定的导入路径。
-- 深层模块路径仍可在项目内部使用。
-- 新增公共对象时应补 public API 测试。
+Provider-specific differences should stay inside provider adapters. `Turn` only consumes normalized `ModelEvent` values.
 
-## 当前仍未解决的问题
+## Config Is Resolved Before Runtime Construction
 
-以下问题目前没有被隐藏，而是留作后续设计：
+Config precedence is:
 
-- 审批决策还没有持久化成可恢复状态。
-- `shell_exec` 没有真正的进程级隔离。
-- memory compression 仍是简单滚动摘要。
-- 没有 resumable run。
-- 没有多 provider 选择策略。
-- 没有 OpenTelemetry 或结构化 metrics。
+```text
+CLI explicit options / --config
+> project .codecraft/config.toml
+> profile ~/.codecraft/profiles/<name>.toml
+> user ~/.codecraft/config.toml
+> built-in defaults
+```
 
-这些问题属于后续上线强化项，不应该通过在现有 Runtime 里增加隐式分支来解决。
+`SessionConfig` stores the resolved runtime values, including provider connection fields such as `model_api_key_env` and `model_base_url`. This makes resume use the same session configuration rather than re-reading a potentially changed project config.
+
+API keys should be provided through environment variables named by `api_key_env`; plaintext keys in TOML are intentionally not recommended.
+
+## Public API Is Conservative
+
+The root `codecraft` package exports the objects most useful for tests and embedding, such as:
+
+- runtime/session/thread types;
+- event/session/tool schemas;
+- providers;
+- built-in tools;
+- approval and workspace helpers.
+
+Deep module paths can still change as v1.0 stabilizes. New public exports should have tests, especially when they are intended for external embedding.
+
+## Known Follow-Up Work
+
+These are intentional future items rather than hidden assumptions:
+
+- automatic context compaction beyond current event/reconstruction support;
+- explicit interactive resume by session id;
+- automatic invalid session pruning or repair;
+- OS-level sandboxing;
+- Web/GitHub/cloud tools;
+- OpenTelemetry or structured metrics;
+- stronger smoke/e2e release checks.

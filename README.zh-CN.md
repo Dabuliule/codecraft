@@ -89,6 +89,7 @@ CLI 显式参数 / --config
 provider = "qwen"
 name = "qwen-plus"
 api_key_env = "DASHSCOPE_API_KEY"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 [approval]
 policy = "on_request"
@@ -107,7 +108,7 @@ API key 建议放在环境变量里：
 export DASHSCOPE_API_KEY="你的 key"
 ```
 
-CodeCraft 推荐使用 `api_key_env`，不推荐把明文 API key 写进 TOML。
+CodeCraft 推荐使用 `api_key_env`，不推荐把明文 API key 写进 TOML。如果不配置 `api_key_env`，CodeCraft 会按 provider 使用默认值：Qwen 使用 `DASHSCOPE_API_KEY`，OpenAI 使用 `OPENAI_API_KEY`。`base_url` 可选；Qwen 默认使用 DashScope compatible mode endpoint。
 
 常用 CLI 覆盖：
 
@@ -134,7 +135,8 @@ uv run codecraft chat --network
 [model]
 provider = "qwen"
 name = "qwen-plus"
-api_key_env = "DASHSCOPE_API_KEY"
+# qwen 的 api_key_env 默认是 DASHSCOPE_API_KEY
+# qwen 的 base_url 默认是 DashScope compatible mode
 ```
 
 ## Prompt 和 Instructions
@@ -193,6 +195,14 @@ Approve? [y/N]:
 
 Command policy 会区分安全命令、需要审批的命令、拒绝命令和网络命令。`python --version` 和 `python -V` 是安全命令；任意 Python 代码执行需要审批。
 
+Sandbox mode：
+
+| 模式 | 行为 |
+| --- | --- |
+| `read_only` | 只允许只读工具 |
+| `workspace_write` | 允许 workspace 写入和进程执行，但仍受审批和 command policy 约束 |
+| `danger_full_access` | 预留给未来扩展；仍然是应用层边界，不是 OS 级隔离 |
+
 重要边界：CodeCraft v1.0 是应用层 workspace guard 和命令策略，不声明提供 OS 级沙箱。
 
 ## Session 和 Resume
@@ -241,9 +251,9 @@ uv run pytest
 
 - 没有 OS 级沙箱。
 - 还没有自动清理 invalid session。
-- OpenAI 和 Qwen provider 已经通过 runtime delta events 流式输出 assistant 文本。
 - v1.0 暂不做 Web/GitHub/cloud 工具。
 - `resume --last` 只能恢复最近有效 session；还没有按指定 session id 进入交互式 resume。
+- 完整自动 context compact 属于 v1.1 范围。
 
 ## Runtime 结构
 
