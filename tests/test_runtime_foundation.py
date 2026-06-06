@@ -39,6 +39,7 @@ from codecraft import (
     ToolEffect,
     ToolRegistry,
     ToolResult,
+    ToolRunner,
     ToolSpec,
     ThreadApprovalReviewer,
     TurnContext,
@@ -46,7 +47,7 @@ from codecraft import (
     WriteFileTool,
     new_id,
 )
-from codecraft.sandbox import CommandPolicy, CommandRisk
+from codecraft.sandbox import CommandPolicy, CommandRisk, SandboxMode, SandboxPolicy
 from codecraft.prompt import InstructionLoader
 from codecraft.tool import ToolContext
 
@@ -595,12 +596,138 @@ def test_bash_tool_runs_safe_command_and_blocks_prompt_or_denied(tmp_path):
     asyncio.run(run_test())
 
 
+def test_sandbox_policy_denies_side_effects_in_read_only(tmp_path):
+    policy = SandboxPolicy(
+        mode=SandboxMode.READ_ONLY,
+        workspace_roots=[tmp_path],
+        network_access=False,
+    )
+
+    read = policy.evaluate_effects({ToolEffect.READ_ONLY})
+    write = policy.evaluate_effects({ToolEffect.WORKSPACE_WRITE})
+    network = policy.evaluate_effects({ToolEffect.NETWORK})
+
+    assert read.allowed is True
+    assert write.allowed is False
+    assert write.denied_effect == ToolEffect.WORKSPACE_WRITE
+    assert network.allowed is False
+    assert network.denied_effect == ToolEffect.NETWORK
+
+
+def test_tool_runner_denies_workspace_write_in_read_only_sandbox(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path).model_copy(update={"sandbox_mode": "read_only"})
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        reviewer = AutoApprovalReviewer(approved=True)
+        runner = ToolRunner(
+            ToolRegistry([WriteFileTool()]),
+            approval_manager=ApprovalManager(
+                policy=ApprovalPolicy.ON_REQUEST,
+                reviewer=reviewer,
+            ),
+        )
+
+        events = [
+            event
+            async for event in runner.run(
+                ToolCall(
+                    call_id="call_write",
+                    name="write_file",
+                    arguments={"path": "blocked.txt", "content": "nope"},
+                ),
+                context,
+            )
+        ]
+
+        assert not (tmp_path / "blocked.txt").exists()
+        assert [event.type for event in events] == [
+            RuntimeEventType.TOOL_CALL_STARTED,
+            RuntimeEventType.TOOL_CALL_FINISHED,
+        ]
+        assert reviewer.requests == []
+        assert events[1].payload["result"]["error"] == "sandbox_denied"
+        assert events[1].payload["result"]["metadata"]["denied_effect"] == "workspace_write"
+
+    asyncio.run(run_test())
+
+
+def test_tool_runner_denies_bash_in_read_only_sandbox(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path).model_copy(update={"sandbox_mode": "read_only"})
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        runner = ToolRunner(
+            ToolRegistry([BashTool()]),
+            approval_manager=ApprovalManager(policy=ApprovalPolicy.ON_REQUEST),
+        )
+
+        events = [
+            event
+            async for event in runner.run(
+                ToolCall(
+                    call_id="call_bash",
+                    name="bash",
+                    arguments={"command": "pwd"},
+                ),
+                context,
+            )
+        ]
+
+        assert [event.type for event in events] == [
+            RuntimeEventType.TOOL_CALL_STARTED,
+            RuntimeEventType.TOOL_CALL_FINISHED,
+        ]
+        assert events[1].payload["result"]["error"] == "sandbox_denied"
+        assert events[1].payload["result"]["metadata"]["denied_effect"] == "process_exec"
+
+    asyncio.run(run_test())
+
+
 def test_session_config_normalizes_paths(tmp_path):
     config = make_config(tmp_path)
 
     assert config.cwd == tmp_path.resolve()
     assert config.workspace_roots == [tmp_path.resolve()]
     assert config.codecraft_home == (tmp_path / ".codecraft").resolve()
+
+
+def test_session_config_requires_known_policy_names(tmp_path):
+    config_data = make_config(tmp_path).model_dump()
+
+    with pytest.raises(ValueError, match="approval_policy"):
+        SessionConfig.model_validate({**config_data, "approval_policy": "sometimes"})
+
+    with pytest.raises(ValueError, match="sandbox_mode"):
+        SessionConfig.model_validate({**config_data, "sandbox_mode": "half_trusted"})
 
 
 def test_turn_context_is_immutable(tmp_path):

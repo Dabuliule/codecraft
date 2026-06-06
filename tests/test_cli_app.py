@@ -322,7 +322,7 @@ def test_resume_last_continues_latest_session(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cli_app,
         "_build_provider_registry",
-        lambda: LLMProviderRegistry([provider]),
+        lambda _config: LLMProviderRegistry([provider]),
     )
 
     result = runner.invoke(
@@ -444,6 +444,8 @@ def test_exec_command_loads_config_file_defaults(tmp_path, monkeypatch):
 [model]
 provider = "mock"
 name = "configured-model"
+api_key_env = "MOCK_API_KEY"
+base_url = "https://example.test/v1"
 
 [instructions]
 user = "Be terse."
@@ -490,7 +492,35 @@ user = "Be terse."
     assert "configured answer" in result.output
     assert seen_configs[0].model_provider == "mock"
     assert seen_configs[0].model == "configured-model"
+    assert seen_configs[0].model_api_key_env == "MOCK_API_KEY"
+    assert seen_configs[0].model_base_url == "https://example.test/v1"
     assert seen_configs[0].user_instructions == "Be terse."
+
+
+def test_provider_registry_receives_session_model_connection_config(tmp_path):
+    config = make_config(tmp_path).model_copy(
+        update={
+            "model_provider": "qwen",
+            "model_api_key_env": "CUSTOM_API_KEY",
+            "model_base_url": "https://example.test/v1",
+        }
+    )
+
+    registry = cli_app._build_provider_registry(config)
+    openai = registry.get("openai")
+    qwen = registry.get("qwen")
+
+    assert openai.api_key_env == "OPENAI_API_KEY"
+    assert openai.base_url == "https://example.test/v1"
+    assert qwen.api_key_env == "CUSTOM_API_KEY"
+    assert qwen.base_url == "https://example.test/v1"
+
+
+def test_model_api_key_env_uses_provider_defaults_when_unconfigured():
+    assert cli_app._model_api_key_env("qwen", None) == "DASHSCOPE_API_KEY"
+    assert cli_app._model_api_key_env("openai", None) == "OPENAI_API_KEY"
+    assert cli_app._model_api_key_env("mock", None) is None
+    assert cli_app._model_api_key_env("qwen", "CUSTOM_API_KEY") == "CUSTOM_API_KEY"
 
 
 def test_chat_command_runs_multiple_turns_until_exit(tmp_path, monkeypatch):

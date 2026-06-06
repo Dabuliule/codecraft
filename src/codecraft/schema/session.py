@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from codecraft.approval.policy import ApprovalPolicy
+from codecraft.sandbox.policy import SandboxMode
 from codecraft.schema.event import RuntimeEvent
 
 
@@ -28,6 +30,8 @@ class SessionConfig(BaseModel):
 
     model: str
     model_provider: str
+    model_api_key_env: str | None = None
+    model_base_url: str | None = None
 
     approval_policy: str
     sandbox_mode: str
@@ -75,11 +79,15 @@ class SessionConfig(BaseModel):
         if not self.model_provider:
             raise ValueError("model_provider must not be empty")
 
-        if not self.approval_policy:
-            raise ValueError("approval_policy must not be empty")
+        try:
+            ApprovalPolicy(self.approval_policy)
+        except ValueError as exc:
+            raise ValueError("approval_policy must be a known value") from exc
 
-        if not self.sandbox_mode:
-            raise ValueError("sandbox_mode must not be empty")
+        try:
+            SandboxMode(self.sandbox_mode)
+        except ValueError as exc:
+            raise ValueError("sandbox_mode must be a known value") from exc
 
         return self
 

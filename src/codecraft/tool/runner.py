@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from codecraft.approval.manager import ApprovalManager
 from codecraft.core.errors import CodecraftError
 from codecraft.core.turn_context import TurnContext
+from codecraft.sandbox.policy import SandboxMode, SandboxPolicy
 from codecraft.schema.event import RuntimeEventType
 from codecraft.schema.tool import ToolCall, ToolResult
 from codecraft.tool.base import ToolContext
@@ -50,6 +51,30 @@ class ToolRunner:
         try:
             tool = self.registry.get(call.name)
             args = tool.args_schema.model_validate(call.arguments)
+            sandbox_evaluation = self._sandbox_policy(context).evaluate_effects(tool.effects)
+            if not sandbox_evaluation.allowed:
+                result = ToolResult(
+                    success=False,
+                    content="Tool execution denied by sandbox policy.",
+                    error="sandbox_denied",
+                    suggestion=sandbox_evaluation.reason,
+                    metadata={
+                        "tool": call.name,
+                        "sandbox_mode": context.sandbox_mode,
+                        "denied_effect": sandbox_evaluation.denied_effect,
+                    },
+                )
+                yield ToolRunnerEvent(
+                    RuntimeEventType.TOOL_CALL_FINISHED,
+                    {
+                        "call_id": call.call_id,
+                        "name": call.name,
+                        "result": result.model_dump(mode="json"),
+                        "duration_ms": int((monotonic() - started_at) * 1000),
+                    },
+                )
+                return
+
             evaluation = await self.approval_manager.evaluate(tool, call, args, context)
             if evaluation.requires_approval:
                 approval_request = self.approval_manager.build_request(
@@ -134,3 +159,11 @@ class ToolRunner:
                     "deleted": result.data.get("deleted", 0) if result.data else 0,
                 },
             )
+
+    @staticmethod
+    def _sandbox_policy(context: TurnContext) -> SandboxPolicy:
+        return SandboxPolicy(
+            mode=SandboxMode(context.sandbox_mode),
+            workspace_roots=context.workspace_roots,
+            network_access=context.network_access,
+        )

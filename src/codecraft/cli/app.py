@@ -366,6 +366,8 @@ def _load_session_config(
         codecraft_home=settings.paths.codecraft_home,
         model=settings.model.name,
         model_provider=settings.model.provider,
+        model_api_key_env=_model_api_key_env(settings.model.provider, settings.model.api_key_env),
+        model_base_url=settings.model.base_url,
         approval_policy=settings.approval.policy,
         sandbox_mode=settings.sandbox.mode,
         network_access=settings.sandbox.network_access,
@@ -506,10 +508,20 @@ def _preview(value: str, *, max_chars: int = 160) -> str:
     return compact[: max_chars - 3] + "..."
 
 
+def _model_api_key_env(provider: str, configured: str | None) -> str | None:
+    if configured:
+        return configured
+    if provider == "qwen":
+        return "DASHSCOPE_API_KEY"
+    if provider == "openai":
+        return "OPENAI_API_KEY"
+    return None
+
+
 def _build_runtime(config: SessionConfig) -> AgentRuntime:
     return AgentRuntime(
         session_store=SessionStore(config.codecraft_home),
-        llm_providers=_build_provider_registry(),
+        llm_providers=_build_provider_registry(config),
         tool_registry=_build_tool_registry(),
         approval_manager=ApprovalManager(
             policy=ApprovalPolicy(config.approval_policy),
@@ -518,8 +530,24 @@ def _build_runtime(config: SessionConfig) -> AgentRuntime:
     )
 
 
-def _build_provider_registry() -> LLMProviderRegistry:
-    return LLMProviderRegistry([OpenAIProvider(), QwenProvider()])
+def _build_provider_registry(config: SessionConfig) -> LLMProviderRegistry:
+    return LLMProviderRegistry(
+        [
+            OpenAIProvider(
+                api_key_env=_provider_api_key_env(config, "openai"),
+                base_url=config.model_base_url,
+            ),
+            QwenProvider(
+                api_key_env=_provider_api_key_env(config, "qwen"),
+                base_url=config.model_base_url,
+            ),
+        ]
+    )
+
+
+def _provider_api_key_env(config: SessionConfig, provider: str) -> str | None:
+    configured = config.model_api_key_env if config.model_provider == provider else None
+    return _model_api_key_env(provider, configured)
 
 
 def _build_tool_registry() -> ToolRegistry:

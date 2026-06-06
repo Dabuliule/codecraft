@@ -22,10 +22,12 @@ class QwenProvider(OpenAICompatibleProvider):
         *,
         client: Any | None = None,
         api_key: str | None = None,
+        api_key_env: str | None = "DASHSCOPE_API_KEY",
         base_url: str | None = None,
     ) -> None:
         self.client = client
         self.api_key = api_key
+        self.api_key_env = api_key_env
         self.base_url = base_url
 
     def _client(self) -> Any:
@@ -66,9 +68,10 @@ class QwenProvider(OpenAICompatibleProvider):
         except Exception as exc:
             raise LLMConfigError("openai package is not installed") from exc
 
-        api_key = self.api_key or os.getenv("DASHSCOPE_API_KEY")
+        api_key = self.api_key or (os.getenv(self.api_key_env) if self.api_key_env else None)
         if not api_key:
-            raise LLMConfigError("DASHSCOPE_API_KEY is required for QwenProvider")
+            env_name = self.api_key_env or "configured api_key_env"
+            raise LLMConfigError(f"{env_name} is required for QwenProvider")
 
         return AsyncOpenAI(
             api_key=api_key,

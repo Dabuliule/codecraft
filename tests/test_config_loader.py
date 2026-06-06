@@ -72,7 +72,7 @@ def test_config_loader_uses_builtin_defaults_when_files_are_missing(tmp_path):
 
     assert settings.model.provider == "qwen"
     assert settings.model.name == "qwen-plus"
-    assert settings.model.api_key_env == "DASHSCOPE_API_KEY"
+    assert settings.model.api_key_env is None
     assert settings.approval.policy == "on_request"
     assert settings.sandbox.mode == "workspace_write"
     assert settings.sandbox.network_access is False

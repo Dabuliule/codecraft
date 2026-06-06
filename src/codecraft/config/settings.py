@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 class ModelSettings(BaseModel):
     provider: str = "qwen"
     name: str = "qwen-plus"
-    api_key_env: str | None = "DASHSCOPE_API_KEY"
+    api_key_env: str | None = None
     base_url: str | None = None
 
 
