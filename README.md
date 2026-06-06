@@ -6,6 +6,8 @@ CodeCraft is a local coding-agent runtime for working inside a repository. It is
 
 The project is currently being rebuilt toward a v1.0 runtime. It already runs real multi-turn CLI sessions with Qwen or OpenAI-compatible providers, but it is still an application-level sandbox, not an OS-level isolation system.
 
+License: Apache-2.0.
+
 ## What It Does
 
 - Runs coding tasks from the CLI with `exec`, `chat`, and `resume`.
@@ -18,6 +20,49 @@ The project is currently being rebuilt toward a v1.0 runtime. It already runs re
 - Stores session events as JSONL under `~/.codecraft/sessions`.
 - Reconstructs conversation history from session events for resume.
 - Provides CLI inspection for events, tools, errors, raw logs, and invalid sessions.
+
+## Installation
+
+CodeCraft is currently suitable for alpha/testing installs from GitHub.
+
+Install with `uv`:
+
+```zsh
+uv tool install git+https://github.com/Dabuliule/codecraft.git
+```
+
+Update with `uv`:
+
+```zsh
+uv tool upgrade codecraft
+```
+
+Install with `pipx`:
+
+```zsh
+pipx install git+https://github.com/Dabuliule/codecraft.git
+```
+
+Update with `pipx`:
+
+```zsh
+pipx upgrade codecraft
+```
+
+After installation, run:
+
+```zsh
+codecraft chat
+```
+
+For local development from a clone:
+
+```zsh
+git clone https://github.com/Dabuliule/codecraft.git
+cd codecraft
+uv sync
+uv run codecraft chat
+```
 
 ## Current CLI
 
@@ -236,7 +281,7 @@ uv run codecraft inspect <session_id> --raw
 Install and run from the repository:
 
 ```zsh
-uv pip install -e .
+uv sync
 uv run codecraft chat
 ```
 
