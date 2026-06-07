@@ -81,6 +81,7 @@ logs/
 .agent-runtime/
 docs/optimization-checklist.md
 docs/design/codecraft-runtime-sdd.md
+docs/design/codecraft-terminal-tui-sdd.md
 *.log
 *.out
 *.err
