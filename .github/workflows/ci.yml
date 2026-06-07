@@ -10,7 +10,44 @@ permissions:
   contents: read
 
 jobs:
+  conventional-commits:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Conventional Commits
+        run: |
+          set -euo pipefail
+          regex='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          range=""
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            range="origin/${{ github.base_ref }}..${{ github.event.pull_request.head.sha }}"
+          else
+            range="${{ github.event.before }}..${{ github.sha }}"
+          fi
+
+          invalid=0
+          commits="$(git rev-list --no-merges "${range}")"
+          for commit in ${commits}; do
+            subject="$(git log -1 --pretty=%s "${commit}")"
+            if ! [[ "${subject}" =~ ${regex} ]]; then
+              echo "Invalid commit message: ${subject}"
+              invalid=1
+            fi
+          done
+
+          if [ "${invalid}" -ne 0 ]; then
+            echo "Commit messages must follow Conventional Commits."
+            exit 1
+          fi
+
   lint-and-test:
+    needs: conventional-commits
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

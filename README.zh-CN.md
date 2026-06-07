@@ -290,6 +290,27 @@ uv run ruff check .
 uv run pytest
 ```
 
+Conventional Commits（提交信息不符合时会阻止 push）：
+
+```zsh
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-push
+```
+
+提交格式：
+
+```text
+type(scope): subject
+```
+
+示例：
+
+```text
+feat(cli): add resume summary option
+fix(tool): handle empty apply_patch payload
+chore: update workflow permissions
+```
+
 当前测试覆盖 runtime events、session store、resume、配置加载、prompt 注入、provider、tool runner、workspace 工具、bash policy、approval flow 和 CLI 行为。
 
 ## 当前限制
