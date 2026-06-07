@@ -628,3 +628,75 @@ def test_exec_command_prints_bash_approval_details(tmp_path, monkeypatch):
     assert "command: python -c 'print(1)'" in result.output
     assert "Approve?" in result.output
     assert "[tool] bash failed" in result.output
+
+
+def test_default_command_submits_initial_task_and_stays_interactive(tmp_path, monkeypatch):
+    provider = MockProvider(
+        [
+            ModelEvent(
+                type=ModelEventType.MESSAGE_COMPLETED,
+                payload={"text": "initial answer"},
+            ),
+            ModelEvent(type=ModelEventType.COMPLETED),
+        ]
+    )
+
+    def fake_runtime(config: SessionConfig) -> AgentRuntime:
+        return AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry(),
+        )
+
+    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
+
+    result = runner.invoke(
+        app,
+        [
+            "--provider",
+            "mock",
+            "--model",
+            "mock-model",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+            "explain repo",
+        ],
+        input="/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "initial answer" in result.output
+    assert provider.calls[0][0][-1].content == "explain repo"
+
+
+def test_chat_slash_commands_are_handled_locally(tmp_path, monkeypatch):
+    provider = MockProvider([])
+
+    def fake_runtime(config: SessionConfig) -> AgentRuntime:
+        return AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([BashTool()]),
+        )
+
+    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
+
+    result = runner.invoke(
+        app,
+        [
+            "chat",
+            "--provider",
+            "mock",
+            "--model",
+            "mock-model",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+        input="/help\n/status\n/tools\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "CodeCraft commands" in result.output
+    assert "session status" in result.output
+    assert "Registered Tools" in result.output
+    assert provider.calls == []
