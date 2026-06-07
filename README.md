@@ -292,6 +292,27 @@ uv run ruff check .
 uv run pytest
 ```
 
+Conventional Commits (push is blocked if commit messages are invalid):
+
+```zsh
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-push
+```
+
+Commit message format:
+
+```text
+type(scope): subject
+```
+
+Examples:
+
+```text
+feat(cli): add resume summary option
+fix(tool): handle empty apply_patch payload
+chore: update workflow permissions
+```
+
 Current test coverage includes runtime events, session store, resume, config loading, prompt injection, providers, tool runner, workspace tools, bash policy, approval flow, and CLI behavior.
 
 ## Current Limitations
