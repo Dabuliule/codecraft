@@ -274,6 +274,79 @@ def test_command_policy_classifies_safe_prompt_and_deny_commands():
     assert policy.classify("sudo true").risk == CommandRisk.DENY
 
 
+def test_command_policy_sed_inplace_requires_approval():
+    """sed -i modifies files in-place and must not be classified as SAFE."""
+    policy = CommandPolicy()
+
+    # Read-only sed is safe (prints to stdout).
+    assert policy.classify("sed 's/foo/bar/' README.md").risk == CommandRisk.SAFE
+    assert policy.classify("sed -n '5,10p' file.txt").risk == CommandRisk.SAFE
+
+    # In-place edit requires approval.
+    assert policy.classify("sed -i 's/foo/bar/' README.md").risk == CommandRisk.PROMPT
+    assert policy.classify("sed --in-place 's/foo/bar/' README.md").risk == CommandRisk.PROMPT
+    assert policy.classify("sed -ie 's/foo/bar/' README.md").risk == CommandRisk.PROMPT
+    assert policy.classify("sed -Ei 's/foo/bar/' README.md").risk == CommandRisk.PROMPT
+
+
+def test_command_policy_detects_shell_metacharacters():
+    """Commands chained with ; && || | must be classified by the riskiest sub-command."""
+    policy = CommandPolicy()
+
+    # Safe command chained with a dangerous one → DENY.
+    result = policy.classify("pwd && sudo true")
+    assert result.risk == CommandRisk.DENY
+    assert "compound command" in result.reason
+
+    # Safe command chained with a prompt one → PROMPT.
+    result = policy.classify("pwd; rm file.txt")
+    assert result.risk == CommandRisk.PROMPT
+    assert "compound command" in result.reason
+
+    # Pipe through a safe command → still SAFE.
+    result = policy.classify("ls | grep foo")
+    assert result.risk == CommandRisk.SAFE
+
+    # Two safe commands chained → SAFE.
+    result = policy.classify("pwd && ls")
+    assert result.risk == CommandRisk.SAFE
+
+
+def test_command_policy_destructive_rm_patterns_are_denied():
+    """rm -rf with dangerous paths is always DENY, even for broader patterns."""
+    policy = CommandPolicy()
+
+    assert policy.classify("rm -rf /").risk == CommandRisk.DENY
+    assert policy.classify("rm -rf /*").risk == CommandRisk.DENY
+    assert policy.classify("rm -rf ~").risk == CommandRisk.DENY
+    assert policy.classify("rm -rf *").risk == CommandRisk.DENY
+    assert policy.classify("rm -fr /").risk == CommandRisk.DENY
+    assert policy.classify("rm -r -f /").risk == CommandRisk.DENY
+    assert policy.classify("rm --recursive --force /").risk == CommandRisk.DENY
+
+    # rm without -rf on a specific file is PROMPT, not DENY.
+    assert policy.classify("rm file.txt").risk == CommandRisk.PROMPT
+    assert policy.classify("rm -r dir/").risk == CommandRisk.PROMPT
+
+    # rm with -rf on a non-broad path is still PROMPT (not auto-DENY).
+    assert policy.classify("rm -rf build/").risk == CommandRisk.PROMPT
+
+
+def test_command_policy_expanded_safe_git_subcommands():
+    """git read-only subcommands like branch, stash, tag are SAFE."""
+    policy = CommandPolicy()
+
+    assert policy.classify("git branch").risk == CommandRisk.SAFE
+    assert policy.classify("git stash list").risk == CommandRisk.SAFE
+    assert policy.classify("git tag").risk == CommandRisk.SAFE
+    assert policy.classify("git remote -v").risk == CommandRisk.SAFE
+    assert policy.classify("git fetch").risk == CommandRisk.SAFE
+
+    # Destructive git subcommands are still PROMPT.
+    assert policy.classify("git push").risk == CommandRisk.PROMPT
+    assert policy.classify("git commit -m wip").risk == CommandRisk.PROMPT
+
+
 def test_instruction_loader_reads_workspace_instruction_files(tmp_path):
     workspace = tmp_path / "workspace"
     package = workspace / "pkg"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shlex
 from enum import StrEnum
 
@@ -18,6 +19,11 @@ class CommandDecision(BaseModel):
     requires_approval: bool
 
 
+_SHELL_CHAIN_RE = re.compile(r"(&&|\|\||[;|])")
+
+_BROAD_RM_TARGETS = frozenset({"/", "/*", "~", "*", "..", "../", "/.", "./.."})
+
+
 class CommandPolicy:
     SAFE_COMMANDS = {
         "pwd",
@@ -25,13 +31,15 @@ class CommandPolicy:
         "rg",
         "grep",
         "cat",
-        "sed",
         "git",
         "pytest",
         "python",
         "uv",
         "npm",
         "mvn",
+    }
+    SAFE_READONLY_COMMANDS = {
+        "sed",
     }
     PROMPT_COMMANDS = {
         "pip",
@@ -69,10 +77,25 @@ class CommandPolicy:
                 requires_approval=False,
             )
 
-        executable = parts[0]
-        compound = self._compound_name(parts)
+        sub_commands = self._split_raw_command(command)
+        if len(sub_commands) > 1:
+            return self._classify_compound(sub_commands, network_access=network_access)
 
-        if executable in self.DENY_COMMANDS or "rm -rf /" in command:
+        return self._classify_single(parts, network_access=network_access)
+
+    def _classify_single(
+        self, parts: list[str], *, network_access: bool
+    ) -> CommandDecision:
+        executable = parts[0]
+
+        if self._is_destructive_rm(parts):
+            return CommandDecision(
+                risk=CommandRisk.DENY,
+                reason="destructive rm -rf on broad path is denied",
+                requires_approval=False,
+            )
+
+        if executable in self.DENY_COMMANDS:
             return CommandDecision(
                 risk=CommandRisk.DENY,
                 reason=f"{executable} is denied",
@@ -86,6 +109,7 @@ class CommandPolicy:
                 requires_approval=False,
             )
 
+        compound = self._compound_name(parts)
         if compound in self.PROMPT_COMMANDS or executable in self.PROMPT_COMMANDS:
             return CommandDecision(
                 risk=CommandRisk.PROMPT,
@@ -106,6 +130,40 @@ class CommandPolicy:
             requires_approval=True,
         )
 
+    def _classify_compound(
+        self,
+        sub_commands: list[str],
+        *,
+        network_access: bool,
+    ) -> CommandDecision:
+        highest: CommandDecision | None = None
+        sub_reasons: list[str] = []
+
+        for sub_str in sub_commands:
+            sub_str = sub_str.strip()
+            if not sub_str:
+                continue
+            parts = self._split(sub_str)
+            if not parts:
+                continue
+            decision = self._classify_single(parts, network_access=network_access)
+            sub_reasons.append(f"{parts[0]}:{decision.risk.value}")
+            if highest is None or self._risk_rank(decision.risk) > self._risk_rank(highest.risk):
+                highest = decision
+
+        if highest is None:
+            return CommandDecision(
+                risk=CommandRisk.DENY,
+                reason="empty compound command",
+                requires_approval=False,
+            )
+
+        return CommandDecision(
+            risk=highest.risk,
+            reason=f"compound command ({'; '.join(sub_reasons)})",
+            requires_approval=highest.requires_approval,
+        )
+
     @staticmethod
     def _split(command: str) -> list[str]:
         try:
@@ -114,18 +172,39 @@ class CommandPolicy:
             return []
 
     @staticmethod
+    def _split_raw_command(command: str) -> list[str]:
+        parts = _SHELL_CHAIN_RE.split(command)
+        return [
+            part
+            for part in parts
+            if part.strip() and part.strip() not in {"&&", "||", "|", ";"}
+        ]
+
+    @staticmethod
     def _compound_name(parts: list[str]) -> str:
         if len(parts) >= 2:
             return f"{parts[0]}-{parts[1]}"
         return parts[0]
 
+    @staticmethod
+    def _risk_rank(risk: CommandRisk) -> int:
+        return {CommandRisk.SAFE: 0, CommandRisk.PROMPT: 1, CommandRisk.DENY: 2}[risk]
+
     def _is_known_safe(self, parts: list[str]) -> bool:
         executable = parts[0]
+
+        if executable == "sed":
+            return not self._sed_is_inplace(parts)
+
         if executable not in self.SAFE_COMMANDS:
             return False
 
         if executable == "git" and len(parts) >= 2:
-            return parts[1] in {"status", "diff", "show", "log"}
+            return parts[1] in {
+                "status", "diff", "show", "log",
+                "branch", "stash", "tag", "remote",
+                "fetch",
+            }
 
         if executable == "uv" and len(parts) >= 3:
             return parts[1:3] in (["run", "pytest"], ["run", "ruff"])
@@ -139,4 +218,48 @@ class CommandPolicy:
         if executable == "python" and len(parts) == 2:
             return parts[1] in {"--version", "-V"}
 
-        return executable in {"pwd", "ls", "rg", "grep", "cat", "sed", "pytest", "mvn"}
+        return executable in {"pwd", "ls", "rg", "grep", "cat", "pytest", "mvn"}
+
+    @staticmethod
+    def _sed_is_inplace(parts: list[str]) -> bool:
+        for part in parts[1:]:
+            if part in {"-i", "--in-place"}:
+                return True
+            if part.startswith("-") and not part.startswith("--") and "i" in part:
+                return True
+        return False
+
+    @staticmethod
+    def _is_destructive_rm(parts: list[str]) -> bool:
+        if not parts or parts[0] != "rm":
+            return False
+
+        has_recursive = False
+        has_force = False
+
+        for part in parts[1:]:
+            if part in {"-r", "-R", "--recursive"}:
+                has_recursive = True
+                continue
+            if part in {"-f", "--force"}:
+                has_force = True
+                continue
+            if part.startswith("-") and not part.startswith("--") and len(part) > 1:
+                flags = set(part[1:])
+                if "r" in flags or "R" in flags:
+                    has_recursive = True
+                if "f" in flags:
+                    has_force = True
+                continue
+
+        if not (has_recursive and has_force):
+            return False
+
+        target = ""
+        for part in reversed(parts[1:]):
+            if part.startswith("-"):
+                continue
+            target = part
+            break
+
+        return target in _BROAD_RM_TARGETS
