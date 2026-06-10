@@ -4,7 +4,7 @@
 
 CodeCraft is a local coding-agent runtime for working inside a repository. It is focused on the runtime pieces that make an agent governable: configuration, prompt/instruction loading, model providers, tool execution, approval, session event logs, resume, and inspection.
 
-The project is currently being rebuilt toward a v1.0 runtime. It already runs real multi-turn CLI sessions with Qwen or OpenAI-compatible providers, but it is still an application-level sandbox, not an OS-level isolation system.
+The project is currently being rebuilt toward a v1.0 runtime. It already runs real multi-turn CLI sessions with Qwen, DeepSeek, or OpenAI-compatible providers, but it is still an application-level sandbox, not an OS-level isolation system.
 
 License: Apache-2.0.
 
@@ -13,7 +13,7 @@ License: Apache-2.0.
 - Runs coding tasks from the CLI with `exec`, `chat`, and `resume`.
 - Loads configuration from user, profile, project, and explicit config files.
 - Injects runtime instructions from built-in instructions plus `AGENTS.md` / `CODECRAFT.md`.
-- Calls OpenAI-compatible providers, including Qwen and OpenAI.
+- Calls OpenAI-compatible providers, including Qwen, DeepSeek, and OpenAI.
 - Exposes tools to the model through structured tool schemas, not by hardcoding tool descriptions into the prompt.
 - Executes all tool calls through `ToolRunner`.
 - Gates write, patch, bash, and risky commands through approval policy.
@@ -153,12 +153,13 @@ Then set the API key through the environment:
 export DASHSCOPE_API_KEY="your key"
 ```
 
-CodeCraft intentionally uses `api_key_env` instead of recommending plaintext API keys in TOML. If `api_key_env` is omitted, CodeCraft uses provider defaults: `DASHSCOPE_API_KEY` for Qwen and `OPENAI_API_KEY` for OpenAI. `base_url` is optional; Qwen defaults to DashScope's compatible-mode endpoint.
+CodeCraft intentionally uses `api_key_env` instead of recommending plaintext API keys in TOML. If `api_key_env` is omitted, CodeCraft uses provider defaults: `DASHSCOPE_API_KEY` for Qwen, `DEEPSEEK_API_KEY` for DeepSeek, and `OPENAI_API_KEY` for OpenAI. `base_url` is optional; Qwen defaults to DashScope's compatible-mode endpoint and DeepSeek defaults to `https://api.deepseek.com`.
 
 Useful CLI overrides:
 
 ```zsh
 uv run codecraft chat --provider qwen --model qwen-plus
+uv run codecraft chat --provider deepseek --model deepseek-v4-flash
 uv run codecraft chat --config ./my-config.toml
 uv run codecraft chat --profile work
 uv run codecraft chat --approval-policy on_request
@@ -170,9 +171,10 @@ uv run codecraft chat --network
 Current providers:
 
 - `qwen`
+- `deepseek`
 - `openai`
 
-Both use an OpenAI-compatible provider base. Qwen is implemented as an OpenAI-compatible provider because DashScope exposes an OpenAI-compatible API surface for chat/function-style calls.
+They use an OpenAI-compatible provider base. Qwen and DeepSeek are implemented through Chat Completions-style adapters because their compatible APIs expose chat/function-style calls.
 
 Default built-in model settings:
 
@@ -182,6 +184,16 @@ provider = "qwen"
 name = "qwen-plus"
 # api_key_env defaults to DASHSCOPE_API_KEY for qwen
 # base_url defaults to DashScope compatible mode for qwen
+```
+
+DeepSeek example:
+
+```toml
+[model]
+provider = "deepseek"
+name = "deepseek-v4-flash"
+# api_key_env defaults to DEEPSEEK_API_KEY for deepseek
+# base_url defaults to https://api.deepseek.com
 ```
 
 ## Prompt And Instructions

@@ -14,6 +14,7 @@ from codecraft import (
     AutoApprovalReviewer,
     BashTool,
     BaseTool,
+    DeepSeekProvider,
     EventBus,
     LLMProvider,
     LLMProviderRegistry,
@@ -1421,7 +1422,99 @@ def test_qwen_provider_streams_chat_completion_tool_calls(tmp_path):
 def test_openai_and_qwen_share_compatible_provider_base():
     assert isinstance(OpenAIProvider(client=object()), OpenAICompatibleProvider)
     assert isinstance(QwenProvider(client=object()), OpenAICompatibleProvider)
+    assert isinstance(DeepSeekProvider(client=object()), OpenAICompatibleProvider)
     assert not isinstance(QwenProvider(client=object()), OpenAIProvider)
+    assert not isinstance(DeepSeekProvider(client=object()), OpenAIProvider)
+
+
+def test_deepseek_provider_streams_chat_completion_deltas(tmp_path):
+    class FakeStream:
+        def __aiter__(self):
+            self.chunks = iter(
+                [
+                    {"choices": [{"delta": {"content": "deepseek "}}]},
+                    {
+                        "choices": [{"delta": {"content": "stream"}}],
+                        "usage": {
+                            "prompt_tokens": 5,
+                            "completion_tokens": 6,
+                            "total_tokens": 11,
+                        },
+                    },
+                ]
+            )
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self.chunks)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    class FakeCompletions:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        async def create(self, **kwargs):
+            self.kwargs = kwargs
+            return FakeStream()
+
+    class FakeChat:
+        def __init__(self) -> None:
+            self.completions = FakeCompletions()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.chat = FakeChat()
+
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model="deepseek-v4-flash",
+            model_provider="deepseek",
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        client = FakeClient()
+        provider = DeepSeekProvider(client=client)
+
+        events = [
+            event
+            async for event in provider.stream(
+                [ModelMessage(role=ModelRole.USER, content="hello")],
+                [],
+                context,
+            )
+        ]
+
+        assert client.chat.completions.kwargs["model"] == "deepseek-v4-flash"
+        assert client.chat.completions.kwargs["messages"] == [
+            {"role": "user", "content": "hello"}
+        ]
+        assert client.chat.completions.kwargs["stream"] is True
+        assert [event.type for event in events] == [
+            ModelEventType.MESSAGE_DELTA,
+            ModelEventType.MESSAGE_DELTA,
+            ModelEventType.TOKEN_COUNT,
+            ModelEventType.COMPLETED,
+        ]
+        assert [event.payload.get("text") for event in events[:2]] == [
+            "deepseek ",
+            "stream",
+        ]
+        assert events[2].payload["total_tokens"] == 11
+
+    asyncio.run(run_test())
 
 
 def test_qwen_provider_requires_dashscope_api_key(monkeypatch):
@@ -1429,6 +1522,14 @@ def test_qwen_provider_requires_dashscope_api_key(monkeypatch):
     provider = QwenProvider()
 
     with pytest.raises(Exception, match="DASHSCOPE_API_KEY"):
+        provider._default_client()
+
+
+def test_deepseek_provider_requires_deepseek_api_key(monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    provider = DeepSeekProvider()
+
+    with pytest.raises(Exception, match="DEEPSEEK_API_KEY"):
         provider._default_client()
 
 

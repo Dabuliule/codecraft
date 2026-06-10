@@ -21,7 +21,7 @@ from codecraft.cli.commands import (
 from codecraft.cli.options import CodecraftHomeOption
 from codecraft.core.runtime import AgentRuntime
 from codecraft.core.session_store import SessionStore
-from codecraft.llm import LLMProviderRegistry, OpenAIProvider, QwenProvider
+from codecraft.llm import DeepSeekProvider, LLMProviderRegistry, OpenAIProvider, QwenProvider
 from codecraft.schema.session import SessionConfig, SessionSource
 from codecraft.tool import (
     ApplyPatchTool,
@@ -57,7 +57,7 @@ def main(
     ctx: typer.Context,
     provider: Annotated[
         str | None,
-        typer.Option("--provider", help="Model provider: openai or qwen."),
+        typer.Option("--provider", help="Model provider: openai, qwen, or deepseek."),
     ] = None,
     model: Annotated[
         str | None,
@@ -149,6 +149,10 @@ def _build_provider_registry(config: SessionConfig) -> LLMProviderRegistry:
             ),
             QwenProvider(
                 api_key_env=_provider_api_key_env(config, "qwen"),
+                base_url=config.model_base_url,
+            ),
+            DeepSeekProvider(
+                api_key_env=_provider_api_key_env(config, "deepseek"),
                 base_url=config.model_base_url,
             ),
         ]

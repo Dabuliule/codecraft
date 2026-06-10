@@ -18,7 +18,7 @@ def register_exec_command(app: typer.Typer) -> None:
         task: Annotated[str, typer.Argument(help="User task to submit to Codecraft.")],
         provider: Annotated[
             str | None,
-            typer.Option("--provider", help="Model provider: openai or qwen."),
+            typer.Option("--provider", help="Model provider: openai, qwen, or deepseek."),
         ] = None,
         model: Annotated[
             str | None,

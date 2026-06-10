@@ -129,8 +129,9 @@ Current providers:
 - `mock` for tests
 - `openai`
 - `qwen`
+- `deepseek`
 
-OpenAI uses the Responses-style compatible path. Qwen uses DashScope/OpenAI-compatible Chat Completions streaming and translates `choices[].delta.content` into `MESSAGE_DELTA` events. Tool call argument chunks are accumulated before emitting a complete `TOOL_CALL`.
+OpenAI uses the Responses-style compatible path. Qwen and DeepSeek use OpenAI-compatible Chat Completions streaming and translate `choices[].delta.content` into `MESSAGE_DELTA` events. Tool call argument chunks are accumulated before emitting a complete `TOOL_CALL`.
 
 Provider connection configuration comes from `SessionConfig`:
 
@@ -139,7 +140,7 @@ Provider connection configuration comes from `SessionConfig`:
 - `model_api_key_env`
 - `model_base_url`
 
-If `api_key_env` is not configured, provider defaults are applied by the CLI runtime builder: Qwen uses `DASHSCOPE_API_KEY`, OpenAI uses `OPENAI_API_KEY`.
+If `api_key_env` is not configured, provider defaults are applied by the CLI runtime builder: Qwen uses `DASHSCOPE_API_KEY`, DeepSeek uses `DEEPSEEK_API_KEY`, and OpenAI uses `OPENAI_API_KEY`.
 
 ## Tool System
 

@@ -36,6 +36,7 @@ from codecraft.core import (
 from codecraft.core.runtime import AgentRuntime
 from codecraft.core.thread import AgentThread
 from codecraft.llm import (
+    DeepSeekProvider,
     LLMConfigError,
     LLMProvider,
     LLMProviderError,
@@ -96,6 +97,7 @@ __all__ = [
     "CommandDeniedError",
     "ConfigLoader",
     "ConfigOverrides",
+    "DeepSeekProvider",
     "EventBus",
     "InstructionSettings",
     "LLMConfigError",

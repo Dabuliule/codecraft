@@ -509,16 +509,20 @@ def test_provider_registry_receives_session_model_connection_config(tmp_path):
     registry = cli_app._build_provider_registry(config)
     openai = registry.get("openai")
     qwen = registry.get("qwen")
+    deepseek = registry.get("deepseek")
 
     assert openai.api_key_env == "OPENAI_API_KEY"
     assert openai.base_url == "https://example.test/v1"
     assert qwen.api_key_env == "CUSTOM_API_KEY"
     assert qwen.base_url == "https://example.test/v1"
+    assert deepseek.api_key_env == "DEEPSEEK_API_KEY"
+    assert deepseek.base_url == "https://example.test/v1"
 
 
 def test_model_api_key_env_uses_provider_defaults_when_unconfigured():
     assert cli_app._model_api_key_env("qwen", None) == "DASHSCOPE_API_KEY"
     assert cli_app._model_api_key_env("openai", None) == "OPENAI_API_KEY"
+    assert cli_app._model_api_key_env("deepseek", None) == "DEEPSEEK_API_KEY"
     assert cli_app._model_api_key_env("mock", None) is None
     assert cli_app._model_api_key_env("qwen", "CUSTOM_API_KEY") == "CUSTOM_API_KEY"
 

@@ -8,7 +8,7 @@ from codecraft.config import ConfigLoader, ConfigOverrides
 from codecraft.core.ids import new_id
 from codecraft.core.runtime import AgentRuntime
 from codecraft.core.session_store import SessionStore
-from codecraft.llm import LLMProviderRegistry, OpenAIProvider, QwenProvider
+from codecraft.llm import DeepSeekProvider, LLMProviderRegistry, OpenAIProvider, QwenProvider
 from codecraft.schema.session import SessionConfig, SessionSource
 from codecraft.tool import (
     ApplyPatchTool,
@@ -116,6 +116,10 @@ def build_provider_registry(config: SessionConfig) -> LLMProviderRegistry:
                 api_key_env=provider_api_key_env(config, "qwen"),
                 base_url=config.model_base_url,
             ),
+            DeepSeekProvider(
+                api_key_env=provider_api_key_env(config, "deepseek"),
+                base_url=config.model_base_url,
+            ),
         ]
     )
 
@@ -132,6 +136,8 @@ def model_api_key_env(provider: str, configured: str | None) -> str | None:
         return "DASHSCOPE_API_KEY"
     if provider == "openai":
         return "OPENAI_API_KEY"
+    if provider == "deepseek":
+        return "DEEPSEEK_API_KEY"
     return None
 
 
