@@ -48,7 +48,7 @@ from codecraft import (
     new_id,
 )
 from codecraft.sandbox import CommandPolicy, CommandRisk, SandboxMode, SandboxPolicy
-from codecraft.prompt import InstructionLoader
+from codecraft.prompt import BASE_INSTRUCTIONS, InstructionLoader
 from codecraft.tool import ToolContext
 
 
@@ -65,6 +65,11 @@ def make_config(tmp_path) -> SessionConfig:
         approval_policy="never",
         sandbox_mode="workspace_write",
     )
+
+
+def test_base_instructions_are_loaded_from_markdown_resource():
+    assert BASE_INSTRUCTIONS.startswith("# CodeCraft Base Instructions")
+    assert "Respect the active sandbox and approval policy." in BASE_INSTRUCTIONS
 
 
 async def next_event_of_type(thread, event_type: RuntimeEventType) -> RuntimeEvent:

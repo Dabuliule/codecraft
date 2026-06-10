@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from codecraft.core.conversation import Conversation
 from codecraft.core.turn_context import TurnContext
 from codecraft.llm.messages import ModelMessage, ModelRole
-from codecraft.prompt.base import BASE_INSTRUCTIONS
+from codecraft.prompt.base_instructions import BASE_INSTRUCTIONS
 from codecraft.prompt.instructions import InstructionLoader
 from codecraft.schema.session import SessionConfig
 
