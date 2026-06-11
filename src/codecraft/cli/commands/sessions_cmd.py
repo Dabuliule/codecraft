@@ -22,11 +22,15 @@ def register_sessions_command(app: typer.Typer) -> None:
     ) -> None:
         import asyncio
 
-        asyncio.run(run_sessions(codecraft_home=codecraft_home, all_sessions=all_sessions))
+        asyncio.run(
+            run_sessions(codecraft_home=codecraft_home, all_sessions=all_sessions)
+        )
 
 
 async def run_sessions(*, codecraft_home: Path, all_sessions: bool) -> None:
-    summaries = await SessionStore(codecraft_home).list_sessions(include_invalid=all_sessions)
+    summaries = await SessionStore(codecraft_home).list_sessions(
+        include_invalid=all_sessions
+    )
     console = make_console()
     if not summaries:
         console.print("No sessions found.")

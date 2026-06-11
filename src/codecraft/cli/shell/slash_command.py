@@ -22,8 +22,9 @@ class SlashCommandResult:
 
 
 class SlashCommandHandler(Protocol):
-    async def __call__(self, args: list[str], context: "ShellContext") -> SlashCommandResult:
-        ...
+    async def __call__(
+        self, args: list[str], context: "ShellContext"
+    ) -> SlashCommandResult: ...
 
 
 class SlashCommandRouter:
@@ -81,7 +82,9 @@ async def help_command(args: list[str], context: "ShellContext") -> SlashCommand
     return SlashCommandResult(handled=True)
 
 
-async def status_command(args: list[str], context: "ShellContext") -> SlashCommandResult:
+async def status_command(
+    args: list[str], context: "ShellContext"
+) -> SlashCommandResult:
     StatusRenderer(context.console).render_status(context.config)
     return SlashCommandResult(handled=True)
 
@@ -91,7 +94,9 @@ async def tools_command(args: list[str], context: "ShellContext") -> SlashComman
     return SlashCommandResult(handled=True)
 
 
-async def sessions_command(args: list[str], context: "ShellContext") -> SlashCommandResult:
+async def sessions_command(
+    args: list[str], context: "ShellContext"
+) -> SlashCommandResult:
     summaries = await SessionStore(context.config.codecraft_home).list_sessions()
     if summaries:
         SessionRenderer(context.console).render_sessions(summaries)
@@ -100,7 +105,9 @@ async def sessions_command(args: list[str], context: "ShellContext") -> SlashCom
     return SlashCommandResult(handled=True)
 
 
-async def inspect_command(args: list[str], context: "ShellContext") -> SlashCommandResult:
+async def inspect_command(
+    args: list[str], context: "ShellContext"
+) -> SlashCommandResult:
     events = (await context.thread.read_snapshot()).events
     renderer = SessionRenderer(context.console)
     renderer.render_inspect_summary(context.config.session_id, events)
@@ -120,12 +127,16 @@ async def model_command(args: list[str], context: "ShellContext") -> SlashComman
     return SlashCommandResult(handled=True)
 
 
-async def approval_command(args: list[str], context: "ShellContext") -> SlashCommandResult:
+async def approval_command(
+    args: list[str], context: "ShellContext"
+) -> SlashCommandResult:
     context.console.print(f"approval_policy: {context.config.approval_policy}")
     return SlashCommandResult(handled=True)
 
 
-async def config_command(args: list[str], context: "ShellContext") -> SlashCommandResult:
+async def config_command(
+    args: list[str], context: "ShellContext"
+) -> SlashCommandResult:
     StatusRenderer(context.console).render_status(context.config)
     return SlashCommandResult(handled=True)
 

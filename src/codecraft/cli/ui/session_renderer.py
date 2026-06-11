@@ -27,7 +27,9 @@ class SessionRenderer:
         table.add_row("approval", config.approval_policy)
         table.add_row("sandbox", config.sandbox_mode)
         self.console.print(Panel(table, title="CodeCraft", border_style="cyan"))
-        self.console.print(f"session_id: {config.session_id}", style="muted", soft_wrap=True)
+        self.console.print(
+            f"session_id: {config.session_id}", style="muted", soft_wrap=True
+        )
 
     def render_resumed(self, summary: SessionSummary) -> None:
         table = Table.grid(padding=(0, 2))
@@ -37,7 +39,9 @@ class SessionRenderer:
         table.add_row("events", str(summary.event_count))
         table.add_row("cwd", str(summary.cwd or "-"))
         self.console.print(Panel(table, title="resumed session", border_style="cyan"))
-        self.console.print(f"session_id: {summary.session_id}", style="muted", soft_wrap=True)
+        self.console.print(
+            f"session_id: {summary.session_id}", style="muted", soft_wrap=True
+        )
 
     def render_summary(self, summary: SessionSummary) -> None:
         table = Table.grid(padding=(0, 2))
@@ -48,8 +52,12 @@ class SessionRenderer:
         table.add_row("events", str(summary.event_count))
         table.add_row("file", str(summary.path))
         self.console.print(Panel(table, title="session summary", border_style="cyan"))
-        self.console.print(f"session_id: {summary.session_id}", style="muted", soft_wrap=True)
-        self.console.print(f"events: {summary.event_count}", style="muted", soft_wrap=True)
+        self.console.print(
+            f"session_id: {summary.session_id}", style="muted", soft_wrap=True
+        )
+        self.console.print(
+            f"events: {summary.event_count}", style="muted", soft_wrap=True
+        )
 
     def render_sessions(self, summaries: Iterable[SessionSummary]) -> None:
         table = Table(title="Recent Sessions")
@@ -69,7 +77,9 @@ class SessionRenderer:
             )
         self.console.print(table)
 
-    def render_inspect_summary(self, session_id: str, events: list[RuntimeEvent]) -> None:
+    def render_inspect_summary(
+        self, session_id: str, events: list[RuntimeEvent]
+    ) -> None:
         table = Table.grid(padding=(0, 2))
         table.add_column(style="muted")
         table.add_column()
@@ -86,7 +96,12 @@ class SessionRenderer:
         table.add_column("Turn")
         table.add_column("Summary")
         for event in events:
-            table.add_row(str(event.seq), str(event.type), event.turn_id or "-", event_summary(event))
+            table.add_row(
+                str(event.seq),
+                str(event.type),
+                event.turn_id or "-",
+                event_summary(event),
+            )
         self.console.print(table)
 
     def render_tool_events(self, events: list[RuntimeEvent]) -> None:
@@ -106,7 +121,13 @@ class SessionRenderer:
                     f"args={event.payload.get('arguments')}",
                 )
             elif event.type == RuntimeEventType.TOOL_CALL_STARTED:
-                table.add_row(str(event.seq), str(event.payload.get("name") or "-"), "started", "-", "")
+                table.add_row(
+                    str(event.seq),
+                    str(event.payload.get("name") or "-"),
+                    "started",
+                    "-",
+                    "",
+                )
             elif event.type == RuntimeEventType.TOOL_CALL_FINISHED:
                 result = event.payload.get("result")
                 success = isinstance(result, dict) and result.get("success") is True
@@ -132,11 +153,18 @@ class SessionRenderer:
         table.add_column("Payload")
         for event in events:
             if event.type in {RuntimeEventType.ERROR, RuntimeEventType.TURN_ABORTED}:
-                table.add_row(str(event.seq), str(event.type), event.turn_id or "-", str(event.payload))
+                table.add_row(
+                    str(event.seq),
+                    str(event.type),
+                    event.turn_id or "-",
+                    str(event.payload),
+                )
             elif event.type == RuntimeEventType.TOOL_CALL_FINISHED:
                 result = event.payload.get("result")
                 if isinstance(result, dict) and result.get("success") is False:
-                    table.add_row(str(event.seq), "tool_error", event.turn_id or "-", str(result))
+                    table.add_row(
+                        str(event.seq), "tool_error", event.turn_id or "-", str(result)
+                    )
         self.console.print(table)
 
     @staticmethod
@@ -164,7 +192,10 @@ def last_answer(events: list[RuntimeEvent]) -> str | None:
 
 def event_summary(event: RuntimeEvent) -> str:
     payload: dict[str, Any] = event.payload
-    if event.type in {RuntimeEventType.ASSISTANT_MESSAGE, RuntimeEventType.ASSISTANT_MESSAGE_DELTA}:
+    if event.type in {
+        RuntimeEventType.ASSISTANT_MESSAGE,
+        RuntimeEventType.ASSISTANT_MESSAGE_DELTA,
+    }:
         return str(payload.get("text") or "")[:120]
     if event.type == RuntimeEventType.MODEL_TOOL_CALL:
         return f"{payload.get('name')} args={payload.get('arguments')}"

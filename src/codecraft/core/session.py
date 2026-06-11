@@ -56,8 +56,12 @@ class Session:
         self.llm_provider = llm_provider
         self.tool_registry = tool_registry
         self.approval_reviewer = ThreadApprovalReviewer()
-        self.approval_manager = approval_manager or ApprovalManager(reviewer=self.approval_reviewer)
-        self.tool_runner = ToolRunner(tool_registry, approval_manager=self.approval_manager)
+        self.approval_manager = approval_manager or ApprovalManager(
+            reviewer=self.approval_reviewer
+        )
+        self.tool_runner = ToolRunner(
+            tool_registry, approval_manager=self.approval_manager
+        )
         self._emit_lock = asyncio.Lock()
         self._runner_task: asyncio.Task[None] | None = None
 
@@ -90,7 +94,9 @@ class Session:
         )
         reviewer = self.approval_manager.reviewer
         if not isinstance(reviewer, ThreadApprovalReviewer):
-            raise RuntimeError("current approval reviewer does not accept thread decisions")
+            raise RuntimeError(
+                "current approval reviewer does not accept thread decisions"
+            )
         reviewer.decide(decision)
 
     async def start_turn_if_idle(self) -> None:

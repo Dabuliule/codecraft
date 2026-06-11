@@ -67,7 +67,10 @@ class RuntimeEventRenderer:
         elif event.type == RuntimeEventType.PATCH_APPLIED:
             self.ensure_newline()
             self.tool_renderer.render_patch_applied(event.payload)
-        elif event.type == RuntimeEventType.TOKEN_COUNT and self.render_config.show_token_usage:
+        elif (
+            event.type == RuntimeEventType.TOKEN_COUNT
+            and self.render_config.show_token_usage
+        ):
             if self.render_config.debug:
                 self.console.print(f"[muted]tokens {event.payload}[/muted]")
         elif event.type == RuntimeEventType.CONTEXT_COMPACTED:

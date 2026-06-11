@@ -6,12 +6,16 @@ from codecraft.cli.shell.runner import shutdown_thread, submit_user_message
 
 
 class InteractiveShell:
-    def __init__(self, context: ShellContext, input_controller: InputController) -> None:
+    def __init__(
+        self, context: ShellContext, input_controller: InputController
+    ) -> None:
         self.context = context
         self.input_controller = input_controller
         self.running = True
 
-    async def run(self, initial_prompt: str | None = None, *, show_welcome: bool = True) -> int:
+    async def run(
+        self, initial_prompt: str | None = None, *, show_welcome: bool = True
+    ) -> int:
         if show_welcome:
             self.context.renderer.render_welcome(self.context.config)
 
@@ -46,7 +50,9 @@ class InteractiveShell:
         return 0
 
     async def submit_user_message(self, text: str) -> int:
-        return await submit_user_message(self.context.thread, self.context.renderer, text)
+        return await submit_user_message(
+            self.context.thread, self.context.renderer, text
+        )
 
     async def shutdown(self) -> None:
         self.running = False

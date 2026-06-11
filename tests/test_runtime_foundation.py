@@ -276,7 +276,10 @@ def test_command_policy_classifies_safe_prompt_and_deny_commands():
     assert policy.classify("python --version").risk == CommandRisk.SAFE
     assert policy.classify("rm temp.txt").risk == CommandRisk.PROMPT
     assert policy.classify("curl https://example.com").risk == CommandRisk.DENY
-    assert policy.classify("curl https://example.com", network_access=True).risk == CommandRisk.PROMPT
+    assert (
+        policy.classify("curl https://example.com", network_access=True).risk
+        == CommandRisk.PROMPT
+    )
     assert policy.classify("sudo true").risk == CommandRisk.DENY
 
 
@@ -290,7 +293,10 @@ def test_command_policy_sed_inplace_requires_approval():
 
     # In-place edit requires approval.
     assert policy.classify("sed -i 's/foo/bar/' README.md").risk == CommandRisk.PROMPT
-    assert policy.classify("sed --in-place 's/foo/bar/' README.md").risk == CommandRisk.PROMPT
+    assert (
+        policy.classify("sed --in-place 's/foo/bar/' README.md").risk
+        == CommandRisk.PROMPT
+    )
     assert policy.classify("sed -ie 's/foo/bar/' README.md").risk == CommandRisk.PROMPT
     assert policy.classify("sed -Ei 's/foo/bar/' README.md").risk == CommandRisk.PROMPT
 
@@ -457,7 +463,11 @@ def test_write_file_tool_creates_and_updates_workspace_file(tmp_path):
         call = ToolCall(
             call_id="call_write",
             name="write_file",
-            arguments={"path": "notes/out.txt", "content": "hello", "create_parent_dirs": True},
+            arguments={
+                "path": "notes/out.txt",
+                "content": "hello",
+                "create_parent_dirs": True,
+            },
         )
 
         created = await tool.arun(
@@ -474,7 +484,9 @@ def test_write_file_tool_creates_and_updates_workspace_file(tmp_path):
             ToolContext(context=context, call=updated_call),
         )
 
-        assert (tmp_path / "notes" / "out.txt").read_text(encoding="utf-8") == "hello again"
+        assert (tmp_path / "notes" / "out.txt").read_text(
+            encoding="utf-8"
+        ) == "hello again"
         assert created.success is True
         assert created.data["status"] == "created"
         assert updated.success is True
@@ -740,7 +752,10 @@ def test_tool_runner_denies_workspace_write_in_read_only_sandbox(tmp_path):
         ]
         assert reviewer.requests == []
         assert events[1].payload["result"]["error"] == "sandbox_denied"
-        assert events[1].payload["result"]["metadata"]["denied_effect"] == "workspace_write"
+        assert (
+            events[1].payload["result"]["metadata"]["denied_effect"]
+            == "workspace_write"
+        )
 
     asyncio.run(run_test())
 
@@ -786,7 +801,9 @@ def test_tool_runner_denies_bash_in_read_only_sandbox(tmp_path):
             RuntimeEventType.TOOL_CALL_FINISHED,
         ]
         assert events[1].payload["result"]["error"] == "sandbox_denied"
-        assert events[1].payload["result"]["metadata"]["denied_effect"] == "process_exec"
+        assert (
+            events[1].payload["result"]["metadata"]["denied_effect"] == "process_exec"
+        )
 
     asyncio.run(run_test())
 
@@ -1068,7 +1085,10 @@ def test_openai_provider_streams_response_deltas_and_tool_calls(tmp_path):
             ModelEventType.TOKEN_COUNT,
             ModelEventType.COMPLETED,
         ]
-        assert [event.payload.get("text") for event in events[:2]] == ["hello ", "stream"]
+        assert [event.payload.get("text") for event in events[:2]] == [
+            "hello ",
+            "stream",
+        ]
         assert events[2].payload["arguments"] == {"path": "README.md"}
         assert events[3].payload["total_tokens"] == 5
 
@@ -1250,7 +1270,10 @@ def test_qwen_provider_streams_chat_completion_deltas(tmp_path):
             ModelEventType.TOKEN_COUNT,
             ModelEventType.COMPLETED,
         ]
-        assert [event.payload.get("text") for event in events[:2]] == ["qwen ", "stream"]
+        assert [event.payload.get("text") for event in events[:2]] == [
+            "qwen ",
+            "stream",
+        ]
         assert events[2].payload["total_tokens"] == 7
 
     asyncio.run(run_test())
@@ -1601,7 +1624,9 @@ def test_session_store_rejects_seq_gaps(tmp_path):
 def test_session_store_list_skips_invalid_session_logs(tmp_path):
     async def run_test() -> None:
         bad_config = make_config(tmp_path).model_copy(update={"session_id": "ses_bad"})
-        good_config = make_config(tmp_path).model_copy(update={"session_id": "ses_good"})
+        good_config = make_config(tmp_path).model_copy(
+            update={"session_id": "ses_good"}
+        )
         store = SessionStore(bad_config.codecraft_home)
 
         await store.create_session(bad_config)
@@ -1631,8 +1656,13 @@ def test_session_store_list_skips_invalid_session_logs(tmp_path):
         snapshot = await store.resume_last(cwd=tmp_path)
 
         assert [summary.session_id for summary in summaries] == ["ses_good"]
-        assert {summary.session_id for summary in all_summaries} == {"ses_bad", "ses_good"}
-        invalid = next(summary for summary in all_summaries if summary.session_id == "ses_bad")
+        assert {summary.session_id for summary in all_summaries} == {
+            "ses_bad",
+            "ses_good",
+        }
+        invalid = next(
+            summary for summary in all_summaries if summary.session_id == "ses_bad"
+        )
         assert invalid.valid is False
         assert invalid.error_code == "session_seq_not_continuous"
         assert invalid.event_count == 1
@@ -1849,7 +1879,9 @@ def test_runtime_resume_reconstructs_tool_call_and_result_history(tmp_path):
 
 def test_runtime_injects_system_instructions_before_conversation(tmp_path):
     async def run_test() -> None:
-        (tmp_path / "AGENTS.md").write_text("Project rule: inspect files first.", encoding="utf-8")
+        (tmp_path / "AGENTS.md").write_text(
+            "Project rule: inspect files first.", encoding="utf-8"
+        )
         provider = MockProvider(
             script=[
                 ModelEvent(
@@ -2086,7 +2118,9 @@ def test_runtime_executes_write_file_tool_call(tmp_path):
         await thread.wait_until_idle()
         snapshot = await thread.read_snapshot()
 
-        assert (tmp_path / "generated.txt").read_text(encoding="utf-8") == "created by runtime"
+        assert (tmp_path / "generated.txt").read_text(
+            encoding="utf-8"
+        ) == "created by runtime"
         assert [event.type for event in snapshot.events] == [
             RuntimeEventType.SESSION_STARTED,
             RuntimeEventType.TURN_STARTED,
@@ -2341,8 +2375,13 @@ def test_thread_approval_decision_allows_pending_tool_call(tmp_path):
 
         thread = await runtime.create_thread(config)
         await thread.submit(SessionInput.user_message("inp_test", "write approved"))
-        approval_event = await next_event_of_type(thread, RuntimeEventType.APPROVAL_REQUESTED)
-        assert thread.list_pending_approvals()[0].approval_id == approval_event.payload["approval_id"]
+        approval_event = await next_event_of_type(
+            thread, RuntimeEventType.APPROVAL_REQUESTED
+        )
+        assert (
+            thread.list_pending_approvals()[0].approval_id
+            == approval_event.payload["approval_id"]
+        )
 
         await thread.submit(
             SessionInput.approval_decision(
@@ -2400,7 +2439,9 @@ def test_thread_approval_decision_denies_pending_tool_call(tmp_path):
 
         thread = await runtime.create_thread(config)
         await thread.submit(SessionInput.user_message("inp_test", "write denied"))
-        approval_event = await next_event_of_type(thread, RuntimeEventType.APPROVAL_REQUESTED)
+        approval_event = await next_event_of_type(
+            thread, RuntimeEventType.APPROVAL_REQUESTED
+        )
         await thread.submit(
             SessionInput.approval_decision(
                 "inp_deny",

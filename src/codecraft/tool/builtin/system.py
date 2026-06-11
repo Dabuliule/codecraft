@@ -73,8 +73,12 @@ class BashTool(BaseTool):
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
-        stdout, stdout_truncated = self._truncate(stdout, context.context.max_tool_output_chars)
-        stderr, stderr_truncated = self._truncate(stderr, context.context.max_tool_output_chars)
+        stdout, stdout_truncated = self._truncate(
+            stdout, context.context.max_tool_output_chars
+        )
+        stderr, stderr_truncated = self._truncate(
+            stderr, context.context.max_tool_output_chars
+        )
         exit_code = process.returncode
         success = exit_code == 0 and not timed_out
 
@@ -89,7 +93,9 @@ class BashTool(BaseTool):
                 "stdout_truncated": stdout_truncated,
                 "stderr_truncated": stderr_truncated,
             },
-            error=None if success else ("command_timed_out" if timed_out else "command_failed"),
+            error=None
+            if success
+            else ("command_timed_out" if timed_out else "command_failed"),
             metadata={
                 "command": bash_args.command,
                 "cwd": str(cwd),

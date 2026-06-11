@@ -47,8 +47,7 @@ class ApprovalDecision(BaseModel):
 
 class ApprovalReviewer(ABC):
     @abstractmethod
-    async def review(self, request: ApprovalRequest) -> ApprovalDecision:
-        ...
+    async def review(self, request: ApprovalRequest) -> ApprovalDecision: ...
 
 
 class AutoApprovalReviewer(ApprovalReviewer):
@@ -109,7 +108,12 @@ class ApprovalManager:
             )
 
         if self.policy == ApprovalPolicy.UNTRUSTED:
-            write_effects = {ToolEffect.WORKSPACE_WRITE, ToolEffect.PROCESS_EXEC, ToolEffect.NETWORK, ToolEffect.EXTERNAL}
+            write_effects = {
+                ToolEffect.WORKSPACE_WRITE,
+                ToolEffect.PROCESS_EXEC,
+                ToolEffect.NETWORK,
+                ToolEffect.EXTERNAL,
+            }
             if tool.effects & write_effects:
                 return ApprovalEvaluation(
                     requires_approval=True,

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import asyncio
 
-from codecraft.approval.manager import ApprovalDecision, ApprovalRequest, ApprovalReviewer
+from codecraft.approval.manager import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalReviewer,
+)
 
 
 class ThreadApprovalReviewer(ApprovalReviewer):

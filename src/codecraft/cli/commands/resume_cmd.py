@@ -84,7 +84,9 @@ async def run_resume(
     thread = await runtime.resume_thread(session_id)
     event = await thread.next_event()
     if event.type != RuntimeEventType.SESSION_RESTORED:
-        make_console(stderr=True).print(f"warning: expected session_restored, got {event.type}")
+        make_console(stderr=True).print(
+            f"warning: expected session_restored, got {event.type}"
+        )
 
     context, input_controller = build_shell_context(
         runtime=runtime,

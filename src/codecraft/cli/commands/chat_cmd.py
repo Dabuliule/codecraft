@@ -17,7 +17,9 @@ def register_chat_command(app: typer.Typer) -> None:
     def chat_command(
         provider: Annotated[
             str | None,
-            typer.Option("--provider", help="Model provider: openai, qwen, or deepseek."),
+            typer.Option(
+                "--provider", help="Model provider: openai, qwen, or deepseek."
+            ),
         ] = None,
         model: Annotated[
             str | None,

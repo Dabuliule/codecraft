@@ -10,5 +10,4 @@ class ToolProvider(ABC):
     name: str
 
     @abstractmethod
-    def tools(self) -> Iterable[BaseTool]:
-        ...
+    def tools(self) -> Iterable[BaseTool]: ...

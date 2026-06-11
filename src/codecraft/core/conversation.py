@@ -62,15 +62,22 @@ class Conversation(BaseModel):
         item = ConversationItem(
             item_id=new_id("item_"),
             role=ConversationRole.ASSISTANT,
-            content=json.dumps(arguments, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+            content=json.dumps(
+                arguments, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ),
             tool_call_id=tool_call_id,
             name=name,
-            metadata={"type": ModelMessageType.FUNCTION_CALL.value, "arguments": arguments},
+            metadata={
+                "type": ModelMessageType.FUNCTION_CALL.value,
+                "arguments": arguments,
+            },
         )
         self.append(item)
         return item
 
-    def append_tool_result(self, tool_call_id: str, name: str, content: str) -> ConversationItem:
+    def append_tool_result(
+        self, tool_call_id: str, name: str, content: str
+    ) -> ConversationItem:
         item = ConversationItem(
             item_id=new_id("item_"),
             role=ConversationRole.TOOL,
@@ -97,7 +104,9 @@ class Conversation(BaseModel):
             if role is None:
                 continue
 
-            message_type = ModelMessageType(item.metadata.get("type", ModelMessageType.MESSAGE))
+            message_type = ModelMessageType(
+                item.metadata.get("type", ModelMessageType.MESSAGE)
+            )
             arguments = item.metadata.get("arguments")
             if not isinstance(arguments, dict):
                 arguments = None

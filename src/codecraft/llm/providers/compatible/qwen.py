@@ -68,12 +68,16 @@ class QwenProvider(OpenAICompatibleProvider):
         except Exception as exc:
             raise LLMConfigError("openai package is not installed") from exc
 
-        api_key = self.api_key or (os.getenv(self.api_key_env) if self.api_key_env else None)
+        api_key = self.api_key or (
+            os.getenv(self.api_key_env) if self.api_key_env else None
+        )
         if not api_key:
             env_name = self.api_key_env or "configured api_key_env"
             raise LLMConfigError(f"{env_name} is required for QwenProvider")
 
         return AsyncOpenAI(
             api_key=api_key,
-            base_url=self.base_url or os.getenv("QWEN_BASE_URL") or self.DEFAULT_BASE_URL,
+            base_url=self.base_url
+            or os.getenv("QWEN_BASE_URL")
+            or self.DEFAULT_BASE_URL,
         )

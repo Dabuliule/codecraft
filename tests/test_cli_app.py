@@ -265,7 +265,13 @@ def test_resume_last_prints_latest_session(tmp_path):
 
     result = runner.invoke(
         app,
-        ["resume", "--last", "--summary", "--codecraft-home", str(config.codecraft_home)],
+        [
+            "resume",
+            "--last",
+            "--summary",
+            "--codecraft-home",
+            str(config.codecraft_home),
+        ],
     )
 
     assert result.exit_code == 0
@@ -440,7 +446,9 @@ def test_exec_command_renders_markdown_assistant_message(tmp_path, monkeypatch):
     assert "**LaTeX" not in result.output
 
 
-def test_exec_command_does_not_duplicate_streamed_assistant_message(tmp_path, monkeypatch):
+def test_exec_command_does_not_duplicate_streamed_assistant_message(
+    tmp_path, monkeypatch
+):
     def fake_runtime(config: SessionConfig) -> AgentRuntime:
         return AgentRuntime(
             session_store=SessionStore(config.codecraft_home),
@@ -484,7 +492,9 @@ def test_exec_command_does_not_duplicate_streamed_assistant_message(tmp_path, mo
     assert result.output.count("hello stream") == 1
 
 
-def test_exec_command_renders_streamed_markdown_assistant_message(tmp_path, monkeypatch):
+def test_exec_command_renders_streamed_markdown_assistant_message(
+    tmp_path, monkeypatch
+):
     def fake_runtime(config: SessionConfig) -> AgentRuntime:
         return AgentRuntime(
             session_store=SessionStore(config.codecraft_home),
@@ -735,7 +745,9 @@ def test_exec_command_prints_bash_approval_details(tmp_path, monkeypatch):
     assert "[tool] bash failed" in result.output
 
 
-def test_default_command_submits_initial_task_and_stays_interactive(tmp_path, monkeypatch):
+def test_default_command_submits_initial_task_and_stays_interactive(
+    tmp_path, monkeypatch
+):
     provider = MockProvider(
         [
             ModelEvent(

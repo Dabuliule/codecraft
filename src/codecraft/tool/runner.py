@@ -51,7 +51,9 @@ class ToolRunner:
         try:
             tool = self.registry.get(call.name)
             args = tool.args_schema.model_validate(call.arguments)
-            sandbox_evaluation = self._sandbox_policy(context).evaluate_effects(tool.effects)
+            sandbox_evaluation = self._sandbox_policy(context).evaluate_effects(
+                tool.effects
+            )
             if not sandbox_evaluation.allowed:
                 result = ToolResult(
                     success=False,
@@ -86,7 +88,9 @@ class ToolRunner:
                     RuntimeEventType.APPROVAL_REQUESTED,
                     approval_request.model_dump(mode="json"),
                 )
-                approval_decision = await self.approval_manager.request(approval_request)
+                approval_decision = await self.approval_manager.request(
+                    approval_request
+                )
                 yield ToolRunnerEvent(
                     RuntimeEventType.APPROVAL_DECIDED,
                     approval_decision.model_dump(mode="json"),
@@ -113,7 +117,9 @@ class ToolRunner:
                     )
                     return
                 approved = True
-            result = await tool.arun(args, ToolContext(context=context, call=call, approved=approved))
+            result = await tool.arun(
+                args, ToolContext(context=context, call=call, approved=approved)
+            )
         except ValidationError as exc:
             result = ToolResult(
                 success=False,
@@ -153,7 +159,9 @@ class ToolRunner:
                 RuntimeEventType.PATCH_APPLIED,
                 {
                     "call_id": call.call_id,
-                    "changed_files": result.data.get("changed_files", []) if result.data else [],
+                    "changed_files": result.data.get("changed_files", [])
+                    if result.data
+                    else [],
                     "modified": result.data.get("modified", 0) if result.data else 0,
                     "added": result.data.get("added", 0) if result.data else 0,
                     "deleted": result.data.get("deleted", 0) if result.data else 0,

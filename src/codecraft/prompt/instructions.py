@@ -9,7 +9,9 @@ class InstructionLoader:
     filenames: tuple[str, ...] = ("AGENTS.md", "CODECRAFT.md")
     max_chars: int = 40_000
 
-    def load_project_instructions(self, *, cwd: Path, workspace_roots: list[Path]) -> str | None:
+    def load_project_instructions(
+        self, *, cwd: Path, workspace_roots: list[Path]
+    ) -> str | None:
         roots = [root.expanduser().resolve() for root in workspace_roots]
         current = cwd.expanduser().resolve()
         matched_root = _find_containing_root(current, roots)
@@ -25,7 +27,9 @@ class InstructionLoader:
                 content = _read_text(path)
                 if content is None or not content.strip():
                     continue
-                sections.append(f"# {path.relative_to(matched_root)}\n\n{content.strip()}")
+                sections.append(
+                    f"# {path.relative_to(matched_root)}\n\n{content.strip()}"
+                )
 
         if not sections:
             return None

@@ -419,7 +419,9 @@ def _arguments_to_json(message: ModelMessage) -> str:
         return message.content
 
     if isinstance(parsed, dict):
-        return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        return json.dumps(
+            parsed, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
     return message.content
 
 

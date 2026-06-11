@@ -48,7 +48,9 @@ class ApprovalRenderer:
                 table.add_row("command", str(command))
             if cwd:
                 table.add_row("cwd", str(cwd))
-        self.console.print(Panel(table, title="approval required", border_style="approval"))
+        self.console.print(
+            Panel(table, title="approval required", border_style="approval")
+        )
         self.console.print(
             f"[approval] {payload.get('tool_name')} risk={payload.get('risk')} "
             f"reason={payload.get('reason')}",
@@ -64,9 +66,13 @@ class ApprovalRenderer:
                 self.console.print(f"cwd: {cwd}", markup=False, soft_wrap=True)
 
     def render_details(self, payload: dict[str, Any]) -> None:
-        self.console.print(Panel(str(payload), title="approval details", border_style="approval"))
+        self.console.print(
+            Panel(str(payload), title="approval details", border_style="approval")
+        )
 
-    def _decision(self, payload: dict[str, Any], *, approved: bool, reason: str) -> SessionInput:
+    def _decision(
+        self, payload: dict[str, Any], *, approved: bool, reason: str
+    ) -> SessionInput:
         return SessionInput.approval_decision(
             new_id("inp_"),
             approval_id=str(payload["approval_id"]),

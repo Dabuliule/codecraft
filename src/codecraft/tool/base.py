@@ -31,5 +31,4 @@ class BaseTool(ABC):
         )
 
     @abstractmethod
-    async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
-        ...
+    async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult: ...

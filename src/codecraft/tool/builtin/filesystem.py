@@ -111,7 +111,9 @@ class WriteFileTool(BaseTool):
                 )
             path.parent.mkdir(parents=True, exist_ok=True)
 
-        previous = path.read_text(encoding=write_args.encoding) if path.exists() else None
+        previous = (
+            path.read_text(encoding=write_args.encoding) if path.exists() else None
+        )
         path.write_text(write_args.content, encoding=write_args.encoding)
 
         status = "created" if previous is None else "modified"

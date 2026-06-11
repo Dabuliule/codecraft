@@ -68,7 +68,9 @@ class CommandPolicy:
         "scp",
     }
 
-    def classify(self, command: str, *, network_access: bool = False) -> CommandDecision:
+    def classify(
+        self, command: str, *, network_access: bool = False
+    ) -> CommandDecision:
         parts = self._split(command)
         if not parts:
             return CommandDecision(
@@ -148,7 +150,9 @@ class CommandPolicy:
                 continue
             decision = self._classify_single(parts, network_access=network_access)
             sub_reasons.append(f"{parts[0]}:{decision.risk.value}")
-            if highest is None or self._risk_rank(decision.risk) > self._risk_rank(highest.risk):
+            if highest is None or self._risk_rank(decision.risk) > self._risk_rank(
+                highest.risk
+            ):
                 highest = decision
 
         if highest is None:
@@ -201,8 +205,14 @@ class CommandPolicy:
 
         if executable == "git" and len(parts) >= 2:
             return parts[1] in {
-                "status", "diff", "show", "log",
-                "branch", "stash", "tag", "remote",
+                "status",
+                "diff",
+                "show",
+                "log",
+                "branch",
+                "stash",
+                "tag",
+                "remote",
                 "fetch",
             }
 

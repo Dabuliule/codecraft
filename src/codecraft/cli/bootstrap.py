@@ -8,7 +8,12 @@ from codecraft.config import ConfigLoader, ConfigOverrides
 from codecraft.core.ids import new_id
 from codecraft.core.runtime import AgentRuntime
 from codecraft.core.session_store import SessionStore
-from codecraft.llm import DeepSeekProvider, LLMProviderRegistry, OpenAIProvider, QwenProvider
+from codecraft.llm import (
+    DeepSeekProvider,
+    LLMProviderRegistry,
+    OpenAIProvider,
+    QwenProvider,
+)
 from codecraft.schema.session import SessionConfig, SessionSource
 from codecraft.tool import (
     ApplyPatchTool,
@@ -84,7 +89,9 @@ def load_session_config(
         codecraft_home=settings.paths.codecraft_home,
         model=settings.model.name,
         model_provider=settings.model.provider,
-        model_api_key_env=model_api_key_env(settings.model.provider, settings.model.api_key_env),
+        model_api_key_env=model_api_key_env(
+            settings.model.provider, settings.model.api_key_env
+        ),
         model_base_url=settings.model.base_url,
         approval_policy=settings.approval.policy,
         sandbox_mode=settings.sandbox.mode,

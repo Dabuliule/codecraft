@@ -26,5 +26,4 @@ class LLMProvider(ABC):
         messages: list[ModelMessage],
         tools: list[ToolSpec],
         context: TurnContext,
-    ) -> AsyncIterator[ModelEvent]:
-        ...
+    ) -> AsyncIterator[ModelEvent]: ...

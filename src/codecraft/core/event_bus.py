@@ -21,21 +21,19 @@ class EventBus:
         self._handlers: list[EventHandler] = []
 
     def subscribe(
-            self,
-            handler: EventHandler,
+        self,
+        handler: EventHandler,
     ) -> None:
         self._handlers.append(handler)
 
     async def emit(
-            self,
-            event: RuntimeEvent,
+        self,
+        event: RuntimeEvent,
     ) -> None:
         for handler in list(self._handlers):
             result = handler(event)
 
             if not isawaitable(result):
-                raise TypeError(
-                    "EventBus handler must be an async callable"
-                )
+                raise TypeError("EventBus handler must be an async callable")
 
             await result

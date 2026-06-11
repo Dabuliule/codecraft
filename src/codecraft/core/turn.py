@@ -61,7 +61,9 @@ class Turn:
 
         while True:
             if self.step_count >= self.context.max_steps:
-                await self._abort("max_steps_exceeded", "Turn exceeded max tool/model steps.")
+                await self._abort(
+                    "max_steps_exceeded", "Turn exceeded max tool/model steps."
+                )
                 return
 
             tool_was_called = False
@@ -97,7 +99,9 @@ class Turn:
                         {"text": completed_message},
                         turn_id=self.turn_id,
                     )
-                    self.session.conversation.append_assistant_message(completed_message)
+                    self.session.conversation.append_assistant_message(
+                        completed_message
+                    )
 
                 elif model_event.type == ModelEventType.TOKEN_COUNT:
                     await self.session.emit(
@@ -117,7 +121,9 @@ class Turn:
                         dict(model_event.payload),
                         turn_id=self.turn_id,
                     )
-                    await self._abort("model_error", str(model_event.payload.get("message", "")))
+                    await self._abort(
+                        "model_error", str(model_event.payload.get("message", ""))
+                    )
                     return
 
                 elif model_event.type == ModelEventType.COMPLETED:
@@ -135,7 +141,9 @@ class Turn:
                         {"text": completed_message},
                         turn_id=self.turn_id,
                     )
-                    self.session.conversation.append_assistant_message(completed_message)
+                    self.session.conversation.append_assistant_message(
+                        completed_message
+                    )
 
             answer = completed_message or ""
             break

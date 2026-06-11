@@ -20,7 +20,9 @@ class ToolRenderer:
             call_id = payload.get("call_id")
             if isinstance(call_id, str):
                 self._started_args[call_id] = arguments
-        self.console.print(self._format_started(name, arguments), markup=False, soft_wrap=True)
+        self.console.print(
+            self._format_started(name, arguments), markup=False, soft_wrap=True
+        )
         compat = self._format_started_compat(name, arguments)
         if name == "bash":
             self.console.print(compat, style="muted", markup=False, soft_wrap=True)
@@ -35,7 +37,9 @@ class ToolRenderer:
 
         success = result.get("success") is True
         call_id = payload.get("call_id")
-        arguments = self._started_args.pop(call_id, {}) if isinstance(call_id, str) else {}
+        arguments = (
+            self._started_args.pop(call_id, {}) if isinstance(call_id, str) else {}
+        )
         if success:
             self.console.print(
                 self._format_success(name, result, duration_ms, arguments),
