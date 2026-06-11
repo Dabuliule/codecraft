@@ -4,37 +4,55 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   conventional-commits:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Validate Conventional Commits
+        shell: bash
         run: |
           set -euo pipefail
+
           regex='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
-          range=""
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            range="origin/${{ github.base_ref }}..${{ github.event.pull_request.head.sha }}"
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+            range="${base}..${head}"
           else
-            range="${{ github.event.before }}..${{ github.sha }}"
+            before="${{ github.event.before }}"
+            head="${{ github.sha }}"
+
+            if [[ "${before}" =~ ^0+$ ]]; then
+              range="${head}"
+            else
+              range="${before}..${head}"
+            fi
           fi
 
           invalid=0
           commits="$(git rev-list --no-merges "${range}")"
+
           for commit in ${commits}; do
             subject="$(git log -1 --pretty=%s "${commit}")"
+
             if ! [[ "${subject}" =~ ${regex} ]]; then
               echo "Invalid commit message: ${subject}"
               invalid=1
@@ -47,8 +65,9 @@ jobs:
           fi
 
   lint-and-test:
-    needs: conventional-commits
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     strategy:
       fail-fast: false
       matrix:
@@ -56,21 +75,29 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
 
       - name: Sync dependencies
-        run: uv sync --all-groups
+        run: uv sync --locked --all-groups
 
-      - name: Ruff
+      - name: Ruff format
+        run: uv run ruff format --check .
+
+      - name: Ruff lint
         run: uv run ruff check .
 
       - name: Pytest
         run: uv run pytest
+
+      - name: Build package
+        run: uv build

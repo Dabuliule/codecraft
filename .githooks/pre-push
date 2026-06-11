@@ -2,23 +2,40 @@
 set -euo pipefail
 
 regex='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
+zero_sha="0000000000000000000000000000000000000000"
 invalid=0
 
 while read -r local_ref local_sha remote_ref remote_sha; do
-  if [ "${local_sha}" = "0000000000000000000000000000000000000000" ]; then
+  # Only validate branch pushes. Skip tags and other refs.
+  case "${local_ref}" in
+    refs/heads/*)
+      ;;
+    *)
+      continue
+      ;;
+  esac
+
+  # Branch deletion.
+  if [ "${local_sha}" = "${zero_sha}" ]; then
     continue
   fi
 
-  if [ "${remote_sha}" = "0000000000000000000000000000000000000000" ]; then
+  if [ "${remote_sha}" = "${zero_sha}" ]; then
+    # New remote branch: validate commits that are not already reachable
+    # from any remote-tracking branch.
     commits="$(git rev-list --no-merges "${local_sha}" --not --remotes)"
   else
+    # Existing remote branch: validate only commits introduced by this push.
     commits="$(git rev-list --no-merges "${remote_sha}..${local_sha}")"
   fi
 
   for commit in ${commits}; do
     subject="$(git log -1 --pretty=%s "${commit}")"
+
     if ! [[ "${subject}" =~ ${regex} ]]; then
-      echo "Rejected by pre-push hook (non-Conventional Commit): ${subject}"
+      echo "Rejected by pre-push hook:"
+      echo "  ${commit} ${subject}"
+      echo
       invalid=1
     fi
   done
@@ -26,5 +43,10 @@ done
 
 if [ "${invalid}" -ne 0 ]; then
   echo "Push blocked: commit messages must follow Conventional Commits."
+  echo
+  echo "Examples:"
+  echo "  feat(cli): add interactive approval prompt"
+  echo "  fix(session): handle interrupted tool run"
+  echo "  docs: update installation guide"
   exit 1
 fi
