@@ -4,6 +4,12 @@ set -euo pipefail
 regex='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
 zero_sha="0000000000000000000000000000000000000000"
 invalid=0
+leaks=0
+gitleaks_available=0
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks_available=1
+fi
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   # Only validate branch pushes. Skip tags and other refs.
@@ -24,9 +30,24 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # New remote branch: validate commits that are not already reachable
     # from any remote-tracking branch.
     commits="$(git rev-list --no-merges "${local_sha}" --not --remotes)"
+    gitleaks_log_opts="--no-merges ${local_sha} --not --remotes"
   else
     # Existing remote branch: validate only commits introduced by this push.
     commits="$(git rev-list --no-merges "${remote_sha}..${local_sha}")"
+    gitleaks_log_opts="--no-merges ${remote_sha}..${local_sha}"
+  fi
+
+  if [ -n "${commits}" ]; then
+    if [ "${gitleaks_available}" -eq 0 ]; then
+      echo "Rejected by pre-push hook:"
+      echo "  gitleaks is not installed; install it or rely on CI before pushing."
+      echo
+      leaks=1
+    elif ! gitleaks detect --source . --log-opts "${gitleaks_log_opts}" --no-banner --redact; then
+      echo "Push blocked: gitleaks found a potential secret in commits being pushed."
+      echo
+      leaks=1
+    fi
   fi
 
   for commit in ${commits}; do
@@ -48,5 +69,9 @@ if [ "${invalid}" -ne 0 ]; then
   echo "  feat(cli): add interactive approval prompt"
   echo "  fix(session): handle interrupted tool run"
   echo "  docs: update installation guide"
+  exit 1
+fi
+
+if [ "${leaks}" -ne 0 ]; then
   exit 1
 fi
