@@ -1,6 +1,6 @@
 [project]
 name = "codecraft"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "Open-source coding agent with governed tool execution and traceable runtime events."
 readme = "README.md"
 requires-python = ">=3.11"
