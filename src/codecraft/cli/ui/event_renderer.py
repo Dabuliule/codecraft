@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
 
 from codecraft.cli.ui.approval_renderer import ApprovalRenderer
 from codecraft.cli.ui.error_renderer import ErrorRenderer
@@ -30,6 +32,8 @@ class RuntimeEventRenderer:
         self.error_renderer = error_renderer or ErrorRenderer(console)
         self.session_renderer = session_renderer or SessionRenderer(console)
         self._streaming = False
+        self._stream_buffer: list[str] = []
+        self._stream_live: Live | None = None
 
     def render_welcome(self, config: SessionConfig) -> None:
         self.session_renderer.render_welcome(config)
@@ -39,14 +43,15 @@ class RuntimeEventRenderer:
             text = event.payload.get("text")
             if isinstance(text, str):
                 self._streaming = True
-                self.console.print(text, end="")
+                self._stream_buffer.append(text)
+                self._render_stream()
         elif event.type == RuntimeEventType.ASSISTANT_MESSAGE:
             text = event.payload.get("text")
             if isinstance(text, str):
                 if self._streaming:
-                    self.ensure_newline()
+                    self._finish_stream(text)
                 else:
-                    self.console.print(text)
+                    self._render_markdown(text)
         elif event.type == RuntimeEventType.TOOL_CALL_STARTED:
             self.ensure_newline()
             self.tool_renderer.render_started(event.payload)
@@ -98,5 +103,36 @@ class RuntimeEventRenderer:
 
     def ensure_newline(self) -> None:
         if self._streaming:
-            self.console.print()
-            self._streaming = False
+            text = "".join(self._stream_buffer)
+            self._finish_stream(text)
+
+    def _render_stream(self) -> None:
+        if not self.console.is_terminal:
+            return
+
+        text = "".join(self._stream_buffer)
+        renderable = Markdown(text)
+        if self._stream_live is None:
+            self._stream_live = Live(
+                renderable,
+                console=self.console,
+                refresh_per_second=12,
+                transient=False,
+            )
+            self._stream_live.start()
+        else:
+            self._stream_live.update(renderable, refresh=True)
+
+    def _finish_stream(self, text: str) -> None:
+        if self._stream_live is not None:
+            self._stream_live.update(Markdown(text), refresh=True)
+            self._stream_live.stop()
+            self._stream_live = None
+        elif text:
+            self._render_markdown(text)
+
+        self._streaming = False
+        self._stream_buffer.clear()
+
+    def _render_markdown(self, text: str) -> None:
+        self.console.print(Markdown(text))

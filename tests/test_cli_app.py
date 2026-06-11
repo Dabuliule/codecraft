@@ -393,6 +393,53 @@ def test_exec_command_runs_runtime_and_prints_answer(tmp_path, monkeypatch):
     assert "events=5" in sessions_result.output
 
 
+def test_exec_command_renders_markdown_assistant_message(tmp_path, monkeypatch):
+    def fake_runtime(config: SessionConfig) -> AgentRuntime:
+        return AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry(
+                [
+                    MockProvider(
+                        [
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_COMPLETED,
+                                payload={
+                                    "text": (
+                                        "这是一个为 **AI Agent / Agent Engineer / "
+                                        "大模型应用开发岗位** 准备的 **LaTeX 简历模板**项目。"
+                                    ),
+                                },
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
+                        ]
+                    )
+                ]
+            ),
+            tool_registry=ToolRegistry(),
+        )
+
+    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
+
+    result = runner.invoke(
+        app,
+        [
+            "exec",
+            "answer",
+            "--provider",
+            "mock",
+            "--model",
+            "mock-model",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "AI Agent / Agent Engineer / 大模型应用开发岗位" in result.output
+    assert "**AI Agent" not in result.output
+    assert "**LaTeX" not in result.output
+
+
 def test_exec_command_does_not_duplicate_streamed_assistant_message(tmp_path, monkeypatch):
     def fake_runtime(config: SessionConfig) -> AgentRuntime:
         return AgentRuntime(
@@ -435,6 +482,60 @@ def test_exec_command_does_not_duplicate_streamed_assistant_message(tmp_path, mo
 
     assert result.exit_code == 0
     assert result.output.count("hello stream") == 1
+
+
+def test_exec_command_renders_streamed_markdown_assistant_message(tmp_path, monkeypatch):
+    def fake_runtime(config: SessionConfig) -> AgentRuntime:
+        return AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry(
+                [
+                    MockProvider(
+                        [
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_DELTA,
+                                payload={"text": "### 5. 当前限制 (v1.0 阶段)\n"},
+                            ),
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_DELTA,
+                                payload={
+                                    "text": (
+                                        "*   没有操作系统级别的沙箱隔离。\n\n"
+                                        "**一句话概括**：CodeCraft 是一个注重"
+                                        "**安全性、可配置性和会话可追溯性**的本地 AI 编程助手。"
+                                    ),
+                                },
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
+                        ]
+                    )
+                ]
+            ),
+            tool_registry=ToolRegistry(),
+        )
+
+    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
+
+    result = runner.invoke(
+        app,
+        [
+            "exec",
+            "answer",
+            "--provider",
+            "mock",
+            "--model",
+            "mock-model",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "当前限制 (v1.0 阶段)" in result.output
+    assert "一句话概括" in result.output
+    assert "### 5." not in result.output
+    assert "**一句话概括**" not in result.output
+    assert "**安全性" not in result.output
 
 
 def test_exec_command_loads_config_file_defaults(tmp_path, monkeypatch):
