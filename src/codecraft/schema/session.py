@@ -33,8 +33,8 @@ class SessionConfig(BaseModel):
     model_api_key_env: str | None = None
     model_base_url: str | None = None
 
-    approval_policy: str
-    sandbox_mode: str
+    approval_policy: ApprovalPolicy
+    sandbox_mode: SandboxMode
     network_access: bool = False
 
     base_instructions: str | None = None
@@ -78,16 +78,6 @@ class SessionConfig(BaseModel):
     def validate_runtime_names(self) -> SessionConfig:
         if not self.model_provider:
             raise ValueError("model_provider must not be empty")
-
-        try:
-            ApprovalPolicy(self.approval_policy)
-        except ValueError as exc:
-            raise ValueError("approval_policy must be a known value") from exc
-
-        try:
-            SandboxMode(self.sandbox_mode)
-        except ValueError as exc:
-            raise ValueError("sandbox_mode must be a known value") from exc
 
         return self
 

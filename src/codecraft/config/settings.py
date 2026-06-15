@@ -4,6 +4,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 
+from codecraft.approval.policy import ApprovalPolicy
+from codecraft.sandbox.policy import SandboxMode
+
 
 class ModelSettings(BaseModel):
     provider: str = "qwen"
@@ -13,11 +16,11 @@ class ModelSettings(BaseModel):
 
 
 class ApprovalSettings(BaseModel):
-    policy: str = "on_request"
+    policy: ApprovalPolicy = ApprovalPolicy.ON_REQUEST
 
 
 class SandboxSettings(BaseModel):
-    mode: str = "workspace_write"
+    mode: SandboxMode = SandboxMode.WORKSPACE_WRITE
     network_access: bool = False
 
 

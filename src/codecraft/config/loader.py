@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.config.settings import RuntimeSettings
+from codecraft.sandbox.policy import SandboxMode
 
 
 @dataclass(frozen=True)
@@ -18,8 +20,8 @@ class ConfigOverrides:
         *,
         provider: str | None = None,
         model: str | None = None,
-        approval_policy: str | None = None,
-        sandbox_mode: str | None = None,
+        approval_policy: ApprovalPolicy | None = None,
+        sandbox_mode: SandboxMode | None = None,
         network_access: bool | None = None,
         codecraft_home: Path | None = None,
     ) -> ConfigOverrides:

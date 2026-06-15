@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from codecraft.approval.policy import ApprovalPolicy
+from codecraft.sandbox.policy import SandboxMode
 from codecraft.schema.tool import ToolSpec
 
 
@@ -22,8 +24,8 @@ class TurnContext(BaseModel):
     model: str
     model_provider: str
 
-    approval_policy: str
-    sandbox_mode: str
+    approval_policy: ApprovalPolicy
+    sandbox_mode: SandboxMode
     network_access: bool
 
     available_tools: list[ToolSpec]

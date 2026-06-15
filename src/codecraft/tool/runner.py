@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from codecraft.approval.manager import ApprovalManager
 from codecraft.core.errors import CodecraftError
 from codecraft.core.turn_context import TurnContext
-from codecraft.sandbox.policy import SandboxMode, SandboxPolicy
+from codecraft.sandbox.policy import SandboxPolicy
 from codecraft.schema.event import RuntimeEventType
 from codecraft.schema.tool import ToolCall, ToolResult
 from codecraft.tool.base import ToolContext
@@ -171,7 +171,7 @@ class ToolRunner:
     @staticmethod
     def _sandbox_policy(context: TurnContext) -> SandboxPolicy:
         return SandboxPolicy(
-            mode=SandboxMode(context.sandbox_mode),
+            mode=context.sandbox_mode,
             workspace_roots=context.workspace_roots,
             network_access=context.network_access,
         )

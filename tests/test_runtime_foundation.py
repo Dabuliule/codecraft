@@ -818,6 +818,12 @@ def test_session_config_normalizes_paths(tmp_path):
 
 def test_session_config_requires_known_policy_names(tmp_path):
     config_data = make_config(tmp_path).model_dump()
+    config = SessionConfig.model_validate(config_data)
+
+    assert config.approval_policy == ApprovalPolicy.NEVER
+    assert config.sandbox_mode == SandboxMode.WORKSPACE_WRITE
+    assert config.model_dump(mode="json")["approval_policy"] == "never"
+    assert config.model_dump(mode="json")["sandbox_mode"] == "workspace_write"
 
     with pytest.raises(ValueError, match="approval_policy"):
         SessionConfig.model_validate({**config_data, "approval_policy": "sometimes"})

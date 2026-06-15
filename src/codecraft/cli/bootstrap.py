@@ -106,7 +106,7 @@ def build_runtime(config: SessionConfig) -> AgentRuntime:
         llm_providers=build_provider_registry(config),
         tool_registry=build_tool_registry(),
         approval_manager=ApprovalManager(
-            policy=ApprovalPolicy(config.approval_policy),
+            policy=config.approval_policy,
             reviewer=ThreadApprovalReviewer(),
         ),
     )
