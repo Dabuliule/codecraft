@@ -64,6 +64,12 @@ class AutoApprovalReviewer(ApprovalReviewer):
 
 
 class ApprovalManager:
+    """根据 approval policy 决定 tool call 是否需要用户确认。
+
+    `ApprovalManager` 只负责评估和发起审批；具体由谁批准取决于 reviewer，
+    CLI 场景通常使用 ThreadApprovalReviewer，测试可以使用 AutoApprovalReviewer。
+    """
+
     def __init__(
         self,
         *,
@@ -82,6 +88,7 @@ class ApprovalManager:
         args: BaseModel,
         context: TurnContext,
     ) -> ApprovalEvaluation:
+        """评估一次 tool call 是否需要 approval。"""
         if self.policy == ApprovalPolicy.NEVER:
             return ApprovalEvaluation(
                 requires_approval=False,
@@ -90,6 +97,7 @@ class ApprovalManager:
             )
 
         if call.name == "bash":
+            # shell command 的风险和 tool effect 不完全等价，需要交给 CommandPolicy。
             command = str(call.arguments.get("command", ""))
             decision = self.command_policy.classify(
                 command,
@@ -135,6 +143,7 @@ class ApprovalManager:
         )
 
     async def request(self, request: ApprovalRequest) -> ApprovalDecision:
+        """把审批请求交给 reviewer，并等待结果。"""
         return await self.reviewer.review(request)
 
     @staticmethod

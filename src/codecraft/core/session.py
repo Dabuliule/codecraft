@@ -31,6 +31,13 @@ class SessionStatus(StrEnum):
 
 
 class Session:
+    """一个可持续追加事件的 agent 会话。
+
+    `Session` 是运行时的调度中心：接收输入、串行启动 turn、分发审批决定，
+    并把所有关键状态写成 RuntimeEvent。外层 UI 不直接读取内部状态，而是
+    通过 event stream 观察会话变化。
+    """
+
     def __init__(
         self,
         *,
@@ -66,6 +73,7 @@ class Session:
         self._runner_task: asyncio.Task[None] | None = None
 
     async def submit(self, input: SessionInput) -> str:
+        """提交用户输入、审批结果或中断请求。"""
         if self.status == SessionStatus.CLOSED:
             raise RuntimeError("session is closed")
 
@@ -86,6 +94,7 @@ class Session:
         return input.input_id
 
     def submit_approval_decision(self, input: SessionInput) -> None:
+        """把用户审批结果交给正在等待的 reviewer。"""
         decision = ApprovalDecision(
             approval_id=str(input.payload["approval_id"]),
             approved=bool(input.payload["approved"]),
@@ -100,6 +109,7 @@ class Session:
         reviewer.decide(decision)
 
     async def start_turn_if_idle(self) -> None:
+        """如果当前空闲，就从输入队列取一条消息启动新 turn。"""
         if self.status != SessionStatus.IDLE:
             return
         if self.input_queue.empty():
@@ -120,6 +130,11 @@ class Session:
         payload: dict[str, Any] | None = None,
         turn_id: str | None = None,
     ) -> RuntimeEvent:
+        """持久化并广播一个 RuntimeEvent。
+
+        seq 是 session 日志的顺序号；写入失败时回滚 seq，避免后续事件出现
+        不连续的编号。
+        """
         async with self._emit_lock:
             self.seq += 1
             event = RuntimeEvent(
@@ -139,6 +154,7 @@ class Session:
             return event
 
     async def interrupt(self, reason: str) -> None:
+        """请求当前 turn 尽快停止，并让 session 回到可接收输入的状态。"""
         if self.active_turn is not None:
             self.active_turn.cancel_requested = True
             await self.emit(
@@ -158,6 +174,7 @@ class Session:
         self.status = SessionStatus.CLOSED
 
     async def _run_turn(self, turn: Turn, user_input: SessionInput) -> None:
+        """包装 turn.run，确保异常也会变成可追踪的事件。"""
         try:
             await turn.run(user_input)
         except Exception as exc:

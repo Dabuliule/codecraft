@@ -5,6 +5,11 @@ from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 
 
 def reconstruct_conversation(events: list[RuntimeEvent]) -> Conversation:
+    """从 RuntimeEvent 日志重建可继续发送给模型的 conversation。
+
+    恢复会话时不会直接序列化 Conversation，而是根据公开事件反推上下文。
+    这样事件日志既是审计记录，也是恢复状态的唯一来源。
+    """
     conversation = Conversation()
 
     for event in events:
@@ -34,6 +39,7 @@ def reconstruct_conversation(events: list[RuntimeEvent]) -> Conversation:
         elif event.type == RuntimeEventType.CONTEXT_COMPACTED:
             summary = event.payload.get("summary")
             if isinstance(summary, str) and summary:
+                # 压缩事件代表旧上下文被摘要替换，之前的消息不再进入模型上下文。
                 conversation = Conversation()
                 conversation.append_summary(summary)
 

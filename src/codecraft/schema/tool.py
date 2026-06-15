@@ -15,6 +15,8 @@ class ToolEffect(StrEnum):
 
 
 class ToolSpec(BaseModel):
+    """暴露给模型看的 tool 描述。"""
+
     name: str
     description: str
     input_schema: dict[str, Any]
@@ -24,12 +26,16 @@ class ToolSpec(BaseModel):
 
 
 class ToolCall(BaseModel):
+    """模型请求执行某个 tool 时的结构化调用。"""
+
     call_id: str
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolResult(BaseModel):
+    """tool 执行完成后回传给模型和 UI 的结果。"""
+
     success: bool
     content: str
     data: dict[str, Any] | None = None
@@ -39,6 +45,7 @@ class ToolResult(BaseModel):
 
     @model_validator(mode="after")
     def validate_error_shape(self) -> ToolResult:
+        """保持 success 和 error 字段语义一致。"""
         if self.success and self.error is not None:
             raise ValueError("successful tool results cannot include error")
 

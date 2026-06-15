@@ -30,12 +30,19 @@ class ConversationItem(BaseModel):
 
 
 class Conversation(BaseModel):
+    """模型上下文中的对话历史。
+
+    内部用 ConversationItem 保存更丰富的元数据；真正请求模型前，再转换成
+    provider 能理解的 ModelMessage。
+    """
+
     items: list[ConversationItem] = Field(default_factory=list)
 
     def append(self, item: ConversationItem) -> None:
         self.items.append(item)
 
     def append_user_message(self, content: str) -> ConversationItem:
+        """追加普通用户消息。"""
         item = ConversationItem(
             item_id=new_id("item_"),
             role=ConversationRole.USER,
@@ -59,6 +66,11 @@ class Conversation(BaseModel):
         name: str,
         arguments: dict[str, Any],
     ) -> ConversationItem:
+        """记录 assistant 发起的 tool call。
+
+        content 保存稳定的 JSON 字符串，metadata 保存结构化 arguments，方便
+        后续适配 Responses API 和 Chat Completions API。
+        """
         item = ConversationItem(
             item_id=new_id("item_"),
             role=ConversationRole.ASSISTANT,
@@ -78,6 +90,7 @@ class Conversation(BaseModel):
     def append_tool_result(
         self, tool_call_id: str, name: str, content: str
     ) -> ConversationItem:
+        """追加 tool call 的执行结果。"""
         item = ConversationItem(
             item_id=new_id("item_"),
             role=ConversationRole.TOOL,
@@ -89,6 +102,7 @@ class Conversation(BaseModel):
         return item
 
     def append_summary(self, content: str) -> ConversationItem:
+        """追加压缩后的历史摘要。"""
         item = ConversationItem(
             item_id=new_id("item_"),
             role=ConversationRole.SUMMARY,
@@ -98,6 +112,7 @@ class Conversation(BaseModel):
         return item
 
     def build_model_messages(self) -> list[ModelMessage]:
+        """把内部 conversation item 转成模型请求消息。"""
         messages: list[ModelMessage] = []
         for item in self.items:
             role = self._to_model_role(item.role)

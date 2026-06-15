@@ -21,6 +21,12 @@ class PatchFile:
 
 
 class ApplyPatchTool(BaseTool):
+    """应用已有文件的 unified diff。
+
+    当前实现只支持修改已存在文件，不支持新增/删除文件。patch 的路径仍会
+    经过 WorkspaceGuard，避免 diff header 把写入目标带出 workspace。
+    """
+
     name = "apply_patch"
     description = "Apply a unified diff patch to existing files inside the workspace."
     args_schema = ApplyPatchArgs
@@ -28,6 +34,7 @@ class ApplyPatchTool(BaseTool):
     requires_approval = True
 
     async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
+        """解析 patch、逐文件应用 hunk，并返回变更文件列表。"""
         patch_args = ApplyPatchArgs.model_validate(args)
         guard = WorkspaceGuard(context.context.workspace_roots)
 
@@ -101,6 +108,7 @@ class ApplyPatchTool(BaseTool):
 
     @staticmethod
     def _parse_patch(patch: str) -> list[PatchFile]:
+        """从 unified diff 中提取文件路径和 hunk。"""
         lines = patch.splitlines(keepends=True)
         files: list[PatchFile] = []
         index = 0
@@ -160,6 +168,7 @@ class ApplyPatchTool(BaseTool):
 
     @staticmethod
     def _apply_hunks(content: str, hunks: list[list[str]]) -> str:
+        """按 hunk header 的旧文件位置应用增删行。"""
         source = content.splitlines(keepends=True)
         result: list[str] = []
         cursor = 0
@@ -170,6 +179,7 @@ class ApplyPatchTool(BaseTool):
             if target_index < cursor:
                 raise ValueError("overlapping hunks")
 
+            # 先复制 hunk 之前未触碰的原文，再根据前缀处理上下文/删除/新增行。
             result.extend(source[cursor:target_index])
             cursor = target_index
 

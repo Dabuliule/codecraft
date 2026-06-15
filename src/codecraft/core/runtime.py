@@ -15,6 +15,8 @@ from codecraft.tool.registry import ToolRegistry
 
 
 class AgentRuntime:
+    """装配 session store、LLM provider 和 tool registry 的运行时入口。"""
+
     def __init__(
         self,
         *,
@@ -31,6 +33,7 @@ class AgentRuntime:
         self.event_bus = event_bus
 
     async def create_thread(self, config: SessionConfig) -> AgentThread:
+        """创建新 session，并返回可消费事件的 AgentThread。"""
         await self.session_store.create_session(config)
         session = Session(
             config=config,
@@ -48,6 +51,7 @@ class AgentRuntime:
         return thread
 
     async def resume_thread(self, session_id: str) -> AgentThread:
+        """根据 session 日志恢复 thread，并重建模型 conversation。"""
         snapshot = await self.session_store.resume(session_id)
         conversation = reconstruct_conversation(snapshot.events)
 

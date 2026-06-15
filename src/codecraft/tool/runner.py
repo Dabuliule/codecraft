@@ -23,6 +23,12 @@ class ToolRunnerEvent:
 
 
 class ToolRunner:
+    """统一执行 tool call，并把执行过程转成 RuntimeEvent。
+
+    调用顺序是：参数 schema 校验、sandbox effect 检查、approval 检查、真正
+    执行 tool。每一步失败都会变成 ToolResult，而不是让异常直接穿透到 turn。
+    """
+
     def __init__(
         self,
         registry: ToolRegistry,
@@ -36,6 +42,7 @@ class ToolRunner:
         call: ToolCall,
         context: TurnContext,
     ) -> AsyncIterator[ToolRunnerEvent]:
+        """运行一个 tool call，并按执行阶段产出事件。"""
         yield ToolRunnerEvent(
             RuntimeEventType.TOOL_CALL_STARTED,
             {
@@ -55,6 +62,7 @@ class ToolRunner:
                 tool.effects
             )
             if not sandbox_evaluation.allowed:
+                # sandbox 是硬边界；不进入 approval，也不执行 tool。
                 result = ToolResult(
                     success=False,
                     content="Tool execution denied by sandbox policy.",
@@ -79,6 +87,7 @@ class ToolRunner:
 
             evaluation = await self.approval_manager.evaluate(tool, call, args, context)
             if evaluation.requires_approval:
+                # approval 是可交互边界，通常由 UI 把请求展示给用户处理。
                 approval_request = self.approval_manager.build_request(
                     call=call,
                     context=context,

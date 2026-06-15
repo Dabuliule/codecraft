@@ -12,6 +12,8 @@ from codecraft.sandbox.policy import SandboxMode
 
 @dataclass(frozen=True)
 class ConfigOverrides:
+    """命令行参数转换后的配置覆盖层。"""
+
     values: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -36,6 +38,8 @@ class ConfigOverrides:
 
 
 class ConfigLoader:
+    """按默认值、全局配置、profile、项目配置和显式参数加载配置。"""
+
     def __init__(
         self,
         *,
@@ -52,6 +56,7 @@ class ConfigLoader:
         config_path: Path | None = None,
         overrides: ConfigOverrides | None = None,
     ) -> RuntimeSettings:
+        """合并所有配置层，并校验成 RuntimeSettings。"""
         merged = RuntimeSettings().model_dump(mode="python")
         for layer in self._config_layers(profile=profile, config_path=config_path):
             if layer.exists():
@@ -68,6 +73,7 @@ class ConfigLoader:
         profile: str | None,
         config_path: Path | None,
     ) -> list[Path]:
+        """返回配置文件加载顺序，后面的层覆盖前面的层。"""
         layers = [
             self.codecraft_home / "config.toml",
         ]
@@ -91,6 +97,7 @@ def _read_toml(path: Path) -> dict[str, Any]:
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """递归合并 dict，叶子值由 override 覆盖。"""
     result = dict(base)
     for key, value in override.items():
         current = result.get(key)
@@ -102,6 +109,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def _set_nested(values: dict[str, Any], path: list[str], value: Any) -> None:
+    """把 CLI 参数写入嵌套配置 dict，None 表示不覆盖。"""
     if value is None:
         return
 

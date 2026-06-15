@@ -20,6 +20,8 @@ class SessionSource(StrEnum):
 
 
 class SessionConfig(BaseModel):
+    """启动或恢复 session 所需的完整运行配置。"""
+
     session_id: str
     thread_id: str
     source: SessionSource
@@ -83,6 +85,8 @@ class SessionConfig(BaseModel):
 
 
 class SessionSummary(BaseModel):
+    """用于列表页/命令输出的轻量 session 信息。"""
+
     session_id: str
     thread_id: str
     path: Path
@@ -97,5 +101,7 @@ class SessionSummary(BaseModel):
 
 
 class SessionSnapshot(BaseModel):
+    """恢复 session 时读取到的配置和事件日志。"""
+
     config: SessionConfig
     events: list[RuntimeEvent]

@@ -27,6 +27,13 @@ class TurnStatus(StrEnum):
 
 
 class Turn:
+    """一次用户输入对应的模型执行轮次。
+
+    `Turn` 管理从用户消息进入对话、调用模型、执行 tool call，到产出最终
+    assistant 消息的完整循环。它不负责持久化细节，所有外部可见状态都通过
+    session event 发出去。
+    """
+
     def __init__(
         self,
         *,
@@ -42,6 +49,11 @@ class Turn:
         self.prompt_builder = PromptBuilder()
 
     async def run(self, user_input: SessionInput) -> None:
+        """运行一次用户输入，直到模型给出最终回复或轮次中止。
+
+        模型可能在一次响应中要求调用工具；工具结果会回填到 conversation，
+        然后继续下一次模型调用，直到没有新的 tool call。
+        """
         started_at = monotonic()
         self.status = TurnStatus.RUNNING
         text = str(user_input.payload.get("text", ""))
@@ -161,6 +173,7 @@ class Turn:
         )
 
     async def _run_tool_call(self, payload: dict) -> ToolResult:
+        """执行模型发起的 tool call，并把调用和结果写回 conversation。"""
         call = self._build_tool_call(payload)
         await self.session.emit(
             RuntimeEventType.MODEL_TOOL_CALL,
@@ -199,6 +212,7 @@ class Turn:
 
     @staticmethod
     def _build_tool_call(payload: dict) -> ToolCall:
+        """兼容不同 provider 的 tool call 字段命名。"""
         if "call_id" in payload and "name" in payload:
             return ToolCall.model_validate(payload)
 

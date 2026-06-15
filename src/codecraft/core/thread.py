@@ -12,6 +12,12 @@ from codecraft.schema.session import SessionSnapshot
 
 
 class AgentThread:
+    """面向 CLI/UI 的 session facade。
+
+    `AgentThread` 把 Session 的事件总线转成一个异步队列，让调用方可以像读
+    stream 一样消费事件，同时隐藏 session 的调度细节。
+    """
+
     def __init__(self, session: Session) -> None:
         self.session = session
         self._events: asyncio.Queue[RuntimeEvent] = asyncio.Queue()
@@ -24,6 +30,7 @@ class AgentThread:
         return await self._events.get()
 
     async def events(self) -> AsyncIterator[RuntimeEvent]:
+        """持续产出事件，直到收到 SESSION_CLOSED。"""
         while True:
             event = await self.next_event()
             yield event
@@ -37,6 +44,7 @@ class AgentThread:
         await self.session.close()
 
     def list_pending_approvals(self) -> list[ApprovalRequest]:
+        """返回当前等待用户处理的审批请求。"""
         reviewer = self.session.approval_manager.reviewer
         if isinstance(reviewer, ThreadApprovalReviewer):
             return reviewer.list_pending()
@@ -47,6 +55,10 @@ class AgentThread:
         return SessionSnapshot(config=self.session.config, events=events)
 
     async def wait_until_idle(self) -> None:
+        """等待当前后台 turn 结束。
+
+        测试和命令行一次性执行会用它确保事件都写完后再退出。
+        """
         task = self.session._runner_task
         if task is not None:
             await task

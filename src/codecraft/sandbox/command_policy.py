@@ -25,6 +25,13 @@ _BROAD_RM_TARGETS = frozenset({"/", "/*", "~", "*", "..", "../", "/.", "./.."})
 
 
 class CommandPolicy:
+    """对 shell command 做静态风险分类。
+
+    这里不执行命令，只根据可执行文件、常见子命令、网络需求和明显危险的
+    `rm -rf` 目标给出 safe/prompt/deny。真正是否运行还要看 approval 和
+    sandbox 的结果。
+    """
+
     SAFE_COMMANDS = {
         "pwd",
         "ls",
@@ -71,6 +78,7 @@ class CommandPolicy:
     def classify(
         self, command: str, *, network_access: bool = False
     ) -> CommandDecision:
+        """返回命令风险等级，以及是否需要用户 approval。"""
         parts = self._split(command)
         if not parts:
             return CommandDecision(
@@ -81,6 +89,7 @@ class CommandPolicy:
 
         sub_commands = self._split_raw_command(command)
         if len(sub_commands) > 1:
+            # compound command 取子命令中的最高风险，避免安全命令掩盖危险片段。
             return self._classify_compound(sub_commands, network_access=network_access)
 
         return self._classify_single(parts, network_access=network_access)
@@ -195,6 +204,7 @@ class CommandPolicy:
         return {CommandRisk.SAFE: 0, CommandRisk.PROMPT: 1, CommandRisk.DENY: 2}[risk]
 
     def _is_known_safe(self, parts: list[str]) -> bool:
+        """识别项目内常见的只读或测试类命令。"""
         executable = parts[0]
 
         if executable == "sed":
@@ -241,6 +251,7 @@ class CommandPolicy:
 
     @staticmethod
     def _is_destructive_rm(parts: list[str]) -> bool:
+        """拦截 `rm -rf` 这类针对宽泛路径的破坏性命令。"""
         if not parts or parts[0] != "rm":
             return False
 

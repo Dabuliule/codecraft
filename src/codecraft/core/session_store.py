@@ -9,12 +9,19 @@ from codecraft.schema.session import SessionConfig, SessionSnapshot, SessionSumm
 
 
 class SessionStore:
+    """基于 JSONL 文件的 session event 存储。
+
+    每个 session 对应一个按日期分目录的 `.jsonl` 文件。恢复会话时不保存额外
+    快照，而是重新读取事件日志并校验 seq 连续性。
+    """
+
     def __init__(self, codecraft_home: Path) -> None:
         self.codecraft_home = codecraft_home.expanduser().resolve()
         self.sessions_dir = self.codecraft_home / "sessions"
         self._paths: dict[str, Path] = {}
 
     async def create_session(self, config: SessionConfig) -> Path:
+        """创建当前 session 的事件日志文件。"""
         created_at = config.created_at
         path = (
             self.sessions_dir
@@ -29,6 +36,7 @@ class SessionStore:
         return path
 
     async def append_event(self, event: RuntimeEvent) -> None:
+        """追加单个事件到 session 日志。"""
         path = self._path_for_session(event.session_id)
         try:
             with path.open("a", encoding="utf-8") as handle:
@@ -49,6 +57,7 @@ class SessionStore:
             ) from exc
 
     async def load_events(self, session_id: str) -> list[RuntimeEvent]:
+        """读取并校验一个 session 的全部事件。"""
         path = self._path_for_session(session_id)
         events: list[RuntimeEvent] = []
 
@@ -99,6 +108,7 @@ class SessionStore:
         *,
         include_invalid: bool = False,
     ) -> list[SessionSummary]:
+        """列出 session 摘要，可按 cwd 过滤。"""
         summaries: list[SessionSummary] = []
         cwd_resolved = cwd.expanduser().resolve() if cwd else None
 
@@ -174,6 +184,7 @@ class SessionStore:
         return await self.resume(summaries[0].session_id)
 
     async def resume(self, session_id: str) -> SessionSnapshot:
+        """从事件日志恢复 session 配置和历史事件。"""
         events = await self.load_events(session_id)
         if not events:
             raise SessionRestoreError(
@@ -204,6 +215,7 @@ class SessionStore:
         )
 
     def _path_for_session(self, session_id: str) -> Path:
+        """定位 session 日志路径，并缓存 glob 的结果。"""
         if session_id in self._paths:
             return self._paths[session_id]
 
@@ -241,6 +253,7 @@ class SessionStore:
 
     @staticmethod
     def _validate_seq(session_id: str, events: list[RuntimeEvent]) -> None:
+        """确保事件属于同一个 session，且 seq 从 1 开始连续递增。"""
         for expected, event in enumerate(events, start=1):
             if event.session_id != session_id:
                 raise SessionRestoreError(

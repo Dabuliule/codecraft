@@ -18,6 +18,12 @@ class BashArgs(BaseModel):
 
 
 class BashTool(BaseTool):
+    """在 workspace 内执行 shell command 的内置工具。
+
+    命令是否允许执行由 CommandPolicy 和 approval 状态共同决定；这个工具只
+    负责运行已经通过检查的 command，并截断过长输出。
+    """
+
     name = "bash"
     description = "Run a shell command from inside the workspace."
     args_schema = BashArgs
@@ -28,6 +34,7 @@ class BashTool(BaseTool):
         self.command_policy = command_policy or CommandPolicy()
 
     async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
+        """执行命令并返回 stdout/stderr、exit code 和截断信息。"""
         bash_args = BashArgs.model_validate(args)
         guard = WorkspaceGuard(context.context.workspace_roots)
         cwd = self._resolve_cwd(bash_args.cwd, context, guard)
@@ -109,6 +116,7 @@ class BashTool(BaseTool):
         context: ToolContext,
         guard: WorkspaceGuard,
     ) -> Path:
+        """解析命令工作目录，确保 cwd 是 workspace 内的目录。"""
         if cwd is None:
             return context.context.cwd
         resolved = guard.resolve_read_path(cwd, context.context.cwd)

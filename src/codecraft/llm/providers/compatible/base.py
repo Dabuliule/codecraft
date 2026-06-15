@@ -12,12 +12,20 @@ from codecraft.schema.tool import ToolSpec
 
 
 class OpenAICompatibleProvider(LLMProvider):
+    """OpenAI 风格 API 的 provider 基类。
+
+    子类只需要提供 client 和少量兼容差异；这里负责把内部 ModelMessage /
+    ToolSpec 转成 Responses API 或 Chat Completions API 的格式，并统一产出
+    ModelEvent。
+    """
+
     async def stream(
         self,
         messages: list[ModelMessage],
         tools: list[ToolSpec],
         context: TurnContext,
     ) -> AsyncIterator[ModelEvent]:
+        """调用 Responses API，并把返回结果转换成内部事件流。"""
         client = self._client()
         try:
             response = await client.responses.create(
@@ -77,6 +85,7 @@ class OpenAICompatibleProvider(LLMProvider):
         ]
 
     async def _events_from_chat_stream(self, stream: Any) -> AsyncIterator[ModelEvent]:
+        """解析 Chat Completions 风格的 streaming chunks。"""
         tool_call_parts: dict[int, dict[str, Any]] = {}
         latest_usage: dict[str, Any] = {}
 
@@ -95,6 +104,7 @@ class OpenAICompatibleProvider(LLMProvider):
                     )
 
                 for raw_tool_call in _get(delta, "tool_calls", []) or []:
+                    # tool call arguments 可能被拆成多个 chunk，需要按 index 拼回完整 JSON。
                     index = int(_get(raw_tool_call, "index", 0) or 0)
                     part = tool_call_parts.setdefault(
                         index,
@@ -128,6 +138,7 @@ class OpenAICompatibleProvider(LLMProvider):
         yield ModelEvent(type=ModelEventType.COMPLETED)
 
     def _events_from_chat_response(self, response: Any) -> list[ModelEvent]:
+        """解析非 streaming 的 Chat Completions response。"""
         events: list[ModelEvent] = []
         usage = self._chat_usage(response)
 
@@ -155,6 +166,7 @@ class OpenAICompatibleProvider(LLMProvider):
         return events
 
     def _events_from_response(self, response: Any) -> list[ModelEvent]:
+        """解析非 streaming 的 Responses API response。"""
         events: list[ModelEvent] = []
         text = self._response_text(response)
         if text:
@@ -186,6 +198,7 @@ class OpenAICompatibleProvider(LLMProvider):
         return events
 
     async def _events_from_stream(self, stream: Any) -> AsyncIterator[ModelEvent]:
+        """解析 Responses API 风格的 streaming events。"""
         completed = False
         emitted_delta = False
 
@@ -333,12 +346,14 @@ class OpenAICompatibleProvider(LLMProvider):
 
 
 def _get(value: Any, key: str, default: Any = None) -> Any:
+    """同时支持 dict 和 SDK object 的属性读取。"""
     if isinstance(value, dict):
         return value.get(key, default)
     return getattr(value, key, default)
 
 
 def _message_to_input_item(message: ModelMessage) -> dict[str, Any]:
+    """把内部消息转换成 Responses API input item。"""
     if message.type == ModelMessageType.FUNCTION_CALL:
         return {
             "type": "function_call",
@@ -361,6 +376,7 @@ def _message_to_input_item(message: ModelMessage) -> dict[str, Any]:
 
 
 def _message_to_chat_item(message: ModelMessage) -> dict[str, Any]:
+    """把内部消息转换成 Chat Completions message。"""
     if message.type == ModelMessageType.FUNCTION_CALL:
         return {
             "role": "assistant",
@@ -405,6 +421,7 @@ def _chat_tool_calls(message: Any) -> list[dict[str, Any]]:
 
 
 def _arguments_to_json(message: ModelMessage) -> str:
+    """为 function call 生成稳定的 JSON arguments 字符串。"""
     if message.arguments is not None:
         return json.dumps(
             message.arguments,
@@ -426,6 +443,7 @@ def _arguments_to_json(message: ModelMessage) -> str:
 
 
 def _parse_arguments(value: Any) -> dict[str, Any]:
+    """宽容解析 provider 返回的 tool arguments。"""
     if isinstance(value, dict):
         return value
 

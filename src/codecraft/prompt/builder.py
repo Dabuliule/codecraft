@@ -12,6 +12,8 @@ from codecraft.schema.session import SessionConfig
 
 @dataclass(frozen=True)
 class PromptBuilder:
+    """组装发送给模型的 system prompt 和历史消息。"""
+
     instruction_loader: InstructionLoader = field(default_factory=InstructionLoader)
 
     def build(
@@ -21,6 +23,7 @@ class PromptBuilder:
         conversation: Conversation,
         context: TurnContext,
     ) -> list[ModelMessage]:
+        """按固定 section 顺序构造完整模型输入。"""
         sections = [
             ("base_instructions", config.base_instructions or BASE_INSTRUCTIONS),
             (
