@@ -8,7 +8,6 @@ import typer
 from typer.core import TyperGroup
 
 from codecraft.approval import ApprovalPolicy
-from codecraft.approval import ApprovalManager, ThreadApprovalReviewer
 from codecraft.cli import bootstrap
 from codecraft.cli.commands import (
     register_chat_command,
@@ -20,22 +19,9 @@ from codecraft.cli.commands import (
 )
 from codecraft.cli.options import CodecraftHomeOption
 from codecraft.core.runtime import AgentRuntime
-from codecraft.core.session_store import SessionStore
-from codecraft.llm import (
-    DeepSeekProvider,
-    LLMProviderRegistry,
-    OpenAIProvider,
-    QwenProvider,
-)
+from codecraft.llm import LLMProviderRegistry
 from codecraft.schema.session import SessionConfig, SessionSource
-from codecraft.tool import (
-    ApplyPatchTool,
-    BashTool,
-    ListFilesTool,
-    ReadFileTool,
-    ToolRegistry,
-    WriteFileTool,
-)
+from codecraft.tool import ToolRegistry
 
 
 class CodeCraftTyperGroup(TyperGroup):
@@ -134,39 +120,19 @@ def _load_session_config(
 
 
 def _build_runtime(config: SessionConfig) -> AgentRuntime:
-    return AgentRuntime(
-        session_store=SessionStore(config.codecraft_home),
+    return bootstrap.build_runtime(
+        config,
         llm_providers=_build_provider_registry(config),
         tool_registry=_build_tool_registry(),
-        approval_manager=ApprovalManager(
-            policy=config.approval_policy,
-            reviewer=ThreadApprovalReviewer(),
-        ),
     )
 
 
 def _build_provider_registry(config: SessionConfig) -> LLMProviderRegistry:
-    return LLMProviderRegistry(
-        [
-            OpenAIProvider(
-                api_key_env=_provider_api_key_env(config, "openai"),
-                base_url=config.model_base_url,
-            ),
-            QwenProvider(
-                api_key_env=_provider_api_key_env(config, "qwen"),
-                base_url=config.model_base_url,
-            ),
-            DeepSeekProvider(
-                api_key_env=_provider_api_key_env(config, "deepseek"),
-                base_url=config.model_base_url,
-            ),
-        ]
-    )
+    return bootstrap.build_provider_registry(config)
 
 
 def _provider_api_key_env(config: SessionConfig, provider: str) -> str | None:
-    configured = config.model_api_key_env if config.model_provider == provider else None
-    return _model_api_key_env(provider, configured)
+    return bootstrap.provider_api_key_env(config, provider)
 
 
 def _model_api_key_env(provider: str, configured: str | None) -> str | None:
@@ -174,15 +140,7 @@ def _model_api_key_env(provider: str, configured: str | None) -> str | None:
 
 
 def _build_tool_registry() -> ToolRegistry:
-    return ToolRegistry(
-        [
-            ReadFileTool(),
-            ListFilesTool(),
-            WriteFileTool(),
-            ApplyPatchTool(),
-            BashTool(),
-        ]
-    )
+    return bootstrap.build_tool_registry()
 
 
 register_exec_command(app)

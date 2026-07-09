@@ -10,6 +10,7 @@ from codecraft.cli.options import CodecraftHomeOption
 from codecraft.cli.shell import InteractiveShell
 from codecraft.cli.ui import make_console
 from codecraft.cli.ui.session_renderer import SessionRenderer
+from codecraft.core.errors import SessionRestoreError
 from codecraft.core.session_store import SessionStore
 from codecraft.schema.event import RuntimeEventType
 
@@ -77,7 +78,19 @@ async def run_resume(
         SessionRenderer(make_console()).render_summary(summary)
         return 0
 
-    snapshot = await store.resume(session_id)
+    if summary is None:
+        make_console().print(f"No session found: {session_id}")
+        return 1
+
+    try:
+        snapshot = await store.resume(session_id)
+    except SessionRestoreError as exc:
+        make_console().print(
+            f"Could not resume session {session_id}: {exc.message} ({exc.code})",
+            markup=False,
+            soft_wrap=True,
+        )
+        return 1
     from codecraft.cli import app as cli_app
 
     runtime = cli_app._build_runtime(snapshot.config)

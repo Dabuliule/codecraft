@@ -8,6 +8,7 @@ import typer
 from codecraft.cli.options import CodecraftHomeOption
 from codecraft.cli.ui import make_console
 from codecraft.cli.ui.session_renderer import SessionRenderer, last_answer
+from codecraft.core.errors import SessionRestoreError
 from codecraft.core.session_store import SessionStore
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 
@@ -36,7 +37,7 @@ def register_inspect_command(app: typer.Typer) -> None:
     ) -> None:
         import asyncio
 
-        asyncio.run(
+        exit_code = asyncio.run(
             run_inspect(
                 session_id=session_id,
                 codecraft_home=codecraft_home,
@@ -46,6 +47,8 @@ def register_inspect_command(app: typer.Typer) -> None:
                 raw=raw,
             )
         )
+        if exit_code:
+            raise typer.Exit(code=exit_code)
 
 
 async def run_inspect(
@@ -56,18 +59,26 @@ async def run_inspect(
     tools: bool,
     errors: bool,
     raw: bool,
-) -> None:
+) -> int:
     console = make_console()
     store = SessionStore(codecraft_home)
     if raw:
-        lines = await store.load_raw_lines(session_id)
+        try:
+            lines = await store.load_raw_lines(session_id)
+        except SessionRestoreError as exc:
+            print_restore_error(console, session_id, exc)
+            return 1
         console.print(f"session_id: {session_id}", soft_wrap=True)
         console.print(f"raw_lines: {len(lines)}", soft_wrap=True)
         for line_number, line in enumerate(lines, start=1):
             console.print(f"{line_number}: {line}", soft_wrap=True, markup=False)
-        return
+        return 0
 
-    loaded = await store.load_events(session_id)
+    try:
+        loaded = await store.load_events(session_id)
+    except SessionRestoreError as exc:
+        print_restore_error(console, session_id, exc)
+        return 1
     renderer = SessionRenderer(console)
     renderer.render_inspect_summary(session_id, loaded)
 
@@ -89,6 +100,18 @@ async def run_inspect(
     if errors:
         renderer.render_error_events(loaded)
         print_error_compat_lines(console, loaded)
+    return 0
+
+
+def print_restore_error(console, session_id: str, exc: SessionRestoreError) -> None:
+    if exc.code == "session_file_not_found":
+        console.print(f"No session found: {session_id}")
+        return
+    console.print(
+        f"Could not inspect session {session_id}: {exc.message} ({exc.code})",
+        markup=False,
+        soft_wrap=True,
+    )
 
 
 def print_event_compat_lines(console, events: list[RuntimeEvent]) -> None:

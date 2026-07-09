@@ -100,11 +100,16 @@ def load_session_config(
     )
 
 
-def build_runtime(config: SessionConfig) -> AgentRuntime:
+def build_runtime(
+    config: SessionConfig,
+    *,
+    llm_providers: LLMProviderRegistry | None = None,
+    tool_registry: ToolRegistry | None = None,
+) -> AgentRuntime:
     return AgentRuntime(
         session_store=SessionStore(config.codecraft_home),
-        llm_providers=build_provider_registry(config),
-        tool_registry=build_tool_registry(),
+        llm_providers=llm_providers or build_provider_registry(config),
+        tool_registry=tool_registry or build_tool_registry(),
         approval_manager=ApprovalManager(
             policy=config.approval_policy,
             reviewer=ThreadApprovalReviewer(),

@@ -276,10 +276,12 @@ def test_command_policy_classifies_safe_prompt_and_deny_commands():
     assert policy.classify("python --version").risk == CommandRisk.SAFE
     assert policy.classify("rm temp.txt").risk == CommandRisk.PROMPT
     assert policy.classify("curl https://example.com").risk == CommandRisk.DENY
+    assert policy.classify("git fetch").risk == CommandRisk.DENY
     assert (
         policy.classify("curl https://example.com", network_access=True).risk
         == CommandRisk.PROMPT
     )
+    assert policy.classify("git fetch", network_access=True).risk == CommandRisk.PROMPT
     assert policy.classify("sudo true").risk == CommandRisk.DENY
 
 
@@ -352,10 +354,12 @@ def test_command_policy_expanded_safe_git_subcommands():
     assert policy.classify("git stash list").risk == CommandRisk.SAFE
     assert policy.classify("git tag").risk == CommandRisk.SAFE
     assert policy.classify("git remote -v").risk == CommandRisk.SAFE
-    assert policy.classify("git fetch").risk == CommandRisk.SAFE
 
-    # Destructive git subcommands are still PROMPT.
-    assert policy.classify("git push").risk == CommandRisk.PROMPT
+    # Network and destructive git subcommands are not SAFE.
+    assert policy.classify("git fetch").risk == CommandRisk.DENY
+    assert policy.classify("git fetch", network_access=True).risk == CommandRisk.PROMPT
+    assert policy.classify("git push").risk == CommandRisk.DENY
+    assert policy.classify("git push", network_access=True).risk == CommandRisk.PROMPT
     assert policy.classify("git commit -m wip").risk == CommandRisk.PROMPT
 
 
@@ -2043,6 +2047,78 @@ def test_runtime_executes_read_file_tool_call_and_continues_turn(tmp_path):
         ]
         assert messages[2].type == ModelMessageType.FUNCTION_CALL
         assert messages[3].type == ModelMessageType.FUNCTION_CALL_OUTPUT
+
+    asyncio.run(run_test())
+
+
+def test_runtime_preserves_streamed_assistant_text_before_tool_call(tmp_path):
+    async def run_test() -> None:
+        (tmp_path / "note.txt").write_text("tool loop works", encoding="utf-8")
+        provider = MockProvider(
+            script=[
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_DELTA,
+                    payload={"text": "I will "},
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_DELTA,
+                    payload={"text": "read that."},
+                ),
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_read",
+                        "name": "read_file",
+                        "arguments": {"path": "note.txt"},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.MESSAGE_COMPLETED,
+                    payload={"text": "The file says: tool loop works"},
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([ReadFileTool()]),
+        )
+
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "read note"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert [event.type for event in snapshot.events] == [
+            RuntimeEventType.SESSION_STARTED,
+            RuntimeEventType.TURN_STARTED,
+            RuntimeEventType.USER_MESSAGE,
+            RuntimeEventType.ASSISTANT_MESSAGE_DELTA,
+            RuntimeEventType.ASSISTANT_MESSAGE_DELTA,
+            RuntimeEventType.ASSISTANT_MESSAGE,
+            RuntimeEventType.MODEL_TOOL_CALL,
+            RuntimeEventType.TOOL_CALL_STARTED,
+            RuntimeEventType.TOOL_CALL_FINISHED,
+            RuntimeEventType.ASSISTANT_MESSAGE,
+            RuntimeEventType.TURN_FINISHED,
+        ]
+        assert snapshot.events[5].payload["text"] == "I will read that."
+
+        messages = provider.calls[1][0]
+        assert [message.content for message in messages[1:]] == [
+            "read note",
+            "I will read that.",
+            '{"path":"note.txt"}',
+            "tool loop works",
+        ]
+        assert [message.role.value for message in messages[1:]] == [
+            "user",
+            "assistant",
+            "assistant",
+            "tool",
+        ]
 
     asyncio.run(run_test())
 

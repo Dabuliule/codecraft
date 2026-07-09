@@ -23,6 +23,8 @@ _SHELL_CHAIN_RE = re.compile(r"(&&|\|\||[;|])")
 
 _BROAD_RM_TARGETS = frozenset({"/", "/*", "~", "*", "..", "../", "/.", "./.."})
 
+_GIT_NETWORK_SUBCOMMANDS = frozenset({"clone", "fetch", "ls-remote", "pull", "push"})
+
 
 class CommandPolicy:
     """对 shell command 做静态风险分类。
@@ -118,6 +120,20 @@ class CommandPolicy:
                 risk=CommandRisk.DENY,
                 reason=f"{executable} requires network access",
                 requires_approval=False,
+            )
+
+        if executable == "git" and self._git_requires_network(parts):
+            subcommand = parts[1]
+            if not network_access:
+                return CommandDecision(
+                    risk=CommandRisk.DENY,
+                    reason=f"git {subcommand} requires network access",
+                    requires_approval=False,
+                )
+            return CommandDecision(
+                risk=CommandRisk.PROMPT,
+                reason=f"git {subcommand} requires approval",
+                requires_approval=True,
             )
 
         compound = self._compound_name(parts)
@@ -223,7 +239,6 @@ class CommandPolicy:
                 "stash",
                 "tag",
                 "remote",
-                "fetch",
             }
 
         if executable == "uv" and len(parts) >= 3:
@@ -284,3 +299,9 @@ class CommandPolicy:
             break
 
         return target in _BROAD_RM_TARGETS
+
+    @staticmethod
+    def _git_requires_network(parts: list[str]) -> bool:
+        if len(parts) < 2:
+            return False
+        return parts[1] in _GIT_NETWORK_SUBCOMMANDS

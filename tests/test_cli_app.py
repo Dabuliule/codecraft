@@ -179,6 +179,22 @@ def test_inspect_raw_prints_invalid_session_lines(tmp_path):
     assert '"seq":2' in raw_result.output
 
 
+def test_inspect_missing_session_prints_friendly_error(tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "inspect",
+            "missing",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "No session found: missing" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_inspect_command_prints_tool_and_error_summaries(tmp_path):
     async def seed() -> SessionConfig:
         config = make_config(tmp_path)
@@ -345,6 +361,22 @@ def test_resume_last_continues_latest_session(tmp_path, monkeypatch):
         "first answer",
         "second",
     ]
+
+
+def test_resume_missing_session_prints_friendly_error(tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "resume",
+            "missing",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "No session found: missing" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_exec_command_runs_runtime_and_prints_answer(tmp_path, monkeypatch):

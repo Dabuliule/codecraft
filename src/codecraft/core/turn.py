@@ -123,6 +123,10 @@ class Turn:
                     )
 
                 elif model_event.type == ModelEventType.TOOL_CALL:
+                    completed_message = await self._flush_streamed_message(
+                        assistant_parts,
+                        completed_message,
+                    )
                     tool_was_called = True
                     await self._run_tool_call(model_event.payload)
                     break
@@ -171,6 +175,26 @@ class Turn:
             },
             turn_id=self.turn_id,
         )
+
+    async def _flush_streamed_message(
+        self,
+        assistant_parts: list[str],
+        completed_message: str | None,
+    ) -> str | None:
+        if completed_message is not None:
+            return completed_message
+
+        streamed_message = "".join(assistant_parts)
+        if not streamed_message:
+            return None
+
+        await self.session.emit(
+            RuntimeEventType.ASSISTANT_MESSAGE,
+            {"text": streamed_message},
+            turn_id=self.turn_id,
+        )
+        self.session.conversation.append_assistant_message(streamed_message)
+        return streamed_message
 
     async def _run_tool_call(self, payload: dict) -> ToolResult:
         """执行模型发起的 tool call，并把调用和结果写回 conversation。"""
