@@ -80,6 +80,7 @@ logs/
 .codecraft/
 .agent-runtime/
 docs/optimization-checklist.md
+docs/*_2027.md
 docs/design/
 *.log
 *.out
