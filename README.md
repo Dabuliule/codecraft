@@ -19,7 +19,7 @@ License: Apache-2.0.
 - Gates write, patch, bash, and risky commands through approval policy.
 - Stores session events as JSONL under `~/.codecraft/sessions`.
 - Reconstructs conversation history from session events for resume.
-- Provides CLI inspection for events, tools, errors, raw logs, and invalid sessions.
+- Provides CLI inspection and trace export for events, tools, errors, raw logs, and invalid sessions.
 
 ## Installation
 
@@ -113,6 +113,16 @@ uv run codecraft inspect <session_id> --raw
 ```
 
 `inspect --raw` prints JSONL lines without validation, so it can diagnose a damaged session log.
+
+Export a readable trace report:
+
+```zsh
+uv run codecraft trace <session_id>
+uv run codecraft trace <session_id> --format json
+uv run codecraft trace <session_id> --output-dir ./traces
+```
+
+By default, `trace` writes both `<session_id>.trace.json` and `<session_id>.trace.html`.
 
 ## Configuration
 

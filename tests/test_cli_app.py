@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from typer.testing import CliRunner
 
@@ -184,6 +185,139 @@ def test_inspect_missing_session_prints_friendly_error(tmp_path):
         app,
         [
             "inspect",
+            "missing",
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "No session found: missing" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_trace_command_writes_json_and_html_reports(tmp_path):
+    async def seed() -> SessionConfig:
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        await store.create_session(config)
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                seq=1,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": config.model_dump(mode="json")},
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_trace",
+                seq=2,
+                type=RuntimeEventType.USER_MESSAGE,
+                payload={"text": "read README"},
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_trace",
+                seq=3,
+                type=RuntimeEventType.MODEL_TOOL_CALL,
+                payload={
+                    "call_id": "call_read",
+                    "name": "read_file",
+                    "arguments": {"path": "README.md"},
+                },
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_trace",
+                seq=4,
+                type=RuntimeEventType.TOOL_CALL_STARTED,
+                payload={
+                    "call_id": "call_read",
+                    "name": "read_file",
+                    "arguments": {"path": "README.md"},
+                },
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_trace",
+                seq=5,
+                type=RuntimeEventType.TOOL_CALL_FINISHED,
+                payload={
+                    "call_id": "call_read",
+                    "name": "read_file",
+                    "result": {
+                        "success": True,
+                        "content": "README content",
+                        "metadata": {},
+                    },
+                    "duration_ms": 7,
+                },
+            )
+        )
+        await store.append_event(
+            RuntimeEvent(
+                event_id=new_id("evt_"),
+                session_id=config.session_id,
+                turn_id="turn_trace",
+                seq=6,
+                type=RuntimeEventType.TURN_FINISHED,
+                payload={"answer": "done", "status": "success"},
+            )
+        )
+        return config
+
+    config = asyncio.run(seed())
+    output_dir = tmp_path / "traces"
+
+    result = runner.invoke(
+        app,
+        [
+            "trace",
+            config.session_id,
+            "--codecraft-home",
+            str(config.codecraft_home),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    json_path = output_dir / "ses_cli.trace.json"
+    html_path = output_dir / "ses_cli.trace.html"
+    assert result.exit_code == 0
+    assert f"trace_json: {json_path}" in result.output
+    assert f"trace_html: {html_path}" in result.output
+    report = json.loads(json_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == 1
+    assert report["session"]["session_id"] == "ses_cli"
+    assert report["metrics"]["event_count"] == 6
+    assert report["metrics"]["tool_call_count"] == 1
+    assert report["metrics"]["tool_failure_count"] == 0
+    assert report["turns"][0]["turn_id"] == "turn_trace"
+    assert report["tool_calls"][0]["name"] == "read_file"
+    assert report["tool_calls"][0]["arguments"] == {"path": "README.md"}
+    html = html_path.read_text(encoding="utf-8")
+    assert "CodeCraft Trace ses_cli" in html
+    assert "read_file" in html
+
+
+def test_trace_missing_session_prints_friendly_error(tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "trace",
             "missing",
             "--codecraft-home",
             str(tmp_path / ".codecraft"),

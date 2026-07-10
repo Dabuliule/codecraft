@@ -230,6 +230,7 @@ The Typer CLI supports:
 - `codecraft resume --last`
 - `codecraft sessions`
 - `codecraft inspect`
+- `codecraft trace`
 
 CLI responsibilities are config loading, runtime construction, input submission, approval prompting, and event rendering. Core runtime modules do not depend on CLI code.
 

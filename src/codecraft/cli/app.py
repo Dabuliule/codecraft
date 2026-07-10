@@ -15,6 +15,7 @@ from codecraft.cli.commands import (
     register_inspect_command,
     register_resume_command,
     register_sessions_command,
+    register_trace_command,
     run_chat,
 )
 from codecraft.cli.options import CodecraftHomeOption
@@ -148,6 +149,7 @@ register_chat_command(app)
 register_resume_command(app)
 register_sessions_command(app)
 register_inspect_command(app)
+register_trace_command(app)
 
 
 if __name__ == "__main__":
