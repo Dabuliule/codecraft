@@ -3,6 +3,7 @@ from codecraft.tool.builtin import (
     BashTool,
     ListFilesTool,
     ReadFileTool,
+    WorkspaceSearchTool,
     WriteFileTool,
 )
 from codecraft.tool.base import BaseTool, ToolContext
@@ -20,5 +21,6 @@ __all__ = [
     "ToolProvider",
     "ToolRegistry",
     "WorkspaceGuard",
+    "WorkspaceSearchTool",
     "WriteFileTool",
 ]

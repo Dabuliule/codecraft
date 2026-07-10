@@ -72,7 +72,7 @@ Before making a change, understand the ownership boundary of the code you are to
 
 When searching for files or text, prefer fast repository-aware tools.
 
-Use `rg` or `rg --files` when available. If `rg` is unavailable, use the next best available command.
+Use `workspace_search` when it is available and you need repository-aware path or content discovery. If you need a shell command instead, use `rg` or `rg --files` when available. If `rg` is unavailable, use the next best available command.
 
 Good search behavior:
 

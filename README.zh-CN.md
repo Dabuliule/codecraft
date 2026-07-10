@@ -225,6 +225,7 @@ CodeCraft 会从当前工作目录开始向上查找，但不会越过 workspace
 | --- | --- | --- |
 | `read_file` | 读取 workspace 内文本文件 | 只读 |
 | `list_files` | 列出 workspace 内文件/目录 | 跳过常见噪声目录 |
+| `workspace_search` | 搜索 workspace 内路径和文本内容 | 返回路径、行号和片段 |
 | `write_file` | 写入 workspace 内文本文件 | 需要审批 |
 | `apply_patch` | 在 workspace 内应用 unified diff | 需要审批 |
 | `bash` | 在 workspace 内运行 shell 命令 | command policy + 审批 |

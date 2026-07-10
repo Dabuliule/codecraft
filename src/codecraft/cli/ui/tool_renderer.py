@@ -83,6 +83,11 @@ class ToolRenderer:
             return "• read_file"
         if name == "list_files":
             return "• list_files"
+        if name == "workspace_search":
+            query = ""
+            if isinstance(arguments, dict):
+                query = str(arguments.get("query") or "")
+            return f"• workspace_search {query}" if query else "• workspace_search"
         if name == "write_file":
             return "• write_file"
         if name == "apply_patch":
@@ -117,6 +122,13 @@ class ToolRenderer:
             count = result.get("metadata", {}).get("count")
             suffix = f" · {count} entries" if isinstance(count, int) else ""
             return f"✓ list_files {path}{suffix}{duration}"
+        if name == "workspace_search":
+            metadata = result.get("metadata", {})
+            query = metadata.get("query")
+            count = metadata.get("match_count")
+            query_text = f" {query}" if isinstance(query, str) and query else ""
+            suffix = f" · {count} matches" if isinstance(count, int) else ""
+            return f"✓ workspace_search{query_text}{suffix}{duration}"
         if name == "write_file":
             metadata = result.get("metadata", {})
             path = self._display_path(result, arguments)

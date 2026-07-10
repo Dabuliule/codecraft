@@ -227,6 +227,7 @@ Current tools:
 | --- | --- | --- |
 | `read_file` | Read a text file inside the workspace | Read-only |
 | `list_files` | List files/directories inside the workspace | Skips common noisy folders |
+| `workspace_search` | Search workspace paths and text content | Returns paths, line numbers, and snippets |
 | `write_file` | Write a text file inside the workspace | Requires approval |
 | `apply_patch` | Apply a unified diff inside the workspace | Requires approval |
 | `bash` | Run a shell command from inside the workspace | Command policy + approval |

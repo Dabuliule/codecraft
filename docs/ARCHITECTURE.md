@@ -182,6 +182,7 @@ This keeps side-effect governance in one place.
 | --- | --- | --- |
 | `read_file` | `read_only` | reads text inside workspace |
 | `list_files` | `read_only` | lists workspace entries, skipping noisy folders |
+| `workspace_search` | `read_only` | searches workspace paths and text content for repository-aware context |
 | `write_file` | `workspace_write` | requires approval |
 | `apply_patch` | `workspace_write` | requires approval, emits patch metadata |
 | `bash` | `process_exec` | command policy + approval |

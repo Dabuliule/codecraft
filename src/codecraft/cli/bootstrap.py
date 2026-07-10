@@ -21,6 +21,7 @@ from codecraft.tool import (
     ListFilesTool,
     ReadFileTool,
     ToolRegistry,
+    WorkspaceSearchTool,
     WriteFileTool,
 )
 
@@ -158,6 +159,7 @@ def build_tool_registry() -> ToolRegistry:
         [
             ReadFileTool(),
             ListFilesTool(),
+            WorkspaceSearchTool(),
             WriteFileTool(),
             ApplyPatchTool(),
             BashTool(),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -224,3 +225,188 @@ class ListFilesTool(BaseTool):
                 code="workspace_access_denied",
             ) from exc
         return f"{relative}{suffix}"
+
+
+class WorkspaceSearchArgs(BaseModel):
+    query: str = Field(min_length=1)
+    path: str = "."
+    mode: Literal["both", "content", "path"] = "both"
+    case_sensitive: bool = False
+    max_results: int = Field(default=100, ge=1, le=1000)
+    max_file_bytes: int = Field(default=1_000_000, ge=1)
+
+
+class WorkspaceSearchTool(BaseTool):
+    name = "workspace_search"
+    description = (
+        "Search workspace file paths and text content, returning matching paths, "
+        "line numbers, and snippets."
+    )
+    args_schema = WorkspaceSearchArgs
+    effects = {ToolEffect.READ_ONLY}
+
+    skipped_names = {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".venv",
+        "__pycache__",
+        "build",
+        "dist",
+        "node_modules",
+        "venv",
+    }
+
+    async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
+        search_args = WorkspaceSearchArgs.model_validate(args)
+        guard = WorkspaceGuard(context.context.workspace_roots)
+        root = guard.resolve_read_path(search_args.path, context.context.cwd)
+
+        if not root.exists():
+            return ToolResult(
+                success=False,
+                content="Search path does not exist.",
+                error="path_not_found",
+                metadata={"path": str(root)},
+            )
+
+        files = [root] if root.is_file() else self._iter_files(root)
+        query = (
+            search_args.query
+            if search_args.case_sensitive
+            else search_args.query.casefold()
+        )
+        matches: list[dict[str, object]] = []
+        skipped: dict[str, int] = {"binary": 0, "large": 0, "escaped": 0}
+
+        for file_path in files:
+            if len(matches) >= search_args.max_results:
+                break
+
+            if not self._is_safe_file(file_path, guard):
+                skipped["escaped"] += 1
+                continue
+
+            display_path = self._display_path(file_path, guard.workspace_roots)
+            if search_args.mode in {"both", "path"}:
+                candidate_path = (
+                    display_path
+                    if search_args.case_sensitive
+                    else display_path.casefold()
+                )
+                if query in candidate_path:
+                    matches.append(
+                        {
+                            "type": "path",
+                            "path": display_path,
+                        }
+                    )
+                    if len(matches) >= search_args.max_results:
+                        break
+
+            if search_args.mode not in {"both", "content"}:
+                continue
+
+            stat = file_path.stat()
+            if stat.st_size > search_args.max_file_bytes:
+                skipped["large"] += 1
+                continue
+
+            try:
+                raw = file_path.read_bytes()
+            except OSError:
+                continue
+
+            if self._looks_binary(raw):
+                skipped["binary"] += 1
+                continue
+
+            text = raw.decode("utf-8", errors="replace")
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                candidate_line = line if search_args.case_sensitive else line.casefold()
+                if query not in candidate_line:
+                    continue
+
+                matches.append(
+                    {
+                        "type": "content",
+                        "path": display_path,
+                        "line": line_number,
+                        "snippet": self._trim_line(line),
+                    }
+                )
+                if len(matches) >= search_args.max_results:
+                    break
+
+        lines = [self._format_match(match) for match in matches]
+        truncated = len(matches) >= search_args.max_results
+        content = "\n".join(lines) if lines else "No matches found."
+
+        return ToolResult(
+            success=True,
+            content=content,
+            data={
+                "query": search_args.query,
+                "path": str(root),
+                "matches": matches,
+                "match_count": len(matches),
+                "truncated": truncated,
+                "skipped": skipped,
+            },
+            metadata={
+                "query": search_args.query,
+                "path": str(root),
+                "match_count": len(matches),
+                "truncated": truncated,
+            },
+        )
+
+    @classmethod
+    def _iter_files(cls, root: Path) -> list[Path]:
+        return sorted(
+            path
+            for path in root.rglob("*")
+            if path.is_file() and not cls._has_skipped_part(path.relative_to(root))
+        )
+
+    @classmethod
+    def _has_skipped_part(cls, relative: Path) -> bool:
+        return any(part in cls.skipped_names for part in relative.parts)
+
+    @staticmethod
+    def _is_safe_file(path: Path, guard: WorkspaceGuard) -> bool:
+        try:
+            guard.assert_inside_workspace(path.resolve(strict=False))
+        except WorkspaceAccessError:
+            return False
+        return True
+
+    @staticmethod
+    def _looks_binary(raw: bytes) -> bool:
+        return b"\0" in raw[:4096]
+
+    @staticmethod
+    def _trim_line(line: str, max_chars: int = 240) -> str:
+        normalized = line.strip()
+        if len(normalized) <= max_chars:
+            return normalized
+        return f"{normalized[: max_chars - 1]}..."
+
+    @staticmethod
+    def _display_path(path: Path, workspace_roots: list[Path]) -> str:
+        resolved = path.resolve(strict=False)
+        for root in sorted(
+            workspace_roots, key=lambda item: len(item.parts), reverse=True
+        ):
+            try:
+                return str(resolved.relative_to(root))
+            except ValueError:
+                continue
+        return str(path)
+
+    @staticmethod
+    def _format_match(match: dict[str, object]) -> str:
+        if match["type"] == "path":
+            return f"{match['path']} [path]"
+        return f"{match['path']}:{match['line']}: {match['snippet']}"

@@ -44,6 +44,8 @@ from codecraft import (
     ToolSpec,
     ThreadApprovalReviewer,
     TurnContext,
+    WorkspaceAccessError,
+    WorkspaceSearchTool,
     WorkspaceGuard,
     WriteFileTool,
     new_id,
@@ -440,6 +442,91 @@ def test_read_file_and_list_files_tools(tmp_path):
         assert read_result.data["line_count"] == 1
         assert list_result.success is True
         assert list_result.content == "note.txt"
+
+    asyncio.run(run_test())
+
+
+def test_workspace_search_finds_paths_and_content_while_skipping_noise(tmp_path):
+    async def run_test() -> None:
+        package = tmp_path / "pkg"
+        package.mkdir()
+        (package / "agent.py").write_text(
+            "def build_agent():\n    return 'workspace grounding'\n",
+            encoding="utf-8",
+        )
+        noisy = tmp_path / "__pycache__"
+        noisy.mkdir()
+        (noisy / "hidden.py").write_text("workspace grounding\n", encoding="utf-8")
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+
+        tool = WorkspaceSearchTool()
+        call = ToolCall(
+            call_id="call_search",
+            name="workspace_search",
+            arguments={"query": "agent", "path": "."},
+        )
+
+        result = await tool.arun(
+            tool.args_schema.model_validate(call.arguments),
+            ToolContext(context=context, call=call),
+        )
+
+        assert result.success is True
+        assert "pkg/agent.py [path]" in result.content
+        assert "pkg/agent.py:1: def build_agent():" in result.content
+        assert "__pycache__" not in result.content
+        assert result.data["match_count"] == 2
+
+    asyncio.run(run_test())
+
+
+def test_workspace_search_rejects_path_escape(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            thread_id=config.thread_id,
+            turn_id="turn_test",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_steps=config.max_turn_steps,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        tool = WorkspaceSearchTool()
+        call = ToolCall(
+            call_id="call_search",
+            name="workspace_search",
+            arguments={"query": "secret", "path": "../outside"},
+        )
+
+        with pytest.raises(WorkspaceAccessError):
+            await tool.arun(
+                tool.args_schema.model_validate(call.arguments),
+                ToolContext(context=context, call=call),
+            )
 
     asyncio.run(run_test())
 

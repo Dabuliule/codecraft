@@ -75,6 +75,7 @@ from codecraft.tool import (
     ToolProvider,
     ToolRegistry,
     WorkspaceGuard,
+    WorkspaceSearchTool,
     WriteFileTool,
 )
 from codecraft.tool.runner import ToolRunner
@@ -146,6 +147,7 @@ __all__ = [
     "TurnContext",
     "WorkspaceAccessError",
     "WorkspaceGuard",
+    "WorkspaceSearchTool",
     "WriteFileTool",
     "new_id",
 ]
