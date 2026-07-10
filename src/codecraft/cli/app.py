@@ -11,6 +11,7 @@ from codecraft.approval import ApprovalPolicy
 from codecraft.cli import bootstrap
 from codecraft.cli.commands import (
     register_chat_command,
+    register_eval_command,
     register_exec_command,
     register_inspect_command,
     register_resume_command,
@@ -146,6 +147,7 @@ def _build_tool_registry() -> ToolRegistry:
 
 register_exec_command(app)
 register_chat_command(app)
+register_eval_command(app)
 register_resume_command(app)
 register_sessions_command(app)
 register_inspect_command(app)

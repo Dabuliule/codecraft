@@ -20,6 +20,7 @@ License: Apache-2.0.
 - Stores session events as JSONL under `~/.codecraft/sessions`.
 - Reconstructs conversation history from session events for resume.
 - Provides CLI inspection and trace export for events, tools, errors, raw logs, and invalid sessions.
+- Runs a fixed 10-task coding-agent evaluation suite with deterministic grading and JSON/HTML reports.
 
 ## Installation
 
@@ -123,6 +124,25 @@ uv run codecraft trace <session_id> --output-dir ./traces
 ```
 
 By default, `trace` writes both `<session_id>.trace.json` and `<session_id>.trace.html`.
+
+Run the built-in coding-agent evaluation suite:
+
+```zsh
+uv run codecraft eval --list
+uv run codecraft eval
+uv run codecraft eval --task locate-legacy-token
+uv run codecraft eval --limit 3 --output-dir ./outputs/eval-run
+```
+
+The suite covers file creation, targeted and multi-file edits, repository search,
+structured data, refactoring, project instructions, and constrained cleanup. Each
+task runs in its own generated workspace and is graded with deterministic file or
+JSON checks. The output directory contains `eval-report.json`,
+`eval-report.html`, the task workspaces, and one JSON trace per task.
+
+Evaluation tasks can read, search, write, and patch their generated workspaces.
+They do not receive the bash tool or network access. A complete run makes real
+model API calls, so use `--task` or `--limit` for a smaller smoke run.
 
 ## Configuration
 
@@ -369,6 +389,7 @@ src/codecraft/
   cli/           Typer CLI
   config/        TOML config models and loader
   core/          runtime, sessions, turns, event log reconstruction
+  eval/          fixed agent tasks, deterministic grading, eval reports
   llm/           provider interfaces and OpenAI-compatible providers
   prompt/        base instructions, project instruction loading, prompt builder
   sandbox/       command and sandbox policy

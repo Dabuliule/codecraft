@@ -231,8 +231,21 @@ The Typer CLI supports:
 - `codecraft sessions`
 - `codecraft inspect`
 - `codecraft trace`
+- `codecraft eval`
 
 CLI responsibilities are config loading, runtime construction, input submission, approval prompting, and event rendering. Core runtime modules do not depend on CLI code.
+
+## Evaluation Suite
+
+`codecraft.eval` provides a stable 10-task suite for measuring repository-agent
+behavior. The runner creates an isolated workspace for each task, executes it
+through the normal `AgentRuntime`, grades the resulting files with deterministic
+checks, and writes aggregate JSON/HTML reports plus a JSON trace per task.
+
+The suite intentionally uses the same read, list, workspace search, write, and
+patch tools as normal sessions. Bash and network access are excluded from eval
+workspaces, so benchmark prompts cannot execute arbitrary processes. The generated
+workspaces are preserved in the report directory for failure diagnosis.
 
 ## Current Limitations
 
