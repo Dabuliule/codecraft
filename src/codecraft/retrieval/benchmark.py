@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from math import ceil
@@ -154,7 +155,9 @@ async def _run_case(
         "retrieved_paths": retrieved_paths,
         "recall_at_1": _recall_at_k(retrieved_paths, relevant, 1),
         "recall_at_5": _recall_at_k(retrieved_paths, relevant, 5),
+        "precision_at_5": _precision_at_k(retrieved_paths, relevant, 5),
         "reciprocal_rank": _reciprocal_rank(retrieved_paths, relevant),
+        "irrelevant_path_count": len(set(retrieved_paths[:5]) - relevant),
         "latency_ms": latency_ms,
         "candidate_file_count": int(result.metadata.get("candidate_file_count", 0)),
         "scanned_file_count": int(result.metadata.get("scanned_file_count", 0)),
@@ -165,6 +168,10 @@ async def _run_case(
             int(result.metadata.get("returned_chars", 0)) / 4
         ),
         "match_count": int(result.metadata.get("match_count", 0)),
+        "retriever": result.metadata.get("retriever"),
+        "fallback_from": result.metadata.get("fallback_from"),
+        "route_reason": result.metadata.get("route_reason"),
+        "attempted_retrievers": result.metadata.get("attempted_retrievers", []),
     }
 
 
@@ -218,12 +225,20 @@ def _reciprocal_rank(retrieved: list[str], relevant: set[str]) -> float:
     return 0.0
 
 
+def _precision_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
+    visible = retrieved[:k]
+    if not visible:
+        return 0.0
+    return len(relevant.intersection(visible)) / len(visible)
+
+
 def _aggregate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     count = len(results)
     latencies = [float(result["latency_ms"]) for result in results]
     return {
         "mean_recall_at_1": _mean(results, "recall_at_1"),
         "mean_recall_at_5": _mean(results, "recall_at_5"),
+        "mean_precision_at_5": _mean(results, "precision_at_5"),
         "mean_reciprocal_rank": _mean(results, "reciprocal_rank"),
         "latency_p50_ms": _percentile(latencies, 50),
         "latency_p95_ms": _percentile(latencies, 95),
@@ -232,6 +247,27 @@ def _aggregate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_returned_chars": _mean(results, "returned_chars"),
         "mean_estimated_returned_tokens": _mean(results, "estimated_returned_tokens"),
         "zero_result_count": sum(result["match_count"] == 0 for result in results),
+        "irrelevant_path_count": sum(
+            result["irrelevant_path_count"] for result in results
+        ),
+        "retriever_counts": dict(
+            sorted(Counter(result["retriever"] for result in results).items())
+        ),
+        "route_reason_counts": dict(
+            sorted(
+                Counter(
+                    result["route_reason"]
+                    for result in results
+                    if result["route_reason"] is not None
+                ).items()
+            )
+        ),
+        "mean_retriever_attempts": round(
+            sum(len(result["attempted_retrievers"]) for result in results) / count,
+            4,
+        )
+        if count
+        else 0.0,
         "evaluation_count": count,
     }
 
@@ -245,6 +281,7 @@ def _case_summary(case: RetrievalCase, results: list[dict[str, Any]]) -> dict[st
         "relevant_paths": list(case.relevant_paths),
         "mean_recall_at_1": _mean(selected, "recall_at_1"),
         "mean_recall_at_5": _mean(selected, "recall_at_5"),
+        "mean_precision_at_5": _mean(selected, "precision_at_5"),
         "mean_reciprocal_rank": _mean(selected, "reciprocal_rank"),
         "latency_p50_ms": _percentile(
             [float(result["latency_ms"]) for result in selected], 50

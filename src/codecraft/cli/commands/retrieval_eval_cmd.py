@@ -26,6 +26,7 @@ class RetrievalEvalFormat(StrEnum):
 
 
 class RetrievalEvalStrategy(StrEnum):
+    AUTO = "auto"
     SCAN = "scan"
     LEXICAL = "lexical"
     SYMBOL = "symbol"
@@ -123,6 +124,7 @@ async def run_retrieval_eval(
     console.print(
         f"retrieval_quality: recall@1={metrics['mean_recall_at_1']:.3f} "
         f"recall@5={metrics['mean_recall_at_5']:.3f} "
+        f"precision@5={metrics['mean_precision_at_5']:.3f} "
         f"mrr={metrics['mean_reciprocal_rank']:.3f}",
         style="muted",
         soft_wrap=True,

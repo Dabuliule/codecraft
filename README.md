@@ -157,6 +157,7 @@ Run the model-free repository retrieval baseline:
 uv run codecraft index .
 uv run codecraft retrieval-eval --list
 uv run codecraft retrieval-eval
+uv run codecraft retrieval-eval --strategy auto
 uv run codecraft retrieval-eval --strategy lexical
 uv run codecraft retrieval-eval --repeat 10 --output-dir ./outputs/retrieval-run
 ```
@@ -171,11 +172,13 @@ in tool metadata.
 
 The fixed suite mixes exact symbols, paths, multi-file identifiers, scoped docs,
 and natural-language intent over Python, TypeScript, Go, TOML, and Markdown. Its
-JSON/HTML reports include Recall@1, Recall@5, MRR, p50/p95 latency, scanned files
-and bytes, returned context size, and zero-result counts. The current scan backend
+JSON/HTML reports include Recall@1, Recall@5, Precision@5, MRR, p50/p95 latency,
+scanned files and bytes, returned context size, and irrelevant/zero-result counts. The current scan backend
 intentionally scores zero on semantic-only cases; that measured gap is the baseline
-for comparing the `scan`, `lexical`, and `symbol` strategies and a future optional
-semantic retriever.
+for comparing the `auto`, `scan`, `lexical`, and `symbol` strategies and a future
+optional semantic retriever. Normal `workspace_search` calls default to `auto`,
+which executes a deterministic sequential route and stops at the first non-empty
+result.
 
 ## Configuration
 
@@ -290,7 +293,7 @@ Current tools:
 | --- | --- | --- |
 | `read_file` | Read a text file inside the workspace | Read-only |
 | `list_files` | List files/directories inside the workspace | Skips common noisy folders |
-| `workspace_search` | Search workspace paths and text content | `scan`, indexed `lexical`, or indexed `symbol`; unavailable/stale index hits fall back to scan |
+| `workspace_search` | Search workspace paths and text content | Deterministic `auto` routing, or explicit `scan`, indexed `lexical`, and indexed `symbol` strategies |
 | `write_file` | Write a text file inside the workspace | Requires approval |
 | `apply_patch` | Apply a unified diff inside the workspace | Requires approval |
 | `bash` | Run a shell command from inside the workspace | Command policy + approval |

@@ -51,6 +51,7 @@ def test_retrieval_benchmark_reports_quality_cost_and_latency(tmp_path):
     metrics = report["metrics"]
     assert metrics["mean_recall_at_1"] == 0.75
     assert metrics["mean_recall_at_5"] == 0.8
+    assert metrics["mean_precision_at_5"] == 0.8
     assert metrics["mean_reciprocal_rank"] == 0.8
     assert metrics["zero_result_count"] == 4
     assert metrics["latency_p50_ms"] >= 0
@@ -85,6 +86,38 @@ def test_lexical_retrieval_benchmark_improves_natural_language_recall(tmp_path):
     assert permissions["mean_recall_at_5"] == 1.0
 
 
+def test_auto_retrieval_preserves_quality_while_reducing_scan_work(tmp_path):
+    report = asyncio.run(
+        run_retrieval_benchmark(
+            cases=get_retrieval_cases(),
+            output_dir=tmp_path / "auto-run",
+            repeat=1,
+            strategy="auto",
+        )
+    )
+
+    metrics = report["metrics"]
+    assert report["run"]["retriever"] == "workspace_search_auto"
+    assert metrics["mean_recall_at_5"] >= 0.9
+    assert metrics["mean_scanned_files"] < 4
+    assert metrics["retriever_counts"] == {
+        "lexical": 6,
+        "scan": 2,
+        "symbol": 2,
+    }
+    assert metrics["mean_precision_at_5"] == 0.85
+    assert metrics["irrelevant_path_count"] == 2
+    assert metrics["mean_retriever_attempts"] > 1
+    routed = {result["case_id"]: result for result in report["results"]}
+    assert routed["exact-symbol"]["attempted_retrievers"] == ["symbol"]
+    assert routed["exact-symbol"]["retrieved_paths"] == ["src/auth/service.py"]
+    assert routed["natural-language-permissions"]["retrieved_paths"][0] == (
+        "src/auth/permissions.py"
+    )
+    assert routed["natural-language-reconnect"]["retriever"] == "lexical"
+    assert routed["natural-language-reconnect"]["recall_at_5"] == 0.0
+
+
 def test_retrieval_eval_command_writes_reports_without_model_calls(tmp_path):
     output_dir = tmp_path / "retrieval-cli"
 
@@ -103,7 +136,9 @@ def test_retrieval_eval_command_writes_reports_without_model_calls(tmp_path):
     assert listed.exit_code == 0
     assert "natural-language-permissions" in listed.output
     assert result.exit_code == 0, result.output
-    assert "retrieval_quality: recall@1=0.750 recall@5=0.800 mrr=0.800" in result.output
+    assert (
+        "retrieval_quality: recall@1=0.750 recall@5=0.800 precision@5=0.800 mrr=0.800"
+    ) in result.output
     json_path = output_dir / "retrieval-report.json"
     html_path = output_dir / "retrieval-report.html"
     assert json_path.is_file()

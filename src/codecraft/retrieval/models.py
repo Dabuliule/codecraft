@@ -51,3 +51,5 @@ class RetrievalResponse:
     truncated: bool = False
     retriever: str | None = None
     fallback_from: str | None = None
+    route_reason: str | None = None
+    attempted_retrievers: tuple[str, ...] = ()

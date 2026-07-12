@@ -12,6 +12,7 @@ from codecraft.retrieval.models import (
 )
 from codecraft.retrieval.observer import WorkspaceIndexObserver
 from codecraft.retrieval.report import render_retrieval_html, render_retrieval_json
+from codecraft.retrieval.router import QueryRouter, RetrievalPlan
 from codecraft.retrieval.retrievers import (
     LexicalRetriever,
     Retriever,
@@ -31,10 +32,12 @@ __all__ = [
     "IndexSyncStats",
     "LexicalRetriever",
     "RepositoryIndex",
+    "QueryRouter",
     "Retriever",
     "RetrievalCase",
     "RetrievalMatch",
     "RetrievalMode",
+    "RetrievalPlan",
     "RetrievalRequest",
     "RetrievalResponse",
     "RetrievalStats",

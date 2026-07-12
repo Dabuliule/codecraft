@@ -234,11 +234,11 @@ class WorkspaceSearchArgs(BaseModel):
     path: str = "."
     mode: Literal["both", "content", "path"] = "both"
     case_sensitive: bool = False
-    strategy: Literal["scan", "lexical", "symbol"] = Field(
-        default="scan",
+    strategy: Literal["auto", "scan", "lexical", "symbol"] = Field(
+        default="auto",
         description=(
-            "scan for exact path/text matching, lexical for ranked indexed search, "
-            "or symbol for indexed definitions"
+            "auto to route by query shape, scan for exact path/text matching, "
+            "lexical for ranked indexed search, or symbol for indexed definitions"
         ),
     )
     max_results: int = Field(default=100, ge=1, le=1000)
@@ -306,6 +306,8 @@ class WorkspaceSearchTool(BaseTool):
                 "returned_chars": len(content),
                 "retriever": response.retriever,
                 "fallback_from": response.fallback_from,
+                "route_reason": response.route_reason,
+                "attempted_retrievers": list(response.attempted_retrievers),
             },
             metadata={
                 "query": search_args.query,
@@ -319,6 +321,8 @@ class WorkspaceSearchTool(BaseTool):
                 "returned_chars": len(content),
                 "retriever": response.retriever,
                 "fallback_from": response.fallback_from,
+                "route_reason": response.route_reason,
+                "attempted_retrievers": list(response.attempted_retrievers),
             },
         )
 

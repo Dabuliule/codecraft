@@ -6,6 +6,7 @@ import pytest
 
 from codecraft.retrieval import (
     ContextEngine,
+    QueryRouter,
     RetrievalMatch,
     RetrievalRequest,
     RetrievalResponse,
@@ -88,3 +89,49 @@ def test_context_engine_rejects_invalid_configuration():
         ContextEngine([ScanRetriever(), ScanRetriever()])
     with pytest.raises(ValueError, match="unknown default retriever"):
         ContextEngine([ScanRetriever()], default_retriever="missing")
+
+
+def test_query_router_builds_deterministic_sequential_plans(tmp_path):
+    router = QueryRouter()
+
+    def route(query: str, *, mode="content", case_sensitive=False):
+        return router.route(
+            RetrievalRequest(
+                query=query,
+                root=tmp_path,
+                workspace_roots=(tmp_path,),
+                mode=mode,
+                case_sensitive=case_sensitive,
+            )
+        )
+
+    assert route("PaymentGateway").retrievers == ("symbol", "lexical", "scan")
+    assert route("PaymentGateway").reason == "identifier"
+    assert route("where are permissions checked").retrievers == (
+        "lexical",
+        "scan",
+    )
+    assert route("retry budget exhausted").retrievers == ("scan", "lexical")
+    assert route("src/auth/service.py").retrievers == ("scan", "lexical")
+    assert route("service.py").reason == "path_hint"
+    assert route("invoice", mode="path").retrievers == ("lexical", "scan")
+    assert route("ExactName", case_sensitive=True).retrievers == ("symbol", "scan")
+
+
+def test_context_engine_auto_route_skips_unconfigured_retrievers(tmp_path):
+    source = tmp_path / "agent.py"
+    source.write_text("class Agent: pass\n", encoding="utf-8")
+    engine = ContextEngine([ScanRetriever()])
+    request = RetrievalRequest(
+        query="Agent",
+        root=tmp_path,
+        workspace_roots=(tmp_path,),
+        mode="content",
+    )
+
+    response = asyncio.run(engine.retrieve(request, retriever_name="auto"))
+
+    assert response.retriever == "scan"
+    assert response.route_reason == "identifier"
+    assert response.attempted_retrievers == ("scan",)
+    assert response.matches[0].path == "agent.py"

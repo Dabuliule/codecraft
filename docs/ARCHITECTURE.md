@@ -264,8 +264,8 @@ workspaces are preserved in the report directory for failure diagnosis.
 `codecraft.retrieval` defines a stable multi-language corpus and ten fixed queries
 that execute through the public `workspace_search` tool. `codecraft retrieval-eval`
 does not load a model or consume API credits. It writes JSON and HTML reports with
-Recall@1, Recall@5, MRR, p50/p95 latency, scanned files and bytes, returned context
-size, and per-query results.
+Recall@1, Recall@5, Precision@5, MRR, p50/p95 latency, scanned files and bytes,
+irrelevant paths, returned context size, and per-query results.
 
 `WorkspaceSearchTool` is an adapter over `ContextEngine`; it owns tool argument
 validation and result formatting but not retrieval. The engine holds named
@@ -283,6 +283,13 @@ repository walks out of foreground search latency. Successful `write_file` and
 `apply_patch` executions pass through a `ToolResultObserver` that refreshes only the
 reported changed paths; observer failures are diagnostic metadata and never change
 the already-completed tool result.
+
+`QueryRouter` maps query shape to a sequential plan: path queries prefer indexed
+path lookup, identifier-shaped queries try symbol then lexical retrieval, natural
+language prefers lexical retrieval, and short exact phrases prefer scan. The engine
+stops at the first non-empty response and records both the route reason and attempted
+retrievers. This avoids unconditional fan-out while retaining deterministic scan
+fallbacks.
 
 The initial benchmark records the behavior of the existing deterministic scan
 backend, including known failures on semantic-only queries. Future context-engine

@@ -50,16 +50,18 @@ def render_retrieval_html(report: dict[str, Any]) -> str:
   <section class="metrics">
     {_metric("Recall@1", _score(metrics["mean_recall_at_1"]))}
     {_metric("Recall@5", _score(metrics["mean_recall_at_5"]))}
+    {_metric("Precision@5", _score(metrics["mean_precision_at_5"]))}
     {_metric("MRR", _score(metrics["mean_reciprocal_rank"]))}
     {_metric("p50 Latency", _milliseconds(metrics["latency_p50_ms"]))}
     {_metric("p95 Latency", _milliseconds(metrics["latency_p95_ms"]))}
     {_metric("Mean Scanned Files", metrics["mean_scanned_files"])}
     {_metric("Mean Returned Tokens", metrics["mean_estimated_returned_tokens"])}
     {_metric("Zero Results", metrics["zero_result_count"])}
+    {_metric("Irrelevant Paths", metrics["irrelevant_path_count"])}
   </section>
   <h2>Cases</h2>
   <table>
-    <thead><tr><th>Case</th><th>Category</th><th>Query</th><th>Recall@1</th><th>Recall@5</th><th>MRR</th><th>p50</th><th>p95</th></tr></thead>
+    <thead><tr><th>Case</th><th>Category</th><th>Query</th><th>Recall@1</th><th>Recall@5</th><th>Precision@5</th><th>MRR</th><th>p50</th><th>p95</th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
 </main>
@@ -83,6 +85,7 @@ def _case_row(case: dict[str, Any]) -> str:
         f"<td>{escape(case['query'])}</td>"
         f"<td>{_score(case['mean_recall_at_1'])}</td>"
         f"<td>{_score(case['mean_recall_at_5'])}</td>"
+        f"<td>{_score(case['mean_precision_at_5'])}</td>"
         f"<td>{_score(case['mean_reciprocal_rank'])}</td>"
         f"<td>{escape(str(case['latency_p50_ms']))} ms</td>"
         f"<td>{escape(str(case['latency_p95_ms']))} ms</td>"
