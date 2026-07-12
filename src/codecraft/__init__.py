@@ -91,6 +91,7 @@ from codecraft.tool import (
     WriteFileTool,
 )
 from codecraft.tool.runner import ToolRunner
+from codecraft.tui import ApprovalScreen, CodeCraftTUI, MessageBlock
 
 __all__ = [
     "ApprovalDeniedError",
@@ -103,11 +104,13 @@ __all__ = [
     "ApprovalRequest",
     "ApprovalReviewer",
     "ApprovalSettings",
+    "ApprovalScreen",
     "ApplyPatchTool",
     "AsyncToolProvider",
     "AutoApprovalReviewer",
     "BashTool",
     "CodecraftError",
+    "CodeCraftTUI",
     "CommandDeniedError",
     "ConfigLoader",
     "ConfigOverrides",
@@ -126,6 +129,7 @@ __all__ = [
     "ModelSettings",
     "ModelProviderError",
     "ModelRole",
+    "MessageBlock",
     "MCPConnectionError",
     "MCPServerSettings",
     "MCPSettings",

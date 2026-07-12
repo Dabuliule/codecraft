@@ -83,6 +83,14 @@ Start a multi-turn session:
 uv run codecraft chat
 ```
 
+Start the full-screen terminal UI:
+
+```zsh
+uv run codecraft tui
+```
+
+The TUI keeps conversation, runtime status, token usage, and tool activity visible at the same time. Assistant Markdown updates in place while streaming, risky tool calls open an approval modal, and the input remains locked until the active turn finishes. It consumes the same `RuntimeEvent` stream as the CLI and does not implement a separate agent loop.
+
 Resume the latest valid session:
 
 ```zsh
@@ -491,7 +499,7 @@ fix(tool): handle empty apply_patch payload
 chore: update workflow permissions
 ```
 
-Current test coverage includes runtime events, session store, resume, config loading, prompt injection, model providers, MCP stdio client/server interoperability, tool runner, workspace tools, bash policy, local/Docker sandbox backends, approval flow, and CLI behavior.
+Current test coverage includes runtime events, session store, resume, config loading, prompt injection, model providers, MCP stdio client/server interoperability, tool runner, workspace tools, bash policy, local/Docker sandbox backends, approval flow, CLI behavior, and Textual pilot interaction tests.
 
 ## Current Limitations
 
@@ -501,6 +509,7 @@ Current test coverage includes runtime events, session store, resume, config loa
 - The MCP client supports stdio tools only; Streamable HTTP, resources, prompts, and dynamic tool-list notifications are not consumed yet.
 - The CodeCraft MCP server exposes repository search and two read-only resources, not general agent execution.
 - Configured stdio MCP servers run as trusted host processes; automatic Docker isolation for MCP servers is not implemented.
+- The TUI currently presents one active session; session browsing, resume selection, and trace panels remain follow-up work.
 - No automatic pruning of invalid sessions yet.
 - No web/GitHub/cloud tools in v1.0 scope.
 - `resume --last` resumes the latest valid session; targeted interactive resume by explicit session id is not implemented yet.

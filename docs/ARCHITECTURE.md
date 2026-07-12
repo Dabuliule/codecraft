@@ -266,8 +266,17 @@ The Typer CLI supports:
 - `codecraft index`
 - `codecraft retrieval-eval`
 - `codecraft mcp-server`
+- `codecraft tui`
 
 CLI responsibilities are config loading, runtime construction, input submission, approval prompting, and event rendering. Core runtime modules do not depend on CLI code.
+
+## TUI Layer
+
+`CodeCraftTUI` is a Textual presentation layer over `AgentRuntime` and `AgentThread`. It creates a normal session, submits `SessionInput`, and consumes the same persisted `RuntimeEvent` stream as the line-oriented CLI. It does not call model providers or tools directly.
+
+An async Textual worker reads thread events and projects them into stable UI state: streamed assistant content updates one message block, tool calls append to a bounded activity log, token events update runtime status, and approval requests suspend the worker on a typed `ModalScreen` result before submitting an approval decision. Shutdown rejects pending approvals and closes the thread and runtime through the existing lifecycle.
+
+The current screen is intentionally single-session. Headless Textual pilot tests exercise streaming, approval-controlled file writes, token accounting, command configuration, and non-overlapping layout at an 80x24 terminal size.
 
 ## Evaluation Suite
 
@@ -337,6 +346,7 @@ cost baseline rather than assumed to be improvements.
 - The MCP client consumes stdio tools only; Streamable HTTP, resources, prompts, and list-changed notifications remain follow-up work.
 - The MCP server is intentionally repository-context-only rather than a remote agent-execution API.
 - Stdio MCP server processes are not automatically containerized.
+- The TUI does not yet include session selection, resume browsing, or an embedded trace viewer.
 - No Web/GitHub/cloud tools in v1.0 scope.
 - `resume --last` resumes the latest valid session; explicit interactive resume by session id is not implemented.
 - Context compaction is represented in event/reconstruction paths, but full automatic compaction is v1.1 work.

@@ -8,6 +8,7 @@ from codecraft.cli.commands.retrieval_eval_cmd import register_retrieval_eval_co
 from codecraft.cli.commands.resume_cmd import register_resume_command
 from codecraft.cli.commands.sessions_cmd import register_sessions_command
 from codecraft.cli.commands.trace_cmd import register_trace_command
+from codecraft.cli.commands.tui_cmd import register_tui_command
 
 __all__ = [
     "register_chat_command",
@@ -20,6 +21,7 @@ __all__ = [
     "register_resume_command",
     "register_sessions_command",
     "register_trace_command",
+    "register_tui_command",
     "run_chat",
     "run_eval",
     "run_exec",

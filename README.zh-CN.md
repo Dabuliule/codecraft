@@ -82,6 +82,14 @@ uv run codecraft exec "总结一下这个仓库"
 uv run codecraft chat
 ```
 
+启动全屏终端界面：
+
+```zsh
+uv run codecraft tui
+```
+
+TUI 会同时显示对话、runtime 状态、Token 用量和工具活动。Assistant Markdown 在流式输出时原位更新，高风险工具调用会打开审批弹窗，当前 turn 结束前输入框保持锁定。它消费与 CLI 相同的 `RuntimeEvent`，没有实现第二套 Agent loop。
+
 恢复最近一个有效会话：
 
 ```zsh
@@ -450,7 +458,7 @@ fix(tool): handle empty apply_patch payload
 chore: update workflow permissions
 ```
 
-当前测试覆盖 runtime events、session store、resume、配置加载、prompt 注入、模型 provider、MCP stdio client/server 互操作、tool runner、workspace 工具、bash policy、local/Docker sandbox backend、approval flow 和 CLI 行为。
+当前测试覆盖 runtime events、session store、resume、配置加载、prompt 注入、模型 provider、MCP stdio client/server 互操作、tool runner、workspace 工具、bash policy、local/Docker sandbox backend、approval flow、CLI 行为和 Textual pilot 交互。
 
 ## 当前限制
 
@@ -460,6 +468,7 @@ chore: update workflow permissions
 - MCP client 只消费 stdio tools；尚未消费 Streamable HTTP、resources、prompts 和动态 tool-list notification。
 - CodeCraft MCP server 只暴露仓库搜索和两个只读 resources，不暴露通用 Agent 执行。
 - 配置的 stdio MCP server 作为受信任宿主进程运行；尚未自动放进 Docker 隔离。
+- TUI 当前只展示一个活动 session；session 浏览、resume 选择和 trace 面板属于后续工作。
 - 还没有自动清理 invalid session。
 - v1.0 暂不做 Web/GitHub/cloud 工具。
 - `resume --last` 只能恢复最近有效 session；还没有按指定 session id 进入交互式 resume。

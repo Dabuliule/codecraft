@@ -17,6 +17,7 @@ class SessionSource(StrEnum):
     CLI_CHAT = "cli_chat"
     CLI_EXEC = "cli_exec"
     CLI_EVAL = "cli_eval"
+    CLI_TUI = "cli_tui"
     RESUME = "resume"
     TEST = "test"
 

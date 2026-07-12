@@ -112,6 +112,12 @@ Configuring a stdio server authorizes its process to start on the host. Environm
 
 CodeCraft's own MCP server is deliberately narrower than its client. It exports read-only repository context, not built-in write/process tools or the agent loop. This makes the server useful for interoperability without creating a second, approval-free path to CodeCraft side effects. Repository search remains a shared `ContextEngine` capability rather than a duplicate MCP-specific implementation.
 
+## TUI Is An Event Projection
+
+The Textual interface is another consumer of `RuntimeEvent`, not a parallel runtime. It submits normal `SessionInput` values and waits for approval through `AgentThread`, preserving session logs, policy decisions, and trace behavior across CLI and TUI surfaces.
+
+Streaming UI state is local and disposable: assistant deltas update the current visual message block, while the persisted assistant event remains the recovery source. This keeps rendering concerns out of `Session` and lets headless pilot tests verify interaction without changing core execution semantics.
+
 ## Approval Is Independent From Tool Code
 
 Tools describe capabilities; approval decides whether the current call may run. Keeping those separate matters because:
