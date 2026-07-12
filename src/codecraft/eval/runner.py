@@ -158,6 +158,8 @@ async def _run_task(
         events = (await thread.read_snapshot()).events
     except Exception as exc:
         runtime_error = f"{type(exc).__name__}: {exc}"
+    finally:
+        await runtime.close()
 
     checks = evaluate_task(task, workspace)
     final_status = _final_status(events)

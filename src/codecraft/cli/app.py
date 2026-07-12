@@ -15,6 +15,7 @@ from codecraft.cli.commands import (
     register_exec_command,
     register_index_command,
     register_inspect_command,
+    register_mcp_server_command,
     register_retrieval_eval_command,
     register_resume_command,
     register_sessions_command,
@@ -155,6 +156,7 @@ register_retrieval_eval_command(app)
 register_resume_command(app)
 register_sessions_command(app)
 register_inspect_command(app)
+register_mcp_server_command(app)
 register_trace_command(app)
 
 

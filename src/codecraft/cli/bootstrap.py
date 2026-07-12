@@ -14,6 +14,7 @@ from codecraft.llm import (
     OpenAIProvider,
     QwenProvider,
 )
+from codecraft.mcp.client import MCPStdioProvider
 from codecraft.retrieval import (
     ContextEngine,
     LexicalRetriever,
@@ -108,6 +109,7 @@ def load_session_config(
         network_access=settings.sandbox.network_access,
         sandbox_backend=settings.sandbox.backend,
         docker_sandbox=settings.sandbox.docker,
+        mcp_servers=settings.mcp.servers,
         user_instructions=settings.instructions.user,
     )
 
@@ -184,7 +186,7 @@ def build_tool_registry(config: SessionConfig | None = None) -> ToolRegistry:
         if config is not None
         else build_sandbox_backend(SandboxBackendType.LOCAL)
     )
-    return ToolRegistry(
+    registry = ToolRegistry(
         [
             ReadFileTool(),
             ListFilesTool(),
@@ -194,3 +196,14 @@ def build_tool_registry(config: SessionConfig | None = None) -> ToolRegistry:
             BashTool(sandbox_backend=sandbox_backend),
         ]
     )
+    if config is not None:
+        for server_name, settings in config.mcp_servers.items():
+            if settings.enabled:
+                registry.register_async_provider(
+                    MCPStdioProvider(
+                        server_name,
+                        settings,
+                        workspace_cwd=config.cwd,
+                    )
+                )
+    return registry

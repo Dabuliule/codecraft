@@ -513,6 +513,34 @@ def test_resume_missing_session_prints_friendly_error(tmp_path):
     assert "Traceback" not in result.output
 
 
+def test_exec_mcp_startup_failure_prints_friendly_error(tmp_path):
+    config_path = tmp_path / "mcp.toml"
+    config_path.write_text(
+        """
+[mcp.servers.missing]
+command = "codecraft-command-that-does-not-exist"
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "exec",
+            "test mcp",
+            "--config",
+            str(config_path),
+            "--codecraft-home",
+            str(tmp_path / ".codecraft"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Could not start MCP server 'missing'." in result.output
+    assert "mcp_connection_failed" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_exec_command_runs_runtime_and_prints_answer(tmp_path, monkeypatch):
     seen_configs: list[SessionConfig] = []
 

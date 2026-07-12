@@ -5,6 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 
 from codecraft.approval.policy import ApprovalPolicy
+from codecraft.mcp.config import MCPSettings
 from codecraft.sandbox import DockerSandboxConfig, SandboxBackendType, SandboxMode
 
 
@@ -46,5 +47,6 @@ class RuntimeSettings(BaseModel):
     model: ModelSettings = Field(default_factory=ModelSettings)
     approval: ApprovalSettings = Field(default_factory=ApprovalSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
+    mcp: MCPSettings = Field(default_factory=MCPSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     instructions: InstructionSettings = Field(default_factory=InstructionSettings)

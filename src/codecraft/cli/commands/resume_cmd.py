@@ -5,12 +5,12 @@ from typing import Annotated
 
 import typer
 
-from codecraft.cli.commands.common import build_shell_context
+from codecraft.cli.commands.common import build_shell_context, render_startup_error
 from codecraft.cli.options import CodecraftHomeOption
 from codecraft.cli.shell import InteractiveShell
 from codecraft.cli.ui import make_console
 from codecraft.cli.ui.session_renderer import SessionRenderer
-from codecraft.core.errors import SessionRestoreError
+from codecraft.core.errors import CodecraftError, SessionRestoreError
 from codecraft.core.session_store import SessionStore
 from codecraft.schema.event import RuntimeEventType
 
@@ -94,22 +94,28 @@ async def run_resume(
     from codecraft.cli import app as cli_app
 
     runtime = cli_app._build_runtime(snapshot.config)
-    thread = await runtime.resume_thread(session_id)
-    event = await thread.next_event()
-    if event.type != RuntimeEventType.SESSION_RESTORED:
-        make_console(stderr=True).print(
-            f"warning: expected session_restored, got {event.type}"
-        )
+    try:
+        thread = await runtime.resume_thread(session_id)
+        event = await thread.next_event()
+        if event.type != RuntimeEventType.SESSION_RESTORED:
+            make_console(stderr=True).print(
+                f"warning: expected session_restored, got {event.type}"
+            )
 
-    context, input_controller = build_shell_context(
-        runtime=runtime,
-        thread=thread,
-        config=snapshot.config,
-        debug=debug,
-    )
-    if summary is not None:
-        SessionRenderer(context.console).render_resumed(summary)
-    return await InteractiveShell(context, input_controller).run(show_welcome=False)
+        context, input_controller = build_shell_context(
+            runtime=runtime,
+            thread=thread,
+            config=snapshot.config,
+            debug=debug,
+        )
+        if summary is not None:
+            SessionRenderer(context.console).render_resumed(summary)
+        return await InteractiveShell(context, input_controller).run(show_welcome=False)
+    except CodecraftError as exc:
+        render_startup_error(exc)
+        return 1
+    finally:
+        await runtime.close()
 
 
 async def latest_summary(codecraft_home: Path):

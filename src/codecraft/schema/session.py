@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from codecraft.approval.policy import ApprovalPolicy
+from codecraft.mcp.config import MCPServerSettings
 from codecraft.sandbox import DockerSandboxConfig, SandboxBackendType, SandboxMode
 from codecraft.schema.event import RuntimeEvent
 
@@ -41,6 +42,7 @@ class SessionConfig(BaseModel):
     network_access: bool = False
     sandbox_backend: SandboxBackendType = SandboxBackendType.LOCAL
     docker_sandbox: DockerSandboxConfig = Field(default_factory=DockerSandboxConfig)
+    mcp_servers: dict[str, MCPServerSettings] = Field(default_factory=dict)
 
     base_instructions: str | None = None
     project_instructions: str | None = None

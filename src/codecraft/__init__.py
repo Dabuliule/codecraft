@@ -51,6 +51,17 @@ from codecraft.llm import (
     OpenAIProvider,
     QwenProvider,
 )
+from codecraft.mcp.client import MCPConnectionError, MCPStdioProvider, MCPTool
+from codecraft.mcp.config import (
+    MCPServerSettings,
+    MCPSettings,
+    MCPToolPolicySettings,
+)
+from codecraft.mcp.server import (
+    RepositoryMatchResult,
+    RepositorySearchResult,
+    create_repository_mcp_server,
+)
 from codecraft.schema import (
     RuntimeEvent,
     RuntimeEventType,
@@ -67,6 +78,7 @@ from codecraft.schema import (
 )
 from codecraft.tool import (
     ApplyPatchTool,
+    AsyncToolProvider,
     BashTool,
     BaseTool,
     ListFilesTool,
@@ -92,6 +104,7 @@ __all__ = [
     "ApprovalReviewer",
     "ApprovalSettings",
     "ApplyPatchTool",
+    "AsyncToolProvider",
     "AutoApprovalReviewer",
     "BashTool",
     "CodecraftError",
@@ -113,6 +126,12 @@ __all__ = [
     "ModelSettings",
     "ModelProviderError",
     "ModelRole",
+    "MCPConnectionError",
+    "MCPServerSettings",
+    "MCPSettings",
+    "MCPStdioProvider",
+    "MCPTool",
+    "MCPToolPolicySettings",
     "MockProvider",
     "OpenAICompatibleProvider",
     "OpenAIProvider",
@@ -122,6 +141,8 @@ __all__ = [
     "RuntimeEventType",
     "RuntimeSettings",
     "ReadFileTool",
+    "RepositoryMatchResult",
+    "RepositorySearchResult",
     "SandboxSettings",
     "SessionConfig",
     "SessionInput",
@@ -150,4 +171,5 @@ __all__ = [
     "WorkspaceSearchTool",
     "WriteFileTool",
     "new_id",
+    "create_repository_mcp_server",
 ]

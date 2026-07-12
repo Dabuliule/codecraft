@@ -19,6 +19,8 @@ classifiers = [
     "Topic :: Software Development",
 ]
 dependencies = [
+    "jsonschema>=4.26,<5",
+    "mcp>=1.28,<2",
     "openai>=2.36.0",
     "prompt-toolkit>=3.0.0",
     "pydantic>=2.13.4",

@@ -38,6 +38,7 @@ class AgentRuntime:
 
     async def create_thread(self, config: SessionConfig) -> AgentThread:
         """创建新 session，并返回可消费事件的 AgentThread。"""
+        await self.tool_registry.start()
         await self.session_store.create_session(config)
         session = Session(
             config=config,
@@ -57,6 +58,7 @@ class AgentRuntime:
 
     async def resume_thread(self, session_id: str) -> AgentThread:
         """根据 session 日志恢复 thread，并重建模型 conversation。"""
+        await self.tool_registry.start()
         snapshot = await self.session_store.resume(session_id)
         conversation = reconstruct_conversation(snapshot.events)
 
@@ -81,3 +83,6 @@ class AgentRuntime:
 
     async def list_sessions(self, cwd: Path | None = None) -> list[SessionSummary]:
         return await self.session_store.list_sessions(cwd=cwd)
+
+    async def close(self) -> None:
+        await self.tool_registry.close()
