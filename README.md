@@ -131,18 +131,24 @@ Run the built-in coding-agent evaluation suite:
 uv run codecraft eval --list
 uv run codecraft eval
 uv run codecraft eval --task locate-legacy-token
+uv run codecraft eval --task locate-legacy-token --repeat 3
 uv run codecraft eval --limit 3 --output-dir ./outputs/eval-run
 ```
 
 The suite covers file creation, targeted and multi-file edits, repository search,
 structured data, refactoring, project instructions, and constrained cleanup. Each
-task runs in its own generated workspace and is graded with deterministic file or
-JSON checks. The output directory contains `eval-report.json`,
-`eval-report.html`, the task workspaces, and one JSON trace per task.
+task attempt runs in its own generated workspace and is graded with deterministic
+file or JSON checks. Reports include per-task success rates, p50/p95 duration,
+token usage, tool failures, and failure categories. The output directory contains
+`eval-report.json`, `eval-report.html`, the task workspaces, and one JSON trace per
+attempt.
 
 Evaluation tasks can read, search, write, and patch their generated workspaces.
 They do not receive the bash tool or network access. A complete run makes real
 model API calls, so use `--task` or `--limit` for a smaller smoke run.
+
+No real-provider benchmark baseline has been recorded yet. Current automated
+verification uses the mock provider and does not spend model API credits.
 
 ## Configuration
 

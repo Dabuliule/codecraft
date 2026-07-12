@@ -60,6 +60,15 @@ def register_eval_command(app: typer.Typer) -> None:
             int | None,
             typer.Option("--limit", min=1, help="Run only the first N selected tasks."),
         ] = None,
+        repeat: Annotated[
+            int,
+            typer.Option(
+                "--repeat",
+                min=1,
+                max=10,
+                help="Run each selected task N times.",
+            ),
+        ] = 1,
         output_dir: Annotated[
             Path | None,
             typer.Option(
@@ -95,6 +104,7 @@ def register_eval_command(app: typer.Typer) -> None:
                 profile=profile,
                 task_ids=task_ids,
                 limit=limit,
+                repeat=repeat,
                 output_dir=output_dir,
                 format=format,
             )
@@ -112,6 +122,7 @@ async def run_eval(
     profile: str | None,
     task_ids: list[str] | None,
     limit: int | None,
+    repeat: int,
     output_dir: Path | None,
     format: EvalFormat,
 ) -> int:
@@ -137,7 +148,8 @@ async def run_eval(
     )
     destination = (output_dir or _default_output_dir(home)).expanduser().resolve()
     console.print(
-        f"eval_suite: {len(tasks)} task(s) with "
+        f"eval_suite: {len(tasks)} task(s) x {repeat} repeat(s) = "
+        f"{len(tasks) * repeat} evaluation(s) with "
         f"{base_config.model_provider}/{base_config.model}",
         style="muted",
         soft_wrap=True,
@@ -149,8 +161,10 @@ async def run_eval(
             base_config=base_config,
             llm_providers=cli_app._build_provider_registry(base_config),
             output_dir=destination,
+            repeat=repeat,
             on_task_complete=lambda index, total, result: console.print(
                 f"eval_task: {index}/{total} {result['task_id']} "
+                f"attempt={result['attempt']} "
                 f"status={result['status']} duration_ms={result['duration_ms']}",
                 style="muted" if result["status"] == "passed" else "error",
                 soft_wrap=True,
@@ -173,7 +187,7 @@ async def run_eval(
     metrics = report["metrics"]
     console.print(
         f"eval_success_rate: {metrics['success_rate']:.1f}% "
-        f"({metrics['passed_count']}/{metrics['task_count']})",
+        f"({metrics['passed_count']}/{metrics['evaluation_count']})",
         style="muted",
         soft_wrap=True,
     )
@@ -190,6 +204,11 @@ def _select_tasks(
 ) -> tuple[EvalTask, ...]:
     by_id = {task.task_id: task for task in tasks}
     if task_ids:
+        duplicates = sorted(
+            task_id for task_id in set(task_ids) if task_ids.count(task_id) > 1
+        )
+        if duplicates:
+            raise ValueError(f"Duplicate eval task(s): {', '.join(duplicates)}")
         unknown = [task_id for task_id in task_ids if task_id not in by_id]
         if unknown:
             raise ValueError(f"Unknown eval task(s): {', '.join(unknown)}")

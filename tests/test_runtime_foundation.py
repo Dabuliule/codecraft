@@ -1080,13 +1080,13 @@ def test_openai_provider_converts_response_to_model_events(tmp_path):
         assert client.responses.kwargs["tools"][0]["name"] == "read_file"
         assert [event.type for event in events] == [
             ModelEventType.MESSAGE_COMPLETED,
-            ModelEventType.TOOL_CALL,
             ModelEventType.TOKEN_COUNT,
+            ModelEventType.TOOL_CALL,
             ModelEventType.COMPLETED,
         ]
         assert events[0].payload["text"] == "done"
-        assert events[1].payload["arguments"] == {"path": "README.md"}
-        assert events[2].payload["total_tokens"] == 17
+        assert events[1].payload["total_tokens"] == 17
+        assert events[2].payload["arguments"] == {"path": "README.md"}
 
     asyncio.run(run_test())
 
@@ -1178,16 +1178,16 @@ def test_openai_provider_streams_response_deltas_and_tool_calls(tmp_path):
         assert [event.type for event in events] == [
             ModelEventType.MESSAGE_DELTA,
             ModelEventType.MESSAGE_DELTA,
-            ModelEventType.TOOL_CALL,
             ModelEventType.TOKEN_COUNT,
+            ModelEventType.TOOL_CALL,
             ModelEventType.COMPLETED,
         ]
         assert [event.payload.get("text") for event in events[:2]] == [
             "hello ",
             "stream",
         ]
-        assert events[2].payload["arguments"] == {"path": "README.md"}
-        assert events[3].payload["total_tokens"] == 5
+        assert events[2].payload["total_tokens"] == 5
+        assert events[3].payload["arguments"] == {"path": "README.md"}
 
     asyncio.run(run_test())
 

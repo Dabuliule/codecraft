@@ -240,7 +240,17 @@ CLI responsibilities are config loading, runtime construction, input submission,
 `codecraft.eval` provides a stable 10-task suite for measuring repository-agent
 behavior. The runner creates an isolated workspace for each task, executes it
 through the normal `AgentRuntime`, grades the resulting files with deterministic
-checks, and writes aggregate JSON/HTML reports plus a JSON trace per task.
+checks, and writes aggregate JSON/HTML reports plus a JSON trace per attempt.
+
+`--repeat` creates a clean workspace and session for every task attempt. Aggregate
+reports include per-task success rates, p50/p95 duration, normalized token usage,
+tool failures, and failure categories. Compatible providers emit token usage before
+tool-call events so a turn cannot drop usage when it pauses the model stream to run
+a tool.
+
+The repository does not currently publish a real-provider evaluation baseline.
+Automated tests validate the evaluation path with `MockProvider`; real model runs
+remain an explicit follow-up because they consume external API credits.
 
 The suite intentionally uses the same read, list, workspace search, write, and
 patch tools as normal sessions. Bash and network access are excluded from eval

@@ -121,6 +121,9 @@ class OpenAICompatibleProvider(LLMProvider):
                     if isinstance(arguments, str) and arguments:
                         part["arguments"].append(arguments)
 
+        if latest_usage:
+            yield ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=latest_usage)
+
         for index in sorted(tool_call_parts):
             part = tool_call_parts[index]
             yield ModelEvent(
@@ -131,9 +134,6 @@ class OpenAICompatibleProvider(LLMProvider):
                     "arguments": _parse_arguments("".join(part["arguments"])),
                 },
             )
-
-        if latest_usage:
-            yield ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=latest_usage)
 
         yield ModelEvent(type=ModelEventType.COMPLETED)
 
@@ -152,6 +152,10 @@ class OpenAICompatibleProvider(LLMProvider):
                         payload={"text": content},
                     )
                 )
+        if usage:
+            events.append(ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=usage))
+        for choice in _get(response, "choices", []) or []:
+            message = _get(choice, "message", {}) or {}
             for tool_call in _chat_tool_calls(message):
                 events.append(
                     ModelEvent(
@@ -159,9 +163,6 @@ class OpenAICompatibleProvider(LLMProvider):
                         payload=tool_call,
                     )
                 )
-
-        if usage:
-            events.append(ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=usage))
         events.append(ModelEvent(type=ModelEventType.COMPLETED))
         return events
 
@@ -177,20 +178,20 @@ class OpenAICompatibleProvider(LLMProvider):
                 )
             )
 
-        for tool_call in self._tool_calls(response):
-            events.append(
-                ModelEvent(
-                    type=ModelEventType.TOOL_CALL,
-                    payload=tool_call,
-                )
-            )
-
         usage = self._usage(response)
         if usage:
             events.append(
                 ModelEvent(
                     type=ModelEventType.TOKEN_COUNT,
                     payload=usage,
+                )
+            )
+
+        for tool_call in self._tool_calls(response):
+            events.append(
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload=tool_call,
                 )
             )
 
@@ -201,6 +202,7 @@ class OpenAICompatibleProvider(LLMProvider):
         """解析 Responses API 风格的 streaming events。"""
         completed = False
         emitted_delta = False
+        pending_tool_calls: list[dict[str, Any]] = []
 
         async for raw_event in stream:
             event_type = str(_get(raw_event, "type", ""))
@@ -232,8 +234,7 @@ class OpenAICompatibleProvider(LLMProvider):
                         type=ModelEventType.MESSAGE_COMPLETED,
                         payload={"text": text},
                     )
-                for tool_call in self._tool_calls({"output": [item]}):
-                    yield ModelEvent(type=ModelEventType.TOOL_CALL, payload=tool_call)
+                pending_tool_calls.extend(self._tool_calls({"output": [item]}))
                 continue
 
             if event_type in {
@@ -245,6 +246,11 @@ class OpenAICompatibleProvider(LLMProvider):
                 usage = self._usage(response)
                 if usage:
                     yield ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=usage)
+                if not pending_tool_calls:
+                    pending_tool_calls.extend(self._tool_calls(response))
+                for tool_call in pending_tool_calls:
+                    yield ModelEvent(type=ModelEventType.TOOL_CALL, payload=tool_call)
+                pending_tool_calls.clear()
                 yield ModelEvent(type=ModelEventType.COMPLETED)
                 completed = True
                 continue
@@ -262,6 +268,8 @@ class OpenAICompatibleProvider(LLMProvider):
                 )
 
         if not completed:
+            for tool_call in pending_tool_calls:
+                yield ModelEvent(type=ModelEventType.TOOL_CALL, payload=tool_call)
             yield ModelEvent(type=ModelEventType.COMPLETED)
 
     @staticmethod

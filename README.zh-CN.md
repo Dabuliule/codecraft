@@ -131,12 +131,15 @@ uv run codecraft trace <session_id> --output-dir ./traces
 uv run codecraft eval --list
 uv run codecraft eval
 uv run codecraft eval --task locate-legacy-token
+uv run codecraft eval --task locate-legacy-token --repeat 3
 uv run codecraft eval --limit 3 --output-dir ./outputs/eval-run
 ```
 
-任务覆盖文件创建、定点修改、多文件同步、仓库检索、结构化数据、重构、项目指令和受约束的数据清理。每道题都在单独生成的 workspace 中运行，并通过文件内容或 JSON 字段做确定性判分。输出目录会保留 `eval-report.json`、`eval-report.html`、各题 workspace，以及每道题的 JSON trace。
+任务覆盖文件创建、定点修改、多文件同步、仓库检索、结构化数据、重构、项目指令和受约束的数据清理。每次 attempt 都在单独生成的 workspace 中运行，并通过文件内容或 JSON 字段做确定性判分。报告包含每题成功率、p50/p95 时延、Token 用量、工具失败数和失败分类。输出目录会保留 `eval-report.json`、`eval-report.html`、各次 attempt 的 workspace 和 JSON trace。
 
 评测任务只能读取、检索、写入和 patch 自己生成的 workspace，不提供 bash 工具，也不开网络。完整评测会产生真实模型 API 调用，可以先用 `--task` 或 `--limit` 做小规模 smoke run。
+
+目前尚未记录真实 provider 的 benchmark baseline。现有自动化验证使用 mock provider，不会消耗模型 API 额度。
 
 ## 配置
 

@@ -11,6 +11,12 @@ from codecraft.core.ids import new_id
 from codecraft.core.runtime import AgentRuntime
 from codecraft.core.session_store import SessionStore
 from codecraft.core.trace_report import build_trace_report, render_trace_json
+from codecraft.eval.metrics import (
+    aggregate_metrics,
+    classify_failure,
+    summarize_events,
+    summarize_tasks,
+)
 from codecraft.eval.suite import (
     EVAL_SUITE_NAME,
     EvalTask,
@@ -31,7 +37,7 @@ from codecraft.tool import (
     WriteFileTool,
 )
 
-EVAL_REPORT_SCHEMA_VERSION = 1
+EVAL_REPORT_SCHEMA_VERSION = 2
 
 
 async def run_eval_suite(
@@ -40,9 +46,16 @@ async def run_eval_suite(
     base_config: SessionConfig,
     llm_providers: LLMProviderRegistry,
     output_dir: Path,
+    repeat: int = 1,
     on_task_complete: Callable[[int, int, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run fixed tasks sequentially and return a deterministic score report."""
+    if repeat < 1:
+        raise ValueError("repeat must be at least 1")
+    task_ids = [task.task_id for task in tasks]
+    if len(task_ids) != len(set(task_ids)):
+        raise ValueError("eval tasks must have unique task ids")
+
     run_id = new_id("eval_")
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -52,10 +65,12 @@ async def run_eval_suite(
     (output_dir / "workspaces").mkdir(exist_ok=True)
     (output_dir / "traces").mkdir(exist_ok=True)
 
+    schedule = [(task, attempt) for task in tasks for attempt in range(1, repeat + 1)]
     results: list[dict[str, Any]] = []
-    for index, task in enumerate(tasks, start=1):
+    for index, (task, attempt) in enumerate(schedule, start=1):
         result = await _run_task(
             task=task,
+            attempt=attempt,
             base_config=base_config,
             llm_providers=llm_providers,
             output_dir=output_dir,
@@ -63,11 +78,9 @@ async def run_eval_suite(
         )
         results.append(result)
         if on_task_complete is not None:
-            on_task_complete(index, len(tasks), result)
+            on_task_complete(index, len(schedule), result)
 
     finished_at = datetime.now(UTC)
-    passed_count = sum(result["status"] == "passed" for result in results)
-    task_count = len(results)
     return {
         "schema_version": EVAL_REPORT_SCHEMA_VERSION,
         "run": {
@@ -75,18 +88,14 @@ async def run_eval_suite(
             "suite": EVAL_SUITE_NAME,
             "model_provider": base_config.model_provider,
             "model": base_config.model,
+            "repeat": repeat,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),
             "output_dir": str(output_dir),
         },
-        "metrics": {
-            "task_count": task_count,
-            "passed_count": passed_count,
-            "failed_count": task_count - passed_count,
-            "success_rate": (passed_count / task_count * 100) if task_count else 0.0,
-            "tool_call_count": sum(result["tool_call_count"] for result in results),
-        },
+        "metrics": aggregate_metrics(results, task_count=len(tasks), repeat=repeat),
+        "tasks": summarize_tasks(results),
         "results": results,
     }
 
@@ -94,12 +103,13 @@ async def run_eval_suite(
 async def _run_task(
     *,
     task: EvalTask,
+    attempt: int,
     base_config: SessionConfig,
     llm_providers: LLMProviderRegistry,
     output_dir: Path,
     run_id: str,
 ) -> dict[str, Any]:
-    workspace = output_dir / "workspaces" / task.task_id
+    workspace = output_dir / "workspaces" / task.task_id / f"attempt-{attempt:02d}"
     seed_workspace(task, workspace)
     session_id = new_id("ses_eval_")
     config = base_config.model_copy(
@@ -119,6 +129,7 @@ async def _run_task(
                 **base_config.metadata,
                 "eval_run_id": run_id,
                 "eval_task_id": task.task_id,
+                "eval_attempt": attempt,
             },
         }
     )
@@ -150,13 +161,24 @@ async def _run_task(
 
     checks = evaluate_task(task, workspace)
     final_status = _final_status(events)
-    passed = all(check["passed"] for check in checks) and final_status == "success"
+    event_metrics = summarize_events(events)
+    failure_type = classify_failure(
+        events=events,
+        runtime_error=runtime_error,
+        final_status=final_status,
+        checks=checks,
+        tool_failure_count=event_metrics["tool_failure_count"],
+    )
+    passed = failure_type is None
     trace_report = build_trace_report(session_id, events)
-    trace_path = output_dir / "traces" / f"{task.task_id}.trace.json"
+    trace_path = (
+        output_dir / "traces" / f"{task.task_id}.attempt-{attempt:02d}.trace.json"
+    )
     trace_path.write_text(render_trace_json(trace_report), encoding="utf-8")
 
     return {
         "task_id": task.task_id,
+        "attempt": attempt,
         "title": task.title,
         "category": task.category,
         "prompt": task.prompt,
@@ -165,9 +187,11 @@ async def _run_task(
         "session_id": session_id,
         "final_status": final_status,
         "answer": _final_answer(events),
-        "tool_call_count": sum(
-            event.type == RuntimeEventType.TOOL_CALL_FINISHED for event in events
-        ),
+        "tool_call_count": event_metrics["tool_call_count"],
+        "tool_failure_count": event_metrics["tool_failure_count"],
+        "error_count": event_metrics["error_count"],
+        "token_usage": event_metrics["token_usage"],
+        "failure_type": failure_type,
         "checks": checks,
         "workspace": str(workspace),
         "trace_json": str(trace_path.relative_to(output_dir)),

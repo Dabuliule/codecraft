@@ -13,7 +13,14 @@ def render_eval_html(report: dict[str, Any]) -> str:
     run = report["run"]
     metrics = report["metrics"]
     title = f"CodeCraft Eval {run['run_id']}"
+    task_rows = "\n".join(_task_row(task) for task in report["tasks"])
     rows = "\n".join(_result_row(result) for result in report["results"])
+    failure_summary = (
+        ", ".join(
+            f"{name}={count}" for name, count in metrics["failure_counts"].items()
+        )
+        or "none"
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -28,6 +35,7 @@ def render_eval_html(report: dict[str, Any]) -> str:
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     main {{ max-width: 1120px; margin: 0 auto; padding: 32px 24px 48px; }}
     h1 {{ margin: 0; font-size: 28px; }}
+    h2 {{ margin: 28px 0 10px; font-size: 18px; }}
     .muted {{ color: var(--muted); }}
     .metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 12px; margin: 20px 0 28px; }}
@@ -52,13 +60,22 @@ def render_eval_html(report: dict[str, Any]) -> str:
   <p class="muted">{escape(run["suite"])} · {escape(run["model_provider"])}/{escape(run["model"])}</p>
   <section class="metrics">
     {_metric("Success Rate", f"{metrics['success_rate']:.1f}%")}
-    {_metric("Passed", metrics["passed_count"])}
-    {_metric("Failed", metrics["failed_count"])}
-    {_metric("Tool Calls", metrics["tool_call_count"])}
-    {_metric("Duration", f"{run['duration_ms']} ms")}
+    {_metric("Passed", f"{metrics['passed_count']}/{metrics['evaluation_count']}")}
+    {_metric("Tasks × Repeat", f"{metrics['task_count']} × {metrics['repeat']}")}
+    {_metric("Total Tokens", metrics["token_usage"]["total_tokens"])}
+    {_metric("p50 Duration", f"{metrics['duration_p50_ms']} ms")}
+    {_metric("p95 Duration", f"{metrics['duration_p95_ms']} ms")}
+    {_metric("Tool Failures", metrics["tool_failure_count"])}
   </section>
+  <p class="muted">Failure types: {escape(failure_summary)}</p>
+  <h2>Task Summary</h2>
   <table>
-    <thead><tr><th>Task</th><th>Category</th><th>Status</th><th>Checks</th><th>Tools</th><th>Trace</th></tr></thead>
+    <thead><tr><th>Task</th><th>Category</th><th>Passed</th><th>Rate</th><th>p50</th><th>p95</th><th>Tokens</th></tr></thead>
+    <tbody>{task_rows}</tbody>
+  </table>
+  <h2>Attempts</h2>
+  <table>
+    <thead><tr><th>Task</th><th>Attempt</th><th>Status</th><th>Failure</th><th>Checks</th><th>Duration</th><th>Tokens</th><th>Trace</th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
 </main>
@@ -88,11 +105,28 @@ def _result_row(result: dict[str, Any]) -> str:
     return (
         "<tr>"
         f"<td><code>{escape(result['task_id'])}</code><br>{escape(result['title'])}</td>"
-        f"<td>{escape(result['category'])}</td>"
+        f"<td>{escape(str(result['attempt']))}</td>"
         f'<td class="{escape(result["status"])}">{escape(result["status"])}</td>'
+        f"<td>{escape(str(result['failure_type'] or '-'))}</td>"
         f"<td>{escape(check_summary)}</td>"
-        f"<td>{escape(str(result['tool_call_count']))}</td>"
+        f"<td>{escape(str(result['duration_ms']))} ms</td>"
+        f"<td>{escape(str(result['token_usage']['total_tokens']))}</td>"
         f"<td>{trace_link}</td>"
+        "</tr>"
+    )
+
+
+def _task_row(task: dict[str, Any]) -> str:
+    success_rate = f"{task['success_rate']:.1f}%"
+    return (
+        "<tr>"
+        f"<td><code>{escape(task['task_id'])}</code><br>{escape(task['title'])}</td>"
+        f"<td>{escape(task['category'])}</td>"
+        f"<td>{escape(str(task['passed_count']))}/{escape(str(task['attempt_count']))}</td>"
+        f"<td>{escape(success_rate)}</td>"
+        f"<td>{escape(str(task['duration_p50_ms']))} ms</td>"
+        f"<td>{escape(str(task['duration_p95_ms']))} ms</td>"
+        f"<td>{escape(str(task['total_tokens']))}</td>"
         "</tr>"
     )
 
