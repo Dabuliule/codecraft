@@ -266,6 +266,12 @@ does not load a model or consume API credits. It writes JSON and HTML reports wi
 Recall@1, Recall@5, MRR, p50/p95 latency, scanned files and bytes, returned context
 size, and per-query results.
 
+`WorkspaceSearchTool` is an adapter over `ContextEngine`; it owns tool argument
+validation and result formatting but not retrieval. The engine holds named
+retrievers and currently defaults to the deterministic `ScanRetriever`. This keeps
+the public tool contract stable while leaving routing, fusion, and indexed
+retrievers behind a dedicated retrieval boundary.
+
 The initial benchmark records the behavior of the existing deterministic scan
 backend, including known failures on semantic-only queries. Future context-engine
 implementations can keep the tool contract and run the same suite, so indexing,

@@ -5,20 +5,26 @@ from datetime import UTC, datetime
 from math import ceil
 from pathlib import Path
 from time import monotonic, perf_counter_ns
-from typing import Any
+from typing import Any, Protocol
 
 from codecraft.approval import ApprovalPolicy
 from codecraft.core.ids import new_id
 from codecraft.core.turn_context import TurnContext
 from codecraft.sandbox import SandboxMode
 from codecraft.schema.tool import ToolCall
-from codecraft.tool.base import ToolContext
-from codecraft.tool.builtin.filesystem import WorkspaceSearchTool
 from codecraft.retrieval.suite import (
     RETRIEVAL_SUITE_NAME,
     RetrievalCase,
     seed_retrieval_workspace,
 )
+
+
+class SearchTool(Protocol):
+    name: str
+    args_schema: Any
+
+    async def arun(self, args: Any, context: Any) -> Any: ...
+
 
 RETRIEVAL_REPORT_SCHEMA_VERSION = 1
 
@@ -28,7 +34,7 @@ async def run_retrieval_benchmark(
     cases: Sequence[RetrievalCase],
     output_dir: Path,
     repeat: int = 3,
-    tool: WorkspaceSearchTool | None = None,
+    tool: SearchTool | None = None,
     on_case_complete: Callable[[int, int, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run fixed repository queries through the public workspace search tool."""
@@ -43,7 +49,12 @@ async def run_retrieval_benchmark(
     workspace = output_dir / "workspace"
     seed_retrieval_workspace(workspace)
 
-    search_tool = tool or WorkspaceSearchTool()
+    if tool is None:
+        from codecraft.tool.builtin.filesystem import WorkspaceSearchTool
+
+        search_tool: SearchTool = WorkspaceSearchTool()
+    else:
+        search_tool = tool
     started_at = datetime.now(UTC)
     started = monotonic()
     schedule = [(case, attempt) for case in cases for attempt in range(1, repeat + 1)]
@@ -77,7 +88,7 @@ async def run_retrieval_benchmark(
 
 
 async def _run_case(
-    tool: WorkspaceSearchTool,
+    tool: SearchTool,
     case: RetrievalCase,
     attempt: int,
     workspace: Path,
@@ -127,7 +138,9 @@ async def _run_case(
     }
 
 
-def _tool_context(workspace: Path, call: ToolCall) -> ToolContext:
+def _tool_context(workspace: Path, call: ToolCall) -> Any:
+    from codecraft.tool.base import ToolContext
+
     now = datetime.now(UTC)
     context = TurnContext(
         session_id=new_id("ses_retrieval_"),

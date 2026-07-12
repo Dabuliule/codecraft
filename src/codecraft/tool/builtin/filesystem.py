@@ -7,6 +7,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from codecraft.core.errors import WorkspaceAccessError
+from codecraft.retrieval.engine import ContextEngine
+from codecraft.retrieval.models import RetrievalRequest
 from codecraft.schema.tool import ToolEffect, ToolResult
 from codecraft.tool.base import BaseTool, ToolContext
 from codecraft.tool.workspace import WorkspaceGuard
@@ -245,18 +247,8 @@ class WorkspaceSearchTool(BaseTool):
     args_schema = WorkspaceSearchArgs
     effects = {ToolEffect.READ_ONLY}
 
-    skipped_names = {
-        ".git",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".venv",
-        "__pycache__",
-        "build",
-        "dist",
-        "node_modules",
-        "venv",
-    }
+    def __init__(self, context_engine: ContextEngine | None = None) -> None:
+        self.context_engine = context_engine or ContextEngine()
 
     async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
         search_args = WorkspaceSearchArgs.model_validate(args)
@@ -271,82 +263,21 @@ class WorkspaceSearchTool(BaseTool):
                 metadata={"path": str(root)},
             )
 
-        files = [root] if root.is_file() else self._iter_files(root)
-        query = (
-            search_args.query
-            if search_args.case_sensitive
-            else search_args.query.casefold()
+        response = await self.context_engine.retrieve(
+            RetrievalRequest(
+                query=search_args.query,
+                root=root,
+                workspace_roots=tuple(guard.workspace_roots),
+                mode=search_args.mode,
+                case_sensitive=search_args.case_sensitive,
+                max_results=search_args.max_results,
+                max_file_bytes=search_args.max_file_bytes,
+            )
         )
-        matches: list[dict[str, object]] = []
-        skipped: dict[str, int] = {"binary": 0, "large": 0, "escaped": 0}
-        scanned_file_count = 0
-        read_file_count = 0
-        scanned_bytes = 0
-
-        for file_path in files:
-            if len(matches) >= search_args.max_results:
-                break
-
-            if not self._is_safe_file(file_path, guard):
-                skipped["escaped"] += 1
-                continue
-
-            scanned_file_count += 1
-            display_path = self._display_path(file_path, guard.workspace_roots)
-            if search_args.mode in {"both", "path"}:
-                candidate_path = (
-                    display_path
-                    if search_args.case_sensitive
-                    else display_path.casefold()
-                )
-                if query in candidate_path:
-                    matches.append(
-                        {
-                            "type": "path",
-                            "path": display_path,
-                        }
-                    )
-                    if len(matches) >= search_args.max_results:
-                        break
-
-            if search_args.mode not in {"both", "content"}:
-                continue
-
-            stat = file_path.stat()
-            if stat.st_size > search_args.max_file_bytes:
-                skipped["large"] += 1
-                continue
-
-            try:
-                raw = file_path.read_bytes()
-            except OSError:
-                continue
-
-            read_file_count += 1
-            scanned_bytes += len(raw)
-            if self._looks_binary(raw):
-                skipped["binary"] += 1
-                continue
-
-            text = raw.decode("utf-8", errors="replace")
-            for line_number, line in enumerate(text.splitlines(), start=1):
-                candidate_line = line if search_args.case_sensitive else line.casefold()
-                if query not in candidate_line:
-                    continue
-
-                matches.append(
-                    {
-                        "type": "content",
-                        "path": display_path,
-                        "line": line_number,
-                        "snippet": self._trim_line(line),
-                    }
-                )
-                if len(matches) >= search_args.max_results:
-                    break
+        matches = [match.as_dict() for match in response.matches]
+        stats = response.stats
 
         lines = [self._format_match(match) for match in matches]
-        truncated = len(matches) >= search_args.max_results
         content = "\n".join(lines) if lines else "No matches found."
 
         return ToolResult(
@@ -357,69 +288,26 @@ class WorkspaceSearchTool(BaseTool):
                 "path": str(root),
                 "matches": matches,
                 "match_count": len(matches),
-                "truncated": truncated,
-                "skipped": skipped,
-                "candidate_file_count": len(files),
-                "scanned_file_count": scanned_file_count,
-                "read_file_count": read_file_count,
-                "scanned_bytes": scanned_bytes,
+                "truncated": response.truncated,
+                "skipped": stats.skipped,
+                "candidate_file_count": stats.candidate_file_count,
+                "scanned_file_count": stats.scanned_file_count,
+                "read_file_count": stats.read_file_count,
+                "scanned_bytes": stats.scanned_bytes,
                 "returned_chars": len(content),
             },
             metadata={
                 "query": search_args.query,
                 "path": str(root),
                 "match_count": len(matches),
-                "truncated": truncated,
-                "candidate_file_count": len(files),
-                "scanned_file_count": scanned_file_count,
-                "read_file_count": read_file_count,
-                "scanned_bytes": scanned_bytes,
+                "truncated": response.truncated,
+                "candidate_file_count": stats.candidate_file_count,
+                "scanned_file_count": stats.scanned_file_count,
+                "read_file_count": stats.read_file_count,
+                "scanned_bytes": stats.scanned_bytes,
                 "returned_chars": len(content),
             },
         )
-
-    @classmethod
-    def _iter_files(cls, root: Path) -> list[Path]:
-        return sorted(
-            path
-            for path in root.rglob("*")
-            if path.is_file() and not cls._has_skipped_part(path.relative_to(root))
-        )
-
-    @classmethod
-    def _has_skipped_part(cls, relative: Path) -> bool:
-        return any(part in cls.skipped_names for part in relative.parts)
-
-    @staticmethod
-    def _is_safe_file(path: Path, guard: WorkspaceGuard) -> bool:
-        try:
-            guard.assert_inside_workspace(path.resolve(strict=False))
-        except WorkspaceAccessError:
-            return False
-        return True
-
-    @staticmethod
-    def _looks_binary(raw: bytes) -> bool:
-        return b"\0" in raw[:4096]
-
-    @staticmethod
-    def _trim_line(line: str, max_chars: int = 240) -> str:
-        normalized = line.strip()
-        if len(normalized) <= max_chars:
-            return normalized
-        return f"{normalized[: max_chars - 1]}..."
-
-    @staticmethod
-    def _display_path(path: Path, workspace_roots: list[Path]) -> str:
-        resolved = path.resolve(strict=False)
-        for root in sorted(
-            workspace_roots, key=lambda item: len(item.parts), reverse=True
-        ):
-            try:
-                return str(resolved.relative_to(root))
-            except ValueError:
-                continue
-        return str(path)
 
     @staticmethod
     def _format_match(match: dict[str, object]) -> str:
