@@ -4,7 +4,7 @@
 
 CodeCraft is a local coding-agent runtime for working inside a repository. It is focused on the runtime pieces that make an agent governable: configuration, prompt/instruction loading, model providers, tool execution, approval, session event logs, resume, and inspection.
 
-The project is currently being rebuilt toward a v1.0 runtime. It already runs real multi-turn CLI sessions with Qwen, DeepSeek, or OpenAI-compatible providers, but it is still an application-level sandbox, not an OS-level isolation system.
+The project is currently being rebuilt toward a v1.0 runtime. It already runs real multi-turn CLI sessions with Qwen, DeepSeek, or OpenAI-compatible providers. Local execution uses application-level guards by default; an optional Docker backend adds OS-level isolation for bash processes.
 
 License: Apache-2.0.
 
@@ -17,11 +17,14 @@ License: Apache-2.0.
 - Exposes tools to the model through structured tool schemas, not by hardcoding tool descriptions into the prompt.
 - Executes all tool calls through `ToolRunner`.
 - Gates write, patch, bash, and risky commands through approval policy.
+- Runs bash through a pluggable local or Docker sandbox backend.
 - Stores session events as JSONL under `~/.codecraft/sessions`.
 - Reconstructs conversation history from session events for resume.
 - Provides CLI inspection and trace export for events, tools, errors, raw logs, and invalid sessions.
 - Runs a fixed 10-task coding-agent evaluation suite with deterministic grading and JSON/HTML reports.
 - Benchmarks repository retrieval with a fixed multi-language corpus, quality metrics, latency, and scan-cost reports.
+- Connects stdio MCP servers and routes discovered tools through normal sandbox, approval, and trace handling.
+- Serves read-only repository search and project context to other MCP hosts.
 
 ## Installation
 
@@ -207,6 +210,7 @@ policy = "on_request"
 
 [sandbox]
 mode = "workspace_write"
+backend = "local"
 network_access = false
 
 [instructions]
@@ -296,7 +300,7 @@ Current tools:
 | `workspace_search` | Search workspace paths and text content | Deterministic `auto` routing, or explicit `scan`, indexed `lexical`, and indexed `symbol` strategies |
 | `write_file` | Write a text file inside the workspace | Requires approval |
 | `apply_patch` | Apply a unified diff inside the workspace | Requires approval |
-| `bash` | Run a shell command from inside the workspace | Command policy + approval |
+| `bash` | Run a shell command from inside the workspace | Command policy + approval + local/Docker backend |
 
 All tools execute through `ToolRunner`. `ToolRegistry` only registers and looks up tools; it does not execute them.
 
@@ -327,9 +331,96 @@ Sandbox modes:
 | --- | --- |
 | `read_only` | Allows read-only tools only |
 | `workspace_write` | Allows workspace writes/process execution, still governed by approval and command policy |
-| `danger_full_access` | Reserved for future expansion; still application-level, not OS isolation |
+| `danger_full_access` | Adds no mode-based effect restrictions; network policy, approval, and backend isolation still apply |
 
-Important boundary: CodeCraft v1.0 uses application-level workspace guards and command policy. It does not claim OS-level sandboxing.
+Sandbox mode controls which capabilities may run. The configured backend controls where an approved bash process runs. The default `local` backend executes on the host and is not OS isolation.
+
+### Docker Sandbox
+
+Build the supplied image once:
+
+```zsh
+docker build -f docker/sandbox.Dockerfile -t codecraft-sandbox:py311 docker
+```
+
+Then opt in through configuration:
+
+```toml
+[sandbox]
+mode = "workspace_write"
+backend = "docker"
+network_access = false
+
+[sandbox.docker]
+image = "codecraft-sandbox:py311"
+cpus = 1.0
+memory_mb = 1024
+pids_limit = 256
+tmpfs_mb = 256
+env_allowlist = []
+```
+
+The image must already exist locally because CodeCraft runs Docker with `--pull never`. Use a custom image when a repository needs another language or toolchain.
+
+The Docker backend creates an ephemeral container per bash command. It uses a read-only container root, a bounded `/tmp` tmpfs, the host UID/GID, dropped Linux capabilities, `no-new-privileges`, CPU/memory/PID limits, workspace-only bind mounts, explicit environment-variable forwarding, and `--network none` when network is disabled. Timed-out containers are force removed.
+
+Important boundary: Docker isolates bash processes, not the mounted repository from intentional writes. In `workspace_write` mode the real workspace is mounted read-write, while built-in file tools continue to run on the host behind `WorkspaceGuard`. Approval and command policy remain part of the security model.
+
+## MCP Tools
+
+CodeCraft can start explicitly configured stdio MCP servers, complete the MCP lifecycle handshake, discover their tools, and expose them to the model with names such as `mcp__project_tools__lookup`. Each server keeps one connection for the runtime lifetime and is closed when the runtime exits.
+
+```toml
+[mcp.servers.project_tools]
+command = "python"
+args = ["tools/mcp_server.py"]
+timeout_seconds = 30
+max_tools = 128
+env_allowlist = ["PROJECT_API_TOKEN"]
+
+[mcp.servers.project_tools.tools.calculate]
+effects = ["read_only"]
+requires_approval = false
+
+[mcp.servers.project_tools.tools.lookup]
+effects = ["network", "external"]
+requires_approval = true
+```
+
+Remote JSON Schema is used both for model-visible tool definitions and local argument validation. Text and structured results are preserved; binary content is summarized instead of writing base64 payloads into session logs. Tool names are namespaced, sanitized, and bounded for model-provider compatibility.
+
+MCP tool annotations are recorded as diagnostic metadata but never trusted for authorization. Unless configuration provides a per-tool override, discovered tools default to `network` plus `external` effects and require approval. With `network_access=false`, those default calls are denied by `SandboxPolicy`.
+
+Important boundary: configuring a stdio server explicitly trusts CodeCraft to start that host process before tool discovery. Its environment contains the MCP SDK's small safe default set plus names in `env_allowlist`, but the process is not placed inside the Docker bash sandbox. Network effects govern tool calls; they cannot physically remove networking from an already trusted host server process.
+
+### Serve Repository Context
+
+CodeCraft can also act as a read-only stdio MCP server for another agent host:
+
+```zsh
+codecraft mcp-server --workspace /absolute/path/to/repository
+```
+
+It exposes the structured `search_repository` tool plus these resources:
+
+```text
+codecraft://workspace/metadata
+codecraft://workspace/instructions
+```
+
+The search tool reuses `ContextEngine`, indexed lexical/symbol retrieval when available, and deterministic scan fallback. Search paths pass through `WorkspaceGuard`; write, patch, bash, and agent-loop capabilities are not exposed by this server.
+
+Connect it back to a CodeCraft client with a read-only local policy:
+
+```toml
+[mcp.servers.codecraft_repo]
+command = "codecraft"
+args = ["mcp-server", "--workspace", "/absolute/path/to/repository"]
+
+[mcp.servers.codecraft_repo.tools.search_repository]
+effects = ["read_only"]
+requires_approval = false
+```
 
 ## Sessions And Resume
 
@@ -371,6 +462,14 @@ uv run ruff check .
 uv run pytest
 ```
 
+Run the opt-in Docker integration test after building the sandbox image:
+
+```zsh
+CODECRAFT_RUN_DOCKER_TESTS=1 uv run pytest -m integration
+```
+
+Normal test runs skip this integration test. CI builds the image and runs it in a dedicated job.
+
 Conventional Commits (push is blocked if commit messages are invalid):
 
 ```zsh
@@ -392,11 +491,16 @@ fix(tool): handle empty apply_patch payload
 chore: update workflow permissions
 ```
 
-Current test coverage includes runtime events, session store, resume, config loading, prompt injection, providers, tool runner, workspace tools, bash policy, approval flow, and CLI behavior.
+Current test coverage includes runtime events, session store, resume, config loading, prompt injection, model providers, MCP stdio client/server interoperability, tool runner, workspace tools, bash policy, local/Docker sandbox backends, approval flow, and CLI behavior.
 
 ## Current Limitations
 
-- No OS-level sandbox.
+- Docker isolation requires an installed, running Docker engine and a prebuilt image.
+- Docker containers are currently ephemeral per command; there is no warm pool or persistent tool cache.
+- Docker isolates bash execution only; built-in file tools use host-side workspace guards.
+- The MCP client supports stdio tools only; Streamable HTTP, resources, prompts, and dynamic tool-list notifications are not consumed yet.
+- The CodeCraft MCP server exposes repository search and two read-only resources, not general agent execution.
+- Configured stdio MCP servers run as trusted host processes; automatic Docker isolation for MCP servers is not implemented.
 - No automatic pruning of invalid sessions yet.
 - No web/GitHub/cloud tools in v1.0 scope.
 - `resume --last` resumes the latest valid session; targeted interactive resume by explicit session id is not implemented yet.

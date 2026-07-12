@@ -31,7 +31,11 @@ flowchart TD
     ToolRunner --> Approval[ApprovalManager]
     ToolRunner --> Registry[ToolRegistry]
     Registry --> Tool[BaseTool]
+    Registry --> MCPProvider[MCP stdio provider]
+    MCPProvider --> Tool
+    Tool --> Backend[Local or Docker SandboxBackend]
     Tool --> ToolResult[ToolResult]
+    Backend --> ToolResult
     Session --> EventBus[EventBus]
     Session --> Store[SessionStore JSONL]
     EventBus --> CLI
@@ -160,6 +164,8 @@ Tools return `ToolResult`; expected tool failures should be expressed as failed 
 
 `ToolRegistry` indexes tools by name and exposes `ToolSpec` schemas to providers. It does not execute tools and does not make approval decisions.
 
+The registry also owns lifecycle-managed `AsyncToolProvider` instances. `start()` discovers all provider tools and validates the complete name set before registering any of them. A startup failure closes already-started providers without exposing a partial tool set. `close()` removes dynamic tools and releases provider connections.
+
 ### `ToolRunner`
 
 `ToolRunner` is the only execution entrance for tools. The order is:
@@ -185,19 +191,24 @@ This keeps side-effect governance in one place.
 | `workspace_search` | `read_only` | searches workspace paths and text content for repository-aware context |
 | `write_file` | `workspace_write` | requires approval |
 | `apply_patch` | `workspace_write` | requires approval, emits patch metadata |
-| `bash` | `process_exec` | command policy + approval |
+| `bash` | `process_exec` | command policy + approval + pluggable process sandbox |
 
 `WorkspaceGuard` prevents filesystem path escape for workspace tools and bash cwd.
 
 ## Approval And Sandbox
 
-CodeCraft v1.0 uses application-level safeguards. It does not claim OS-level sandboxing.
+CodeCraft uses layered safeguards rather than treating one mechanism as the complete sandbox:
+
+1. `SandboxPolicy` gates tool effects by configured capability mode.
+2. `ApprovalManager` applies the human-in-the-loop policy.
+3. Bash `CommandPolicy` classifies safe, prompt-required, denied, and network commands.
+4. `SandboxBackend` executes an approved bash command locally or in Docker.
 
 `SandboxPolicy` enforces coarse execution boundaries:
 
 - `read_only` allows read-only tools only;
 - `workspace_write` allows workspace writes and process execution, still subject to approval and command policy;
-- `danger_full_access` is represented in config for future expansion;
+- `danger_full_access` adds no mode-based effect restrictions;
 - network effects are denied when `network_access=false`.
 
 `ApprovalManager` handles human-in-loop policy:
@@ -206,7 +217,27 @@ CodeCraft v1.0 uses application-level safeguards. It does not claim OS-level san
 - `on_request`
 - `untrusted`
 
-For bash, `CommandPolicy` classifies safe, prompt-required, denied, and network commands. Network commands are denied when `network_access=false`.
+The default `LocalSandboxBackend` preserves direct host execution and is not OS-level isolation. The optional `DockerSandboxBackend` creates an ephemeral container per command with workspace-only bind mounts, a read-only root filesystem, bounded tmpfs, host UID/GID, dropped capabilities, `no-new-privileges`, CPU/memory/PID limits, explicit environment forwarding, and no container network when `network_access=false`. It never pulls an image implicitly and force removes timed-out containers.
+
+Docker isolates the bash process but does not make a writable workspace immutable. Built-in file tools still execute on the host behind `WorkspaceGuard`, and command policy plus approval remain in force for both backends.
+
+## MCP Client
+
+`MCPStdioProvider` uses the official stable Python SDK to start a configured stdio server, initialize one persistent `ClientSession`, follow paginated tool discovery, and adapt each remote tool into a normal `BaseTool`. `AgentRuntime.create_thread()` and `resume_thread()` start the registry before a session is exposed; CLI and eval paths close the runtime deterministically.
+
+MCP tools use a provider-safe `mcp__<server>__<tool>` namespace. Their remote JSON Schema is returned to model providers and independently enforced through a generated Pydantic argument model backed by JSON Schema 2020-12 validation. Calls still execute through `ToolRunner`, so sandbox effects, approval events, duration, result normalization, and trace persistence remain unchanged.
+
+Server annotations are untrusted hints. Governance comes from local configuration: default tools carry `network` and `external` effects and require approval, while per-tool settings can declare a narrower policy. Text, structured content, resource links, and embedded text are normalized; image, audio, and blob payloads are summarized to keep logs bounded.
+
+A configured stdio server is an explicitly trusted host process. CodeCraft limits inherited environment variables but does not currently launch that server through `DockerSandboxBackend`; `network_access` can deny calls declared with a network effect, not revoke networking from the server process itself.
+
+## MCP Server
+
+`create_repository_mcp_server()` builds a read-only FastMCP server around one explicit workspace. The `codecraft mcp-server` CLI command runs it over stdio without writing non-protocol output to stdout.
+
+The server exposes `search_repository`, `codecraft://workspace/metadata`, and `codecraft://workspace/instructions`. Search executes through the same `ContextEngine` and repository index used by the built-in workspace tool. Every requested search root passes through `WorkspaceGuard`, and the server exposes no write, patch, bash, approval, session, or agent-loop surface.
+
+Tool output is a Pydantic structured result containing matches, routing, fallback, truncation, and scan-cost metrics. This allows an external MCP host to consume repository context without scraping human-formatted CLI output. A real stdio interoperability test starts the CLI server through `MCPStdioProvider` and calls it through `ToolRunner`.
 
 ## Prompt And Instructions
 
@@ -234,6 +265,7 @@ The Typer CLI supports:
 - `codecraft eval`
 - `codecraft index`
 - `codecraft retrieval-eval`
+- `codecraft mcp-server`
 
 CLI responsibilities are config loading, runtime construction, input submission, approval prompting, and event rendering. Core runtime modules do not depend on CLI code.
 
@@ -299,7 +331,12 @@ cost baseline rather than assumed to be improvements.
 
 ## Current Limitations
 
-- No OS-level sandbox.
+- Docker process isolation requires a running Docker engine and a prebuilt image.
+- Docker uses an ephemeral container per bash command; warm pools and persistent tool caches are not implemented.
+- Built-in file tools remain host-side and rely on `WorkspaceGuard`; only bash process execution is containerized.
+- The MCP client consumes stdio tools only; Streamable HTTP, resources, prompts, and list-changed notifications remain follow-up work.
+- The MCP server is intentionally repository-context-only rather than a remote agent-execution API.
+- Stdio MCP server processes are not automatically containerized.
 - No Web/GitHub/cloud tools in v1.0 scope.
 - `resume --last` resumes the latest valid session; explicit interactive resume by session id is not implemented.
 - Context compaction is represented in event/reconstruction paths, but full automatic compaction is v1.1 work.

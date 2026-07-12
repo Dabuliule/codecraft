@@ -80,11 +80,15 @@ Current effect categories:
 
 The practical rule is: add a new tool by giving it a Pydantic args schema, accurate effects, and a `ToolResult` contract. Do not add special execution branches in CLI or `Session`.
 
-## Sandbox Is Application-Level
+## Sandbox Is Layered
 
-CodeCraft v1.0 does not provide OS-level isolation. The sandbox layer is an application-level policy check.
+CodeCraft separates capability governance from process isolation. A bash call passes through:
 
-It currently enforces:
+```text
+SandboxPolicy -> ApprovalManager -> CommandPolicy -> SandboxBackend
+```
+
+The policy layers enforce:
 
 - workspace path guard for filesystem tools;
 - bash cwd guard;
@@ -92,7 +96,21 @@ It currently enforces:
 - network effects are denied when `network_access=false`;
 - command policy denies or prompts for risky shell commands.
 
-This blocks common accidental escapes and gives clear audit events, but it does not protect against all malicious local process behavior. Stronger isolation would need a separate process/container sandbox.
+The default local backend executes approved commands on the host and therefore remains an application-level boundary. The optional Docker backend creates an ephemeral, resource-limited container with a read-only root, bounded tmpfs, dropped capabilities, `no-new-privileges`, explicit environment forwarding, workspace-only mounts, and optional network removal.
+
+This boundary is intentionally precise: Docker isolates bash processes, while a workspace mounted read-write can still be changed by those processes. Built-in file tools remain host-side behind `WorkspaceGuard`. Approval and command policy are still required because process isolation is not intent validation.
+
+## MCP Extends The Tool System
+
+MCP tools are adapters, not a second execution path. A discovered remote tool becomes a `BaseTool` and therefore passes through the same `ToolRunner`, sandbox, approval, event, and trace pipeline as a built-in tool.
+
+`ToolRegistry` owns async provider lifecycle because discovery must finish before the first model request. Startup is transactional: a failed provider closes previously started providers and exposes no partial dynamic tool set. Stdio connections persist for the runtime lifetime to avoid per-call process startup.
+
+Remote annotations are intentionally not authorization. The MCP specification defines them as untrusted hints, so local configuration owns effects and approval requirements. Conservative defaults mark tools as networked and external; explicit per-tool configuration is required to treat a tool as read-only.
+
+Configuring a stdio server authorizes its process to start on the host. Environment inheritance is restricted, but process-level Docker isolation is separate future work. This avoids claiming that call-time effect checks can constrain code already running inside a configured server.
+
+CodeCraft's own MCP server is deliberately narrower than its client. It exports read-only repository context, not built-in write/process tools or the agent loop. This makes the server useful for interoperability without creating a second, approval-free path to CodeCraft side effects. Repository search remains a shared `ContextEngine` capability rather than a duplicate MCP-specific implementation.
 
 ## Approval Is Independent From Tool Code
 
@@ -148,7 +166,9 @@ These are intentional future items rather than hidden assumptions:
 - automatic context compaction beyond current event/reconstruction support;
 - explicit interactive resume by session id;
 - automatic invalid session pruning or repair;
-- OS-level sandboxing;
+- warm Docker sandboxes and persistent tool caches;
+- Streamable HTTP MCP transport, resources, prompts, and dynamic tool refresh;
+- automatic Docker isolation for stdio MCP servers;
 - Web/GitHub/cloud tools;
 - OpenTelemetry or structured metrics;
 - stronger smoke/e2e release checks.
