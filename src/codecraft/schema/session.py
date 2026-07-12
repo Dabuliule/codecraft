@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from codecraft.approval.policy import ApprovalPolicy
-from codecraft.sandbox.policy import SandboxMode
+from codecraft.sandbox import DockerSandboxConfig, SandboxBackendType, SandboxMode
 from codecraft.schema.event import RuntimeEvent
 
 
@@ -39,6 +39,8 @@ class SessionConfig(BaseModel):
     approval_policy: ApprovalPolicy
     sandbox_mode: SandboxMode
     network_access: bool = False
+    sandbox_backend: SandboxBackendType = SandboxBackendType.LOCAL
+    docker_sandbox: DockerSandboxConfig = Field(default_factory=DockerSandboxConfig)
 
     base_instructions: str | None = None
     project_instructions: str | None = None

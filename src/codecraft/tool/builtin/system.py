@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from codecraft.sandbox import (
+    LocalSandboxBackend,
+    SandboxBackend,
+    SandboxBackendError,
+    SandboxExecutionRequest,
+    SandboxExecutionResult,
+)
 from codecraft.sandbox.command_policy import CommandPolicy, CommandRisk
 from codecraft.schema.tool import ToolEffect, ToolResult
 from codecraft.tool.base import BaseTool, ToolContext
@@ -30,8 +36,13 @@ class BashTool(BaseTool):
     effects = {ToolEffect.PROCESS_EXEC}
     requires_approval = True
 
-    def __init__(self, command_policy: CommandPolicy | None = None) -> None:
+    def __init__(
+        self,
+        command_policy: CommandPolicy | None = None,
+        sandbox_backend: SandboxBackend | None = None,
+    ) -> None:
         self.command_policy = command_policy or CommandPolicy()
+        self.sandbox_backend = sandbox_backend or LocalSandboxBackend()
 
     async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
         """执行命令并返回 stdout/stderr、exit code 和截断信息。"""
@@ -62,32 +73,44 @@ class BashTool(BaseTool):
             )
 
         try:
-            process = await asyncio.create_subprocess_shell(
-                bash_args.command,
-                cwd=str(cwd),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            execution = await self.sandbox_backend.execute(
+                SandboxExecutionRequest(
+                    command=bash_args.command,
+                    cwd=cwd,
+                    workspace_roots=tuple(context.context.workspace_roots),
+                    sandbox_mode=context.context.sandbox_mode,
+                    network_access=context.context.network_access,
+                    timeout_seconds=bash_args.timeout_seconds,
+                )
             )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
-                timeout=bash_args.timeout_seconds,
+        except SandboxBackendError as exc:
+            return ToolResult(
+                success=False,
+                content="Sandbox backend could not execute the command.",
+                error="sandbox_backend_error",
+                suggestion=str(exc),
+                metadata={
+                    "command": bash_args.command,
+                    "cwd": str(cwd),
+                    "risk": decision.risk,
+                    "backend": self.sandbox_backend.name,
+                },
             )
-            timed_out = False
-        except asyncio.TimeoutError:
-            process.kill()
-            stdout_bytes, stderr_bytes = await process.communicate()
-            timed_out = True
 
-        stdout = stdout_bytes.decode("utf-8", errors="replace")
-        stderr = stderr_bytes.decode("utf-8", errors="replace")
+        stdout = execution.stdout.decode("utf-8", errors="replace")
+        stderr = execution.stderr.decode("utf-8", errors="replace")
         stdout, stdout_truncated = self._truncate(
             stdout, context.context.max_tool_output_chars
         )
         stderr, stderr_truncated = self._truncate(
             stderr, context.context.max_tool_output_chars
         )
-        exit_code = process.returncode
-        success = exit_code == 0 and not timed_out
+        exit_code = execution.exit_code
+        success = (
+            exit_code == 0
+            and not execution.timed_out
+            and execution.backend_error is None
+        )
 
         return ToolResult(
             success=success,
@@ -96,17 +119,16 @@ class BashTool(BaseTool):
                 "exit_code": exit_code,
                 "stdout": stdout,
                 "stderr": stderr,
-                "timed_out": timed_out,
+                "timed_out": execution.timed_out,
                 "stdout_truncated": stdout_truncated,
                 "stderr_truncated": stderr_truncated,
             },
-            error=None
-            if success
-            else ("command_timed_out" if timed_out else "command_failed"),
+            error=None if success else _execution_error(execution),
             metadata={
                 "command": bash_args.command,
                 "cwd": str(cwd),
                 "risk": decision.risk,
+                **execution.metadata,
             },
         )
 
@@ -129,3 +151,11 @@ class BashTool(BaseTool):
         if len(value) <= max_chars:
             return value, False
         return value[:max_chars], True
+
+
+def _execution_error(execution: SandboxExecutionResult) -> str:
+    if execution.timed_out:
+        return "command_timed_out"
+    if execution.backend_error is not None:
+        return "sandbox_backend_error"
+    return "command_failed"

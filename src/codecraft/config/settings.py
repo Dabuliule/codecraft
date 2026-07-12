@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 
 from codecraft.approval.policy import ApprovalPolicy
-from codecraft.sandbox.policy import SandboxMode
+from codecraft.sandbox import DockerSandboxConfig, SandboxBackendType, SandboxMode
 
 
 class ModelSettings(BaseModel):
@@ -22,6 +22,8 @@ class ApprovalSettings(BaseModel):
 class SandboxSettings(BaseModel):
     mode: SandboxMode = SandboxMode.WORKSPACE_WRITE
     network_access: bool = False
+    backend: SandboxBackendType = SandboxBackendType.LOCAL
+    docker: DockerSandboxConfig = Field(default_factory=DockerSandboxConfig)
 
 
 class PathsSettings(BaseModel):

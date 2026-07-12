@@ -23,6 +23,7 @@ from codecraft.retrieval import (
     WorkspaceIndexObserver,
 )
 from codecraft.schema.session import SessionConfig, SessionSource
+from codecraft.sandbox import SandboxBackendType, build_sandbox_backend
 from codecraft.tool import (
     ApplyPatchTool,
     BashTool,
@@ -105,6 +106,8 @@ def load_session_config(
         approval_policy=settings.approval.policy,
         sandbox_mode=settings.sandbox.mode,
         network_access=settings.sandbox.network_access,
+        sandbox_backend=settings.sandbox.backend,
+        docker_sandbox=settings.sandbox.docker,
         user_instructions=settings.instructions.user,
     )
 
@@ -176,6 +179,11 @@ def build_tool_registry(config: SessionConfig | None = None) -> ToolRegistry:
                 SymbolRetriever(index),
             ]
         )
+    sandbox_backend = (
+        build_sandbox_backend(config.sandbox_backend, config.docker_sandbox)
+        if config is not None
+        else build_sandbox_backend(SandboxBackendType.LOCAL)
+    )
     return ToolRegistry(
         [
             ReadFileTool(),
@@ -183,6 +191,6 @@ def build_tool_registry(config: SessionConfig | None = None) -> ToolRegistry:
             WorkspaceSearchTool(context_engine),
             WriteFileTool(),
             ApplyPatchTool(),
-            BashTool(),
+            BashTool(sandbox_backend=sandbox_backend),
         ]
     )

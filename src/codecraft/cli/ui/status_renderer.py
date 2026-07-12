@@ -23,6 +23,7 @@ class StatusRenderer:
         table.add_row("provider", config.model_provider)
         table.add_row("approval", config.approval_policy)
         table.add_row("sandbox", config.sandbox_mode)
+        table.add_row("sandbox backend", config.sandbox_backend)
         table.add_row("network", "enabled" if config.network_access else "disabled")
         self.console.print(Panel(table, title="session status", border_style="cyan"))
 

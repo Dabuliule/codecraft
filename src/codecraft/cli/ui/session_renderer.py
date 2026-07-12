@@ -26,6 +26,7 @@ class SessionRenderer:
         table.add_row("provider", config.model_provider)
         table.add_row("approval", config.approval_policy)
         table.add_row("sandbox", config.sandbox_mode)
+        table.add_row("sandbox backend", config.sandbox_backend)
         self.console.print(Panel(table, title="CodeCraft", border_style="cyan"))
         self.console.print(
             f"session_id: {config.session_id}", style="muted", soft_wrap=True
