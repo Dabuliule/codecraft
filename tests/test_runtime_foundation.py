@@ -492,6 +492,11 @@ def test_workspace_search_finds_paths_and_content_while_skipping_noise(tmp_path)
         assert "pkg/agent.py:1: def build_agent():" in result.content
         assert "__pycache__" not in result.content
         assert result.data["match_count"] == 2
+        assert result.metadata["candidate_file_count"] == 1
+        assert result.metadata["scanned_file_count"] == 1
+        assert result.metadata["read_file_count"] == 1
+        assert result.metadata["scanned_bytes"] > 0
+        assert result.metadata["returned_chars"] == len(result.content)
 
     asyncio.run(run_test())
 

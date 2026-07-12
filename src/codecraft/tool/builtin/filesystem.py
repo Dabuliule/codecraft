@@ -279,6 +279,9 @@ class WorkspaceSearchTool(BaseTool):
         )
         matches: list[dict[str, object]] = []
         skipped: dict[str, int] = {"binary": 0, "large": 0, "escaped": 0}
+        scanned_file_count = 0
+        read_file_count = 0
+        scanned_bytes = 0
 
         for file_path in files:
             if len(matches) >= search_args.max_results:
@@ -288,6 +291,7 @@ class WorkspaceSearchTool(BaseTool):
                 skipped["escaped"] += 1
                 continue
 
+            scanned_file_count += 1
             display_path = self._display_path(file_path, guard.workspace_roots)
             if search_args.mode in {"both", "path"}:
                 candidate_path = (
@@ -318,6 +322,8 @@ class WorkspaceSearchTool(BaseTool):
             except OSError:
                 continue
 
+            read_file_count += 1
+            scanned_bytes += len(raw)
             if self._looks_binary(raw):
                 skipped["binary"] += 1
                 continue
@@ -353,12 +359,22 @@ class WorkspaceSearchTool(BaseTool):
                 "match_count": len(matches),
                 "truncated": truncated,
                 "skipped": skipped,
+                "candidate_file_count": len(files),
+                "scanned_file_count": scanned_file_count,
+                "read_file_count": read_file_count,
+                "scanned_bytes": scanned_bytes,
+                "returned_chars": len(content),
             },
             metadata={
                 "query": search_args.query,
                 "path": str(root),
                 "match_count": len(matches),
                 "truncated": truncated,
+                "candidate_file_count": len(files),
+                "scanned_file_count": scanned_file_count,
+                "read_file_count": read_file_count,
+                "scanned_bytes": scanned_bytes,
+                "returned_chars": len(content),
             },
         )
 

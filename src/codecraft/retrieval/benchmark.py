@@ -1,0 +1,238 @@
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
+from math import ceil
+from pathlib import Path
+from time import monotonic, perf_counter_ns
+from typing import Any
+
+from codecraft.approval import ApprovalPolicy
+from codecraft.core.ids import new_id
+from codecraft.core.turn_context import TurnContext
+from codecraft.sandbox import SandboxMode
+from codecraft.schema.tool import ToolCall
+from codecraft.tool.base import ToolContext
+from codecraft.tool.builtin.filesystem import WorkspaceSearchTool
+from codecraft.retrieval.suite import (
+    RETRIEVAL_SUITE_NAME,
+    RetrievalCase,
+    seed_retrieval_workspace,
+)
+
+RETRIEVAL_REPORT_SCHEMA_VERSION = 1
+
+
+async def run_retrieval_benchmark(
+    *,
+    cases: Sequence[RetrievalCase],
+    output_dir: Path,
+    repeat: int = 3,
+    tool: WorkspaceSearchTool | None = None,
+    on_case_complete: Callable[[int, int, dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Run fixed repository queries through the public workspace search tool."""
+    if repeat < 1:
+        raise ValueError("repeat must be at least 1")
+    case_ids = [case.case_id for case in cases]
+    if len(case_ids) != len(set(case_ids)):
+        raise ValueError("retrieval cases must have unique case ids")
+
+    output_dir = output_dir.expanduser().resolve()
+    _ensure_new_run_directory(output_dir)
+    workspace = output_dir / "workspace"
+    seed_retrieval_workspace(workspace)
+
+    search_tool = tool or WorkspaceSearchTool()
+    started_at = datetime.now(UTC)
+    started = monotonic()
+    schedule = [(case, attempt) for case in cases for attempt in range(1, repeat + 1)]
+    results: list[dict[str, Any]] = []
+    for index, (case, attempt) in enumerate(schedule, start=1):
+        result = await _run_case(search_tool, case, attempt, workspace)
+        results.append(result)
+        if on_case_complete is not None:
+            on_case_complete(index, len(schedule), result)
+
+    finished_at = datetime.now(UTC)
+    return {
+        "schema_version": RETRIEVAL_REPORT_SCHEMA_VERSION,
+        "run": {
+            "run_id": new_id("retrieval_eval_"),
+            "suite": RETRIEVAL_SUITE_NAME,
+            "retriever": "workspace_search_scan",
+            "case_count": len(cases),
+            "repeat": repeat,
+            "evaluation_count": len(results),
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_ms": int((monotonic() - started) * 1000),
+            "workspace": str(workspace),
+            "output_dir": str(output_dir),
+        },
+        "metrics": _aggregate_metrics(results),
+        "cases": [_case_summary(case, results) for case in cases],
+        "results": results,
+    }
+
+
+async def _run_case(
+    tool: WorkspaceSearchTool,
+    case: RetrievalCase,
+    attempt: int,
+    workspace: Path,
+) -> dict[str, Any]:
+    call = ToolCall(
+        call_id=new_id("call_retrieval_"),
+        name=tool.name,
+        arguments={
+            "query": case.query,
+            "path": case.path,
+            "mode": case.mode,
+            "max_results": 10,
+        },
+    )
+    args = tool.args_schema.model_validate(call.arguments)
+    started = perf_counter_ns()
+    result = await tool.arun(args, _tool_context(workspace, call))
+    latency_ms = round((perf_counter_ns() - started) / 1_000_000, 3)
+    if not result.success or result.data is None:
+        raise RuntimeError(result.error or "workspace search failed without an error")
+
+    matches = result.data.get("matches", [])
+    retrieved_paths = _unique_paths(matches)
+    relevant = set(case.relevant_paths)
+    return {
+        "case_id": case.case_id,
+        "attempt": attempt,
+        "category": case.category,
+        "query": case.query,
+        "path": case.path,
+        "mode": case.mode,
+        "relevant_paths": list(case.relevant_paths),
+        "retrieved_paths": retrieved_paths,
+        "recall_at_1": _recall_at_k(retrieved_paths, relevant, 1),
+        "recall_at_5": _recall_at_k(retrieved_paths, relevant, 5),
+        "reciprocal_rank": _reciprocal_rank(retrieved_paths, relevant),
+        "latency_ms": latency_ms,
+        "candidate_file_count": int(result.metadata.get("candidate_file_count", 0)),
+        "scanned_file_count": int(result.metadata.get("scanned_file_count", 0)),
+        "read_file_count": int(result.metadata.get("read_file_count", 0)),
+        "scanned_bytes": int(result.metadata.get("scanned_bytes", 0)),
+        "returned_chars": int(result.metadata.get("returned_chars", 0)),
+        "estimated_returned_tokens": ceil(
+            int(result.metadata.get("returned_chars", 0)) / 4
+        ),
+        "match_count": int(result.metadata.get("match_count", 0)),
+    }
+
+
+def _tool_context(workspace: Path, call: ToolCall) -> ToolContext:
+    now = datetime.now(UTC)
+    context = TurnContext(
+        session_id=new_id("ses_retrieval_"),
+        thread_id=new_id("thr_retrieval_"),
+        turn_id=new_id("turn_retrieval_"),
+        cwd=workspace,
+        workspace_roots=[workspace],
+        model="none",
+        model_provider="benchmark",
+        approval_policy=ApprovalPolicy.NEVER,
+        sandbox_mode=SandboxMode.READ_ONLY,
+        network_access=False,
+        available_tools=[],
+        max_steps=1,
+        max_tool_output_chars=80_000,
+        created_at=now,
+        metadata={"retrieval_eval": True},
+    )
+    return ToolContext(context=context, call=call)
+
+
+def _unique_paths(matches: object) -> list[str]:
+    if not isinstance(matches, list):
+        return []
+    paths: list[str] = []
+    for match in matches:
+        if not isinstance(match, dict) or not isinstance(match.get("path"), str):
+            continue
+        path = match["path"]
+        if path not in paths:
+            paths.append(path)
+    return paths
+
+
+def _recall_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
+    if not relevant:
+        return 0.0
+    return len(relevant.intersection(retrieved[:k])) / len(relevant)
+
+
+def _reciprocal_rank(retrieved: list[str], relevant: set[str]) -> float:
+    for rank, path in enumerate(retrieved, start=1):
+        if path in relevant:
+            return 1 / rank
+    return 0.0
+
+
+def _aggregate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
+    count = len(results)
+    latencies = [float(result["latency_ms"]) for result in results]
+    return {
+        "mean_recall_at_1": _mean(results, "recall_at_1"),
+        "mean_recall_at_5": _mean(results, "recall_at_5"),
+        "mean_reciprocal_rank": _mean(results, "reciprocal_rank"),
+        "latency_p50_ms": _percentile(latencies, 50),
+        "latency_p95_ms": _percentile(latencies, 95),
+        "mean_scanned_files": _mean(results, "scanned_file_count"),
+        "total_scanned_bytes": sum(result["scanned_bytes"] for result in results),
+        "mean_returned_chars": _mean(results, "returned_chars"),
+        "mean_estimated_returned_tokens": _mean(results, "estimated_returned_tokens"),
+        "zero_result_count": sum(result["match_count"] == 0 for result in results),
+        "evaluation_count": count,
+    }
+
+
+def _case_summary(case: RetrievalCase, results: list[dict[str, Any]]) -> dict[str, Any]:
+    selected = [result for result in results if result["case_id"] == case.case_id]
+    return {
+        "case_id": case.case_id,
+        "category": case.category,
+        "query": case.query,
+        "relevant_paths": list(case.relevant_paths),
+        "mean_recall_at_1": _mean(selected, "recall_at_1"),
+        "mean_recall_at_5": _mean(selected, "recall_at_5"),
+        "mean_reciprocal_rank": _mean(selected, "reciprocal_rank"),
+        "latency_p50_ms": _percentile(
+            [float(result["latency_ms"]) for result in selected], 50
+        ),
+        "latency_p95_ms": _percentile(
+            [float(result["latency_ms"]) for result in selected], 95
+        ),
+    }
+
+
+def _mean(results: list[dict[str, Any]], field: str) -> float:
+    if not results:
+        return 0.0
+    return round(sum(float(result[field]) for result in results) / len(results), 4)
+
+
+def _percentile(values: list[float], percent: int) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = max(0, ceil(percent / 100 * len(ordered)) - 1)
+    return round(ordered[index], 3)
+
+
+def _ensure_new_run_directory(output_dir: Path) -> None:
+    reserved = (
+        output_dir / "workspace",
+        output_dir / "retrieval-report.json",
+        output_dir / "retrieval-report.html",
+    )
+    if any(path.exists() for path in reserved):
+        raise FileExistsError(
+            f"Retrieval output already contains run artifacts: {output_dir}"
+        )

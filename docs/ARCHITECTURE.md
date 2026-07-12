@@ -232,6 +232,7 @@ The Typer CLI supports:
 - `codecraft inspect`
 - `codecraft trace`
 - `codecraft eval`
+- `codecraft retrieval-eval`
 
 CLI responsibilities are config loading, runtime construction, input submission, approval prompting, and event rendering. Core runtime modules do not depend on CLI code.
 
@@ -257,6 +258,20 @@ patch tools as normal sessions. Bash and network access are excluded from eval
 workspaces, so benchmark prompts cannot execute arbitrary processes. The generated
 workspaces are preserved in the report directory for failure diagnosis.
 
+## Retrieval Evaluation
+
+`codecraft.retrieval` defines a stable multi-language corpus and ten fixed queries
+that execute through the public `workspace_search` tool. `codecraft retrieval-eval`
+does not load a model or consume API credits. It writes JSON and HTML reports with
+Recall@1, Recall@5, MRR, p50/p95 latency, scanned files and bytes, returned context
+size, and per-query results.
+
+The initial benchmark records the behavior of the existing deterministic scan
+backend, including known failures on semantic-only queries. Future context-engine
+implementations can keep the tool contract and run the same suite, so indexing,
+routing, fusion, and reranking changes are compared against an explicit quality and
+cost baseline rather than assumed to be improvements.
+
 ## Current Limitations
 
 - No OS-level sandbox.
@@ -264,3 +279,5 @@ workspaces are preserved in the report directory for failure diagnosis.
 - `resume --last` resumes the latest valid session; explicit interactive resume by session id is not implemented.
 - Context compaction is represented in event/reconstruction paths, but full automatic compaction is v1.1 work.
 - There is no automatic pruning or repair for invalid session logs yet.
+- Repository retrieval is currently an exact path/content scan without an index,
+  symbol graph, lexical ranking, or semantic retriever.

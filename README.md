@@ -21,6 +21,7 @@ License: Apache-2.0.
 - Reconstructs conversation history from session events for resume.
 - Provides CLI inspection and trace export for events, tools, errors, raw logs, and invalid sessions.
 - Runs a fixed 10-task coding-agent evaluation suite with deterministic grading and JSON/HTML reports.
+- Benchmarks repository retrieval with a fixed multi-language corpus, quality metrics, latency, and scan-cost reports.
 
 ## Installation
 
@@ -149,6 +150,21 @@ model API calls, so use `--task` or `--limit` for a smaller smoke run.
 
 No real-provider benchmark baseline has been recorded yet. Current automated
 verification uses the mock provider and does not spend model API credits.
+
+Run the model-free repository retrieval baseline:
+
+```zsh
+uv run codecraft retrieval-eval --list
+uv run codecraft retrieval-eval
+uv run codecraft retrieval-eval --repeat 10 --output-dir ./outputs/retrieval-run
+```
+
+The fixed suite mixes exact symbols, paths, multi-file identifiers, scoped docs,
+and natural-language intent over Python, TypeScript, Go, TOML, and Markdown. Its
+JSON/HTML reports include Recall@1, Recall@5, MRR, p50/p95 latency, scanned files
+and bytes, returned context size, and zero-result counts. The current scan backend
+intentionally scores zero on semantic-only cases; that measured gap is the baseline
+for future lexical, symbol, and optional semantic retrievers.
 
 ## Configuration
 
@@ -398,6 +414,7 @@ src/codecraft/
   eval/          fixed agent tasks, deterministic grading, eval reports
   llm/           provider interfaces and OpenAI-compatible providers
   prompt/        base instructions, project instruction loading, prompt builder
+  retrieval/     fixed retrieval corpus, benchmark runner, quality reports
   sandbox/       command and sandbox policy
   schema/        runtime, session, input, and tool schemas
   tool/          tool abstraction, registry, runner, built-in tools

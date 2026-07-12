@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+import asyncio
+import json
+
+from typer.testing import CliRunner
+
+from codecraft.cli.app import app
+from codecraft.retrieval import (
+    get_retrieval_cases,
+    render_retrieval_html,
+    run_retrieval_benchmark,
+    seed_retrieval_workspace,
+)
+
+runner = CliRunner()
+
+
+def test_retrieval_suite_has_stable_multi_language_cases(tmp_path):
+    cases = get_retrieval_cases()
+    seed_retrieval_workspace(tmp_path)
+
+    assert len(cases) == 10
+    assert len({case.case_id for case in cases}) == 10
+    assert {case.category for case in cases} >= {
+        "exact",
+        "path",
+        "multi_file",
+        "semantic",
+    }
+    assert (tmp_path / "src/auth/service.py").is_file()
+    assert (tmp_path / "src/queue/worker.ts").is_file()
+    assert (tmp_path / "src/db/pool.go").is_file()
+
+
+def test_retrieval_benchmark_reports_quality_cost_and_latency(tmp_path):
+    output_dir = tmp_path / "retrieval-run"
+
+    report = asyncio.run(
+        run_retrieval_benchmark(
+            cases=get_retrieval_cases(),
+            output_dir=output_dir,
+            repeat=2,
+        )
+    )
+
+    assert report["schema_version"] == 1
+    assert report["run"]["retriever"] == "workspace_search_scan"
+    assert report["run"]["case_count"] == 10
+    assert report["run"]["evaluation_count"] == 20
+    metrics = report["metrics"]
+    assert metrics["mean_recall_at_1"] == 0.75
+    assert metrics["mean_recall_at_5"] == 0.8
+    assert metrics["mean_reciprocal_rank"] == 0.8
+    assert metrics["zero_result_count"] == 4
+    assert metrics["latency_p50_ms"] >= 0
+    assert metrics["latency_p95_ms"] >= metrics["latency_p50_ms"]
+    assert metrics["mean_scanned_files"] > 0
+    assert metrics["total_scanned_bytes"] > 0
+    assert metrics["mean_returned_chars"] > 0
+    assert metrics["mean_estimated_returned_tokens"] > 0
+    semantic = [case for case in report["cases"] if case["category"] == "semantic"]
+    assert len(semantic) == 2
+    assert all(case["mean_recall_at_5"] == 0 for case in semantic)
+    assert "Recall@5" in render_retrieval_html(report)
+
+
+def test_retrieval_eval_command_writes_reports_without_model_calls(tmp_path):
+    output_dir = tmp_path / "retrieval-cli"
+
+    listed = runner.invoke(app, ["retrieval-eval", "--list"])
+    result = runner.invoke(
+        app,
+        [
+            "retrieval-eval",
+            "--repeat",
+            "1",
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert listed.exit_code == 0
+    assert "natural-language-permissions" in listed.output
+    assert result.exit_code == 0, result.output
+    assert "retrieval_quality: recall@1=0.750 recall@5=0.800 mrr=0.800" in result.output
+    json_path = output_dir / "retrieval-report.json"
+    html_path = output_dir / "retrieval-report.html"
+    assert json_path.is_file()
+    assert html_path.is_file()
+    report = json.loads(json_path.read_text(encoding="utf-8"))
+    assert report["metrics"]["evaluation_count"] == 10
+
+    repeated = runner.invoke(
+        app,
+        [
+            "retrieval-eval",
+            "--repeat",
+            "1",
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+    assert repeated.exit_code == 2
+    assert "already contains run artifacts" in repeated.output
+    assert "Traceback" not in repeated.output
