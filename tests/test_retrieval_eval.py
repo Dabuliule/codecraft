@@ -65,6 +65,26 @@ def test_retrieval_benchmark_reports_quality_cost_and_latency(tmp_path):
     assert "Recall@5" in render_retrieval_html(report)
 
 
+def test_lexical_retrieval_benchmark_improves_natural_language_recall(tmp_path):
+    report = asyncio.run(
+        run_retrieval_benchmark(
+            cases=get_retrieval_cases(),
+            output_dir=tmp_path / "lexical-run",
+            repeat=1,
+            strategy="lexical",
+        )
+    )
+
+    assert report["run"]["retriever"] == "workspace_search_lexical"
+    assert report["metrics"]["mean_recall_at_5"] > 0.8
+    permissions = next(
+        case
+        for case in report["cases"]
+        if case["case_id"] == "natural-language-permissions"
+    )
+    assert permissions["mean_recall_at_5"] == 1.0
+
+
 def test_retrieval_eval_command_writes_reports_without_model_calls(tmp_path):
     output_dir = tmp_path / "retrieval-cli"
 

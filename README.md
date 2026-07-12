@@ -154,17 +154,26 @@ verification uses the mock provider and does not spend model API credits.
 Run the model-free repository retrieval baseline:
 
 ```zsh
+uv run codecraft index .
 uv run codecraft retrieval-eval --list
 uv run codecraft retrieval-eval
+uv run codecraft retrieval-eval --strategy lexical
 uv run codecraft retrieval-eval --repeat 10 --output-dir ./outputs/retrieval-run
 ```
+
+`codecraft index` stores a workspace-keyed SQLite database under
+`~/.codecraft/indexes/`. Re-running it is incremental: unchanged files are not
+parsed again, changed files replace only their own chunks and symbols, and deleted
+files are removed. Supported source files use Tree-sitter structure; other text
+files use bounded line chunks.
 
 The fixed suite mixes exact symbols, paths, multi-file identifiers, scoped docs,
 and natural-language intent over Python, TypeScript, Go, TOML, and Markdown. Its
 JSON/HTML reports include Recall@1, Recall@5, MRR, p50/p95 latency, scanned files
 and bytes, returned context size, and zero-result counts. The current scan backend
 intentionally scores zero on semantic-only cases; that measured gap is the baseline
-for future lexical, symbol, and optional semantic retrievers.
+for comparing the `scan`, `lexical`, and `symbol` strategies and a future optional
+semantic retriever.
 
 ## Configuration
 
@@ -279,7 +288,7 @@ Current tools:
 | --- | --- | --- |
 | `read_file` | Read a text file inside the workspace | Read-only |
 | `list_files` | List files/directories inside the workspace | Skips common noisy folders |
-| `workspace_search` | Search workspace paths and text content | Returns paths, line numbers, and snippets |
+| `workspace_search` | Search workspace paths and text content | `scan`, indexed `lexical`, or indexed `symbol`; unavailable/stale index hits fall back to scan |
 | `write_file` | Write a text file inside the workspace | Requires approval |
 | `apply_patch` | Apply a unified diff inside the workspace | Requires approval |
 | `bash` | Run a shell command from inside the workspace | Command policy + approval |

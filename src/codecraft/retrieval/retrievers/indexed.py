@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from codecraft.retrieval.errors import RetrievalUnavailableError
+from codecraft.retrieval.index import RepositoryIndex
+from codecraft.retrieval.models import (
+    RetrievalMatch,
+    RetrievalRequest,
+    RetrievalResponse,
+    RetrievalStats,
+)
+from codecraft.retrieval.retrievers.base import Retriever
+
+
+class LexicalRetriever(Retriever):
+    name = "lexical"
+
+    def __init__(self, index: RepositoryIndex) -> None:
+        self.index = index
+
+    async def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
+        workspace_root, scope = _workspace_and_scope(request)
+        result = await asyncio.to_thread(
+            self.index.search_lexical,
+            workspace_root,
+            query=request.query,
+            scope=scope,
+            mode=request.mode,
+            case_sensitive=request.case_sensitive,
+            max_results=request.max_results,
+        )
+        if result.stale_file_count and not result.matches:
+            raise RetrievalUnavailableError("all indexed matches are stale")
+        match_type = "path" if request.mode == "path" else "content"
+        return RetrievalResponse(
+            matches=tuple(
+                RetrievalMatch(
+                    type=match_type,
+                    path=match.path,
+                    line=None if match_type == "path" else match.line,
+                    snippet=None if match_type == "path" else match.snippet,
+                )
+                for match in result.matches
+            ),
+            stats=RetrievalStats(
+                candidate_file_count=result.indexed_file_count,
+                skipped={"stale": result.stale_file_count},
+            ),
+            truncated=result.truncated,
+        )
+
+
+class SymbolRetriever(Retriever):
+    name = "symbol"
+
+    def __init__(self, index: RepositoryIndex) -> None:
+        self.index = index
+
+    async def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
+        if request.mode == "path":
+            raise RetrievalUnavailableError("symbol retrieval does not search paths")
+        workspace_root, scope = _workspace_and_scope(request)
+        result = await asyncio.to_thread(
+            self.index.search_symbols,
+            workspace_root,
+            query=request.query,
+            scope=scope,
+            case_sensitive=request.case_sensitive,
+            max_results=request.max_results,
+        )
+        if result.stale_file_count and not result.matches:
+            raise RetrievalUnavailableError("all indexed symbols are stale")
+        return RetrievalResponse(
+            matches=tuple(
+                RetrievalMatch(
+                    type="content",
+                    path=match.path,
+                    line=match.line,
+                    snippet=match.snippet,
+                )
+                for match in result.matches
+            ),
+            stats=RetrievalStats(
+                candidate_file_count=result.indexed_file_count,
+                skipped={"stale": result.stale_file_count},
+            ),
+            truncated=result.truncated,
+        )
+
+
+def _workspace_and_scope(request: RetrievalRequest) -> tuple[Path, str]:
+    resolved = request.root.resolve(strict=False)
+    roots = sorted(
+        (root.resolve(strict=False) for root in request.workspace_roots),
+        key=lambda root: len(root.parts),
+        reverse=True,
+    )
+    for root in roots:
+        try:
+            relative = resolved.relative_to(root)
+        except ValueError:
+            continue
+        return root, str(relative) if relative.parts else "."
+    raise RetrievalUnavailableError("request root is outside indexed workspaces")

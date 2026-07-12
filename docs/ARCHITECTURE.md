@@ -232,6 +232,7 @@ The Typer CLI supports:
 - `codecraft inspect`
 - `codecraft trace`
 - `codecraft eval`
+- `codecraft index`
 - `codecraft retrieval-eval`
 
 CLI responsibilities are config loading, runtime construction, input submission, approval prompting, and event rendering. Core runtime modules do not depend on CLI code.
@@ -268,9 +269,17 @@ size, and per-query results.
 
 `WorkspaceSearchTool` is an adapter over `ContextEngine`; it owns tool argument
 validation and result formatting but not retrieval. The engine holds named
-retrievers and currently defaults to the deterministic `ScanRetriever`. This keeps
-the public tool contract stable while leaving routing, fusion, and indexed
-retrievers behind a dedicated retrieval boundary.
+retrievers and defaults to the deterministic `ScanRetriever`. `LexicalRetriever`
+uses SQLite FTS5/BM25 over bounded chunks, while `SymbolRetriever` queries symbols
+extracted from Tree-sitter syntax trees. This keeps the public tool contract stable
+while retrieval implementation and routing evolve independently.
+
+`codecraft index` writes databases to
+`~/.codecraft/indexes/<workspace-id>/index.sqlite3`. Sync compares file metadata and
+content digests, reparses only changed files, and removes deleted files. Index
+queries validate the current size and modification time of matched files; an absent
+or stale-only result falls back to `ScanRetriever`. Explicit indexing keeps full
+repository walks and parser work out of foreground search latency.
 
 The initial benchmark records the behavior of the existing deterministic scan
 backend, including known failures on semantic-only queries. Future context-engine
@@ -285,5 +294,6 @@ cost baseline rather than assumed to be improvements.
 - `resume --last` resumes the latest valid session; explicit interactive resume by session id is not implemented.
 - Context compaction is represented in event/reconstruction paths, but full automatic compaction is v1.1 work.
 - There is no automatic pruning or repair for invalid session logs yet.
-- Repository retrieval is currently an exact path/content scan without an index,
-  symbol graph, lexical ranking, or semantic retriever.
+- Index refresh is explicit; external edits are detected for returned indexed hits,
+  but newly added files require another `codecraft index` run.
+- Retrieval has lexical ranking and symbol lookup but no graph or semantic retriever.

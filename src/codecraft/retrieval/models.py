@@ -49,3 +49,5 @@ class RetrievalResponse:
     matches: tuple[RetrievalMatch, ...]
     stats: RetrievalStats
     truncated: bool = False
+    retriever: str | None = None
+    fallback_from: str | None = None

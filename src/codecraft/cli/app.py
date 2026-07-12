@@ -13,6 +13,7 @@ from codecraft.cli.commands import (
     register_chat_command,
     register_eval_command,
     register_exec_command,
+    register_index_command,
     register_inspect_command,
     register_retrieval_eval_command,
     register_resume_command,
@@ -126,7 +127,7 @@ def _build_runtime(config: SessionConfig) -> AgentRuntime:
     return bootstrap.build_runtime(
         config,
         llm_providers=_build_provider_registry(config),
-        tool_registry=_build_tool_registry(),
+        tool_registry=_build_tool_registry(config),
     )
 
 
@@ -142,13 +143,14 @@ def _model_api_key_env(provider: str, configured: str | None) -> str | None:
     return bootstrap.model_api_key_env(provider, configured)
 
 
-def _build_tool_registry() -> ToolRegistry:
-    return bootstrap.build_tool_registry()
+def _build_tool_registry(config: SessionConfig | None = None) -> ToolRegistry:
+    return bootstrap.build_tool_registry(config)
 
 
 register_exec_command(app)
 register_chat_command(app)
 register_eval_command(app)
+register_index_command(app)
 register_retrieval_eval_command(app)
 register_resume_command(app)
 register_sessions_command(app)

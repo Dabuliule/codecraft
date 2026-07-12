@@ -86,6 +86,7 @@ def test_workspace_search_renderer_shows_summary_and_preview():
                     "query": "Agent",
                     "match_count": 1,
                     "truncated": False,
+                    "retriever": "lexical",
                 },
             },
         }
@@ -93,5 +94,5 @@ def test_workspace_search_renderer_shows_summary_and_preview():
 
     output = stream.getvalue()
     assert "• workspace_search Agent" in output
-    assert "✓ workspace_search Agent · 1 matches · 3ms" in output
+    assert "✓ workspace_search Agent · 1 matches · lexical · 3ms" in output
     assert "[tool] workspace_search ok (3ms): src/app.py:12: class Agent:" in output

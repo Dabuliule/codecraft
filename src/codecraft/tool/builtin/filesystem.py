@@ -234,6 +234,13 @@ class WorkspaceSearchArgs(BaseModel):
     path: str = "."
     mode: Literal["both", "content", "path"] = "both"
     case_sensitive: bool = False
+    strategy: Literal["scan", "lexical", "symbol"] = Field(
+        default="scan",
+        description=(
+            "scan for exact path/text matching, lexical for ranked indexed search, "
+            "or symbol for indexed definitions"
+        ),
+    )
     max_results: int = Field(default=100, ge=1, le=1000)
     max_file_bytes: int = Field(default=1_000_000, ge=1)
 
@@ -241,8 +248,8 @@ class WorkspaceSearchArgs(BaseModel):
 class WorkspaceSearchTool(BaseTool):
     name = "workspace_search"
     description = (
-        "Search workspace file paths and text content, returning matching paths, "
-        "line numbers, and snippets."
+        "Search workspace paths, text, or indexed symbols with scan, lexical, or "
+        "symbol retrieval, returning paths, line numbers, and snippets."
     )
     args_schema = WorkspaceSearchArgs
     effects = {ToolEffect.READ_ONLY}
@@ -272,7 +279,9 @@ class WorkspaceSearchTool(BaseTool):
                 case_sensitive=search_args.case_sensitive,
                 max_results=search_args.max_results,
                 max_file_bytes=search_args.max_file_bytes,
-            )
+            ),
+            retriever_name=search_args.strategy,
+            fallback_retriever="scan",
         )
         matches = [match.as_dict() for match in response.matches]
         stats = response.stats
@@ -295,6 +304,8 @@ class WorkspaceSearchTool(BaseTool):
                 "read_file_count": stats.read_file_count,
                 "scanned_bytes": stats.scanned_bytes,
                 "returned_chars": len(content),
+                "retriever": response.retriever,
+                "fallback_from": response.fallback_from,
             },
             metadata={
                 "query": search_args.query,
@@ -306,6 +317,8 @@ class WorkspaceSearchTool(BaseTool):
                 "read_file_count": stats.read_file_count,
                 "scanned_bytes": stats.scanned_bytes,
                 "returned_chars": len(content),
+                "retriever": response.retriever,
+                "fallback_from": response.fallback_from,
             },
         )
 

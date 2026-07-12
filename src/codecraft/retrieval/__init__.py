@@ -1,6 +1,8 @@
 from typing import Any
 
 from codecraft.retrieval.engine import ContextEngine
+from codecraft.retrieval.errors import RetrievalUnavailableError
+from codecraft.retrieval.index import IndexSyncStats, RepositoryIndex
 from codecraft.retrieval.models import (
     RetrievalMatch,
     RetrievalMode,
@@ -9,7 +11,12 @@ from codecraft.retrieval.models import (
     RetrievalStats,
 )
 from codecraft.retrieval.report import render_retrieval_html, render_retrieval_json
-from codecraft.retrieval.retrievers import Retriever, ScanRetriever
+from codecraft.retrieval.retrievers import (
+    LexicalRetriever,
+    Retriever,
+    ScanRetriever,
+    SymbolRetriever,
+)
 from codecraft.retrieval.suite import (
     RETRIEVAL_SUITE_NAME,
     RetrievalCase,
@@ -20,6 +27,9 @@ from codecraft.retrieval.suite import (
 __all__ = [
     "RETRIEVAL_SUITE_NAME",
     "ContextEngine",
+    "IndexSyncStats",
+    "LexicalRetriever",
+    "RepositoryIndex",
     "Retriever",
     "RetrievalCase",
     "RetrievalMatch",
@@ -27,7 +37,9 @@ __all__ = [
     "RetrievalRequest",
     "RetrievalResponse",
     "RetrievalStats",
+    "RetrievalUnavailableError",
     "ScanRetriever",
+    "SymbolRetriever",
     "get_retrieval_cases",
     "render_retrieval_html",
     "render_retrieval_json",

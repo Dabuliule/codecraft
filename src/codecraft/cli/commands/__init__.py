@@ -2,6 +2,7 @@ from codecraft.cli.commands.chat_cmd import register_chat_command, run_chat
 from codecraft.cli.commands.eval_cmd import register_eval_command, run_eval
 from codecraft.cli.commands.exec_cmd import register_exec_command, run_exec
 from codecraft.cli.commands.inspect_cmd import register_inspect_command
+from codecraft.cli.commands.index_cmd import register_index_command
 from codecraft.cli.commands.retrieval_eval_cmd import register_retrieval_eval_command
 from codecraft.cli.commands.resume_cmd import register_resume_command
 from codecraft.cli.commands.sessions_cmd import register_sessions_command
@@ -12,6 +13,7 @@ __all__ = [
     "register_eval_command",
     "register_exec_command",
     "register_inspect_command",
+    "register_index_command",
     "register_retrieval_eval_command",
     "register_resume_command",
     "register_sessions_command",

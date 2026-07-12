@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
+from codecraft.retrieval.errors import RetrievalUnavailableError
 from codecraft.retrieval.models import RetrievalRequest, RetrievalResponse
 from codecraft.retrieval.retrievers import Retriever, ScanRetriever
 
@@ -35,10 +37,32 @@ class ContextEngine:
         request: RetrievalRequest,
         *,
         retriever_name: str | None = None,
+        fallback_retriever: str | None = None,
     ) -> RetrievalResponse:
         selected = retriever_name or self._default_retriever
         try:
             retriever = self._retrievers[selected]
         except KeyError as exc:
-            raise ValueError(f"unknown retriever: {selected}") from exc
-        return await retriever.retrieve(request)
+            if fallback_retriever is None:
+                raise ValueError(f"unknown retriever: {selected}") from exc
+            return await self._fallback(request, selected, fallback_retriever)
+        try:
+            response = await retriever.retrieve(request)
+        except RetrievalUnavailableError:
+            if fallback_retriever is None or fallback_retriever == selected:
+                raise
+            return await self._fallback(request, selected, fallback_retriever)
+        return replace(response, retriever=selected)
+
+    async def _fallback(
+        self,
+        request: RetrievalRequest,
+        selected: str,
+        fallback: str,
+    ) -> RetrievalResponse:
+        try:
+            retriever = self._retrievers[fallback]
+        except KeyError as exc:
+            raise ValueError(f"unknown fallback retriever: {fallback}") from exc
+        response = await retriever.retrieve(request)
+        return replace(response, retriever=fallback, fallback_from=selected)

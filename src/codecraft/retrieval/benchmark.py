@@ -34,6 +34,7 @@ async def run_retrieval_benchmark(
     cases: Sequence[RetrievalCase],
     output_dir: Path,
     repeat: int = 3,
+    strategy: str = "scan",
     tool: SearchTool | None = None,
     on_case_complete: Callable[[int, int, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
@@ -50,9 +51,29 @@ async def run_retrieval_benchmark(
     seed_retrieval_workspace(workspace)
 
     if tool is None:
+        from codecraft.retrieval.engine import ContextEngine
+        from codecraft.retrieval.index import RepositoryIndex
+        from codecraft.retrieval.retrievers import (
+            LexicalRetriever,
+            ScanRetriever,
+            SymbolRetriever,
+        )
         from codecraft.tool.builtin.filesystem import WorkspaceSearchTool
 
-        search_tool: SearchTool = WorkspaceSearchTool()
+        if strategy == "scan":
+            search_tool: SearchTool = WorkspaceSearchTool()
+        else:
+            index = RepositoryIndex(output_dir / "indexes")
+            index.sync(workspace)
+            search_tool = WorkspaceSearchTool(
+                ContextEngine(
+                    [
+                        ScanRetriever(),
+                        LexicalRetriever(index),
+                        SymbolRetriever(index),
+                    ]
+                )
+            )
     else:
         search_tool = tool
     started_at = datetime.now(UTC)
@@ -60,7 +81,13 @@ async def run_retrieval_benchmark(
     schedule = [(case, attempt) for case in cases for attempt in range(1, repeat + 1)]
     results: list[dict[str, Any]] = []
     for index, (case, attempt) in enumerate(schedule, start=1):
-        result = await _run_case(search_tool, case, attempt, workspace)
+        result = await _run_case(
+            search_tool,
+            case,
+            attempt,
+            workspace,
+            strategy=strategy,
+        )
         results.append(result)
         if on_case_complete is not None:
             on_case_complete(index, len(schedule), result)
@@ -71,7 +98,7 @@ async def run_retrieval_benchmark(
         "run": {
             "run_id": new_id("retrieval_eval_"),
             "suite": RETRIEVAL_SUITE_NAME,
-            "retriever": "workspace_search_scan",
+            "retriever": f"workspace_search_{strategy}",
             "case_count": len(cases),
             "repeat": repeat,
             "evaluation_count": len(results),
@@ -92,6 +119,8 @@ async def _run_case(
     case: RetrievalCase,
     attempt: int,
     workspace: Path,
+    *,
+    strategy: str,
 ) -> dict[str, Any]:
     call = ToolCall(
         call_id=new_id("call_retrieval_"),
@@ -101,6 +130,7 @@ async def _run_case(
             "path": case.path,
             "mode": case.mode,
             "max_results": 10,
+            "strategy": strategy,
         },
     )
     args = tool.args_schema.model_validate(call.arguments)

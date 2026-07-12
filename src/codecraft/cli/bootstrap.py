@@ -14,6 +14,13 @@ from codecraft.llm import (
     OpenAIProvider,
     QwenProvider,
 )
+from codecraft.retrieval import (
+    ContextEngine,
+    LexicalRetriever,
+    RepositoryIndex,
+    ScanRetriever,
+    SymbolRetriever,
+)
 from codecraft.schema.session import SessionConfig, SessionSource
 from codecraft.tool import (
     ApplyPatchTool,
@@ -110,7 +117,7 @@ def build_runtime(
     return AgentRuntime(
         session_store=SessionStore(config.codecraft_home),
         llm_providers=llm_providers or build_provider_registry(config),
-        tool_registry=tool_registry or build_tool_registry(),
+        tool_registry=tool_registry or build_tool_registry(config),
         approval_manager=ApprovalManager(
             policy=config.approval_policy,
             reviewer=ThreadApprovalReviewer(),
@@ -154,12 +161,23 @@ def model_api_key_env(provider: str, configured: str | None) -> str | None:
     return None
 
 
-def build_tool_registry() -> ToolRegistry:
+def build_tool_registry(config: SessionConfig | None = None) -> ToolRegistry:
+    if config is None:
+        context_engine = ContextEngine()
+    else:
+        index = RepositoryIndex(config.codecraft_home / "indexes")
+        context_engine = ContextEngine(
+            [
+                ScanRetriever(),
+                LexicalRetriever(index),
+                SymbolRetriever(index),
+            ]
+        )
     return ToolRegistry(
         [
             ReadFileTool(),
             ListFilesTool(),
-            WorkspaceSearchTool(),
+            WorkspaceSearchTool(context_engine),
             WriteFileTool(),
             ApplyPatchTool(),
             BashTool(),

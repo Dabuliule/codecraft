@@ -126,8 +126,14 @@ class ToolRenderer:
             metadata = result.get("metadata", {})
             query = metadata.get("query")
             count = metadata.get("match_count")
+            retriever = metadata.get("retriever")
+            fallback_from = metadata.get("fallback_from")
             query_text = f" {query}" if isinstance(query, str) and query else ""
             suffix = f" · {count} matches" if isinstance(count, int) else ""
+            if isinstance(retriever, str) and retriever:
+                suffix += f" · {retriever}"
+            if isinstance(fallback_from, str) and fallback_from:
+                suffix += f" fallback from {fallback_from}"
             return f"✓ workspace_search{query_text}{suffix}{duration}"
         if name == "write_file":
             metadata = result.get("metadata", {})

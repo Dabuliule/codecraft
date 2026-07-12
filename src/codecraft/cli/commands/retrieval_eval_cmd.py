@@ -25,6 +25,12 @@ class RetrievalEvalFormat(StrEnum):
     BOTH = "both"
 
 
+class RetrievalEvalStrategy(StrEnum):
+    SCAN = "scan"
+    LEXICAL = "lexical"
+    SYMBOL = "symbol"
+
+
 def register_retrieval_eval_command(app: typer.Typer) -> None:
     @app.command("retrieval-eval")
     def retrieval_eval_command(
@@ -38,6 +44,10 @@ def register_retrieval_eval_command(app: typer.Typer) -> None:
                 help="Run each fixed query N times.",
             ),
         ] = 3,
+        strategy: Annotated[
+            RetrievalEvalStrategy,
+            typer.Option("--strategy", help="Retrieval strategy to benchmark."),
+        ] = RetrievalEvalStrategy.SCAN,
         output_dir: Annotated[
             Path | None,
             typer.Option(
@@ -65,6 +75,7 @@ def register_retrieval_eval_command(app: typer.Typer) -> None:
             run_retrieval_eval(
                 output_dir=destination,
                 repeat=repeat,
+                strategy=strategy,
                 format=format,
             )
         )
@@ -76,6 +87,7 @@ async def run_retrieval_eval(
     *,
     output_dir: Path,
     repeat: int,
+    strategy: RetrievalEvalStrategy,
     format: RetrievalEvalFormat,
 ) -> int:
     console = make_console()
@@ -91,6 +103,7 @@ async def run_retrieval_eval(
             cases=cases,
             output_dir=output_dir,
             repeat=repeat,
+            strategy=strategy,
         )
     except FileExistsError as exc:
         console.print(str(exc), style="error", markup=False, soft_wrap=True)
