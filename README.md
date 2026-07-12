@@ -165,7 +165,9 @@ uv run codecraft retrieval-eval --repeat 10 --output-dir ./outputs/retrieval-run
 `~/.codecraft/indexes/`. Re-running it is incremental: unchanged files are not
 parsed again, changed files replace only their own chunks and symbols, and deleted
 files are removed. Supported source files use Tree-sitter structure; other text
-files use bounded line chunks.
+files use bounded line chunks. After an index exists, successful `write_file` and
+`apply_patch` calls refresh only their changed files and record the refresh outcome
+in tool metadata.
 
 The fixed suite mixes exact symbols, paths, multi-file identifiers, scoped docs,
 and natural-language intent over Python, TypeScript, Go, TOML, and Markdown. Its

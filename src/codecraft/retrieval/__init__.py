@@ -10,6 +10,7 @@ from codecraft.retrieval.models import (
     RetrievalResponse,
     RetrievalStats,
 )
+from codecraft.retrieval.observer import WorkspaceIndexObserver
 from codecraft.retrieval.report import render_retrieval_html, render_retrieval_json
 from codecraft.retrieval.retrievers import (
     LexicalRetriever,
@@ -40,6 +41,7 @@ __all__ = [
     "RetrievalUnavailableError",
     "ScanRetriever",
     "SymbolRetriever",
+    "WorkspaceIndexObserver",
     "get_retrieval_cases",
     "render_retrieval_html",
     "render_retrieval_json",

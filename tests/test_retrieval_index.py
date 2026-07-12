@@ -1,21 +1,48 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 from typer.testing import CliRunner
 
 from codecraft.cli.app import app
+from codecraft.approval import ApprovalManager, ApprovalPolicy
+from codecraft.core.turn_context import TurnContext
 from codecraft.retrieval import (
     ContextEngine,
     LexicalRetriever,
     RepositoryIndex,
     RetrievalRequest,
     ScanRetriever,
+    WorkspaceIndexObserver,
 )
 from codecraft.retrieval.chunking import TreeSitterChunker
 from codecraft.retrieval.suite import seed_retrieval_workspace
+from codecraft.schema.event import RuntimeEventType
+from codecraft.schema.tool import ToolCall
+from codecraft.tool import ApplyPatchTool, ToolRegistry, WriteFileTool
+from codecraft.tool.runner import ToolRunner
 
 runner = CliRunner()
+
+
+def _turn_context(workspace) -> TurnContext:
+    return TurnContext(
+        session_id="ses_index",
+        thread_id="thr_index",
+        turn_id="turn_index",
+        cwd=workspace,
+        workspace_roots=[workspace],
+        model="none",
+        model_provider="test",
+        approval_policy=ApprovalPolicy.NEVER,
+        sandbox_mode="workspace_write",
+        network_access=False,
+        available_tools=[],
+        max_steps=5,
+        max_tool_output_chars=80_000,
+        created_at=datetime.now(UTC),
+    )
 
 
 def test_tree_sitter_chunker_extracts_multi_language_symbols(tmp_path):
@@ -138,6 +165,115 @@ def test_context_engine_falls_back_when_index_match_is_stale(tmp_path):
     assert response.retriever == "scan"
     assert response.fallback_from == "lexical"
     assert response.matches[0].path == "src/auth/service.py"
+
+
+def test_tool_runner_refreshes_index_after_write_and_patch(tmp_path):
+    async def run_test() -> None:
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        source = workspace / "source.py"
+        source.write_text("def before(): pass\n", encoding="utf-8")
+        index = RepositoryIndex(tmp_path / "indexes")
+        index.sync(workspace)
+        tool_runner = ToolRunner(
+            ToolRegistry([WriteFileTool(), ApplyPatchTool()]),
+            approval_manager=ApprovalManager(policy=ApprovalPolicy.NEVER),
+            observers=[WorkspaceIndexObserver(index)],
+        )
+        context = _turn_context(workspace)
+
+        write_events = [
+            event
+            async for event in tool_runner.run(
+                ToolCall(
+                    call_id="call_write_indexed",
+                    name="write_file",
+                    arguments={
+                        "path": "source.py",
+                        "content": "def indexed_after_write(): pass\n",
+                    },
+                ),
+                context,
+            )
+        ]
+        write_result = next(
+            event.payload["result"]
+            for event in write_events
+            if event.type == RuntimeEventType.TOOL_CALL_FINISHED
+        )
+        assert write_result["success"] is True
+        update = write_result["metadata"]["post_actions"]["workspace_index"]
+        assert update["workspaces"][0]["updated_files"] == 1
+        assert index.search_symbols(workspace, query="indexed_after_write").matches
+
+        patch_events = [
+            event
+            async for event in tool_runner.run(
+                ToolCall(
+                    call_id="call_patch_indexed",
+                    name="apply_patch",
+                    arguments={
+                        "patch": (
+                            "--- a/source.py\n"
+                            "+++ b/source.py\n"
+                            "@@ -1 +1 @@\n"
+                            "-def indexed_after_write(): pass\n"
+                            "+def indexed_after_patch(): pass\n"
+                        )
+                    },
+                ),
+                context,
+            )
+        ]
+        patch_result = next(
+            event.payload["result"]
+            for event in patch_events
+            if event.type == RuntimeEventType.TOOL_CALL_FINISHED
+        )
+        assert patch_result["success"] is True
+        assert index.search_symbols(workspace, query="indexed_after_patch").matches
+        assert not index.search_symbols(workspace, query="indexed_after_write").matches
+
+    asyncio.run(run_test())
+
+
+def test_tool_runner_records_observer_failure_without_failing_write(tmp_path):
+    class BrokenObserver:
+        name = "broken"
+
+        async def after_result(self, call, result, context):
+            raise RuntimeError("observer unavailable")
+
+    async def run_test() -> None:
+        tool_runner = ToolRunner(
+            ToolRegistry([WriteFileTool()]),
+            approval_manager=ApprovalManager(policy=ApprovalPolicy.NEVER),
+            observers=[BrokenObserver()],
+        )
+        events = [
+            event
+            async for event in tool_runner.run(
+                ToolCall(
+                    call_id="call_observer_failure",
+                    name="write_file",
+                    arguments={"path": "result.txt", "content": "written\n"},
+                ),
+                _turn_context(tmp_path),
+            )
+        ]
+        result = next(
+            event.payload["result"]
+            for event in events
+            if event.type == RuntimeEventType.TOOL_CALL_FINISHED
+        )
+        assert result["success"] is True
+        assert (tmp_path / "result.txt").read_text(encoding="utf-8") == "written\n"
+        assert result["metadata"]["post_actions"]["broken"] == {
+            "status": "failed",
+            "error": "RuntimeError: observer unavailable",
+        }
+
+    asyncio.run(run_test())
 
 
 def test_index_command_reports_incremental_counts(tmp_path):

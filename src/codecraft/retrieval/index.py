@@ -54,7 +54,13 @@ class IndexQueryResult:
 class RepositoryIndex:
     def __init__(self, index_root: Path, *, chunker: TreeSitterChunker | None = None):
         self.index_root = index_root.expanduser().resolve()
-        self.chunker = chunker or TreeSitterChunker()
+        self._chunker = chunker
+
+    @property
+    def chunker(self) -> TreeSitterChunker:
+        if self._chunker is None:
+            self._chunker = TreeSitterChunker()
+        return self._chunker
 
     def database_path(self, workspace_root: Path) -> Path:
         root = workspace_root.expanduser().resolve()
@@ -157,6 +163,117 @@ class RepositoryIndex:
 
         return IndexSyncStats(
             candidate_file_count=len(files),
+            indexed_file_count=indexed_file_count,
+            updated_file_count=updated,
+            unchanged_file_count=unchanged,
+            deleted_file_count=deleted,
+            chunk_count=chunk_count,
+            symbol_count=symbol_count,
+            skipped_binary_count=skipped_binary,
+            skipped_large_count=skipped_large,
+            indexed_bytes=indexed_bytes,
+            database_path=str(database),
+        )
+
+    def refresh_paths(
+        self,
+        workspace_root: Path,
+        paths: list[Path],
+        *,
+        max_file_bytes: int = 1_000_000,
+    ) -> IndexSyncStats:
+        root = workspace_root.expanduser().resolve()
+        database = self.database_path(root)
+        if not database.is_file():
+            raise RetrievalUnavailableError("repository index has not been built")
+
+        selected: list[Path] = []
+        for path in paths:
+            candidate = path.expanduser()
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            candidate = candidate.resolve(strict=False)
+            if not is_inside_workspace(candidate, (root,)):
+                continue
+            if is_inside_workspace(candidate, (self.index_root,)):
+                continue
+            if candidate not in selected:
+                selected.append(candidate)
+
+        updated = 0
+        unchanged = 0
+        deleted = 0
+        skipped_binary = 0
+        skipped_large = 0
+        indexed_bytes = 0
+        root, connection = self._open_existing(root)
+        with closing(connection):
+            for file_path in selected:
+                relative = str(file_path.relative_to(root))
+                previous = connection.execute(
+                    "SELECT mtime_ns, size, digest FROM files WHERE path = ?",
+                    (relative,),
+                ).fetchone()
+                if not file_path.is_file():
+                    self._delete_file(connection, relative)
+                    deleted += int(previous is not None)
+                    continue
+                stat = file_path.stat()
+                if stat.st_size > max_file_bytes:
+                    skipped_large += 1
+                    self._delete_file(connection, relative)
+                    continue
+                if previous and (previous["mtime_ns"], previous["size"]) == (
+                    stat.st_mtime_ns,
+                    stat.st_size,
+                ):
+                    unchanged += 1
+                    continue
+                raw = file_path.read_bytes()
+                if looks_binary(raw):
+                    skipped_binary += 1
+                    self._delete_file(connection, relative)
+                    continue
+                digest = hashlib.sha256(raw).hexdigest()
+                if previous and previous["digest"] == digest:
+                    connection.execute(
+                        "UPDATE files SET mtime_ns = ?, size = ? WHERE path = ?",
+                        (stat.st_mtime_ns, stat.st_size, relative),
+                    )
+                    unchanged += 1
+                    continue
+                content = raw.decode("utf-8", errors="replace")
+                chunked = self.chunker.chunk(file_path, content)
+                self._replace_file(
+                    connection,
+                    path=relative,
+                    mtime_ns=stat.st_mtime_ns,
+                    size=stat.st_size,
+                    digest=digest,
+                    language=chunked.language,
+                    chunks=chunked.chunks,
+                    symbols=chunked.symbols,
+                )
+                updated += 1
+                indexed_bytes += len(raw)
+
+            connection.execute(
+                "INSERT OR REPLACE INTO metadata(key, value) VALUES('indexed_at', ?)",
+                (datetime.now(UTC).isoformat(),),
+            )
+            connection.commit()
+            indexed_file_count = connection.execute(
+                "SELECT COUNT(*) FROM files"
+            ).fetchone()[0]
+            chunk_count = connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[
+                0
+            ]
+            symbol_count = connection.execute(
+                "SELECT COUNT(*) FROM symbols"
+            ).fetchone()[0]
+
+        return IndexSyncStats(
+            candidate_file_count=len(selected),
             indexed_file_count=indexed_file_count,
             updated_file_count=updated,
             unchanged_file_count=unchanged,

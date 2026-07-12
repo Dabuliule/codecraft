@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any
 
@@ -18,6 +19,7 @@ from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 from codecraft.schema.input import SessionInput, SessionInputType
 from codecraft.schema.session import SessionConfig
 from codecraft.tool.registry import ToolRegistry
+from codecraft.tool.observer import ToolResultObserver
 from codecraft.tool.runner import ToolRunner
 
 
@@ -46,6 +48,7 @@ class Session:
         llm_provider: LLMProvider,
         tool_registry: ToolRegistry,
         approval_manager: ApprovalManager | None = None,
+        tool_result_observers: Sequence[ToolResultObserver] | None = None,
         event_bus: EventBus | None = None,
         conversation: Conversation | None = None,
         seq: int = 0,
@@ -67,7 +70,9 @@ class Session:
             reviewer=self.approval_reviewer
         )
         self.tool_runner = ToolRunner(
-            tool_registry, approval_manager=self.approval_manager
+            tool_registry,
+            approval_manager=self.approval_manager,
+            observers=tool_result_observers,
         )
         self._emit_lock = asyncio.Lock()
         self._runner_task: asyncio.Task[None] | None = None

@@ -279,7 +279,10 @@ while retrieval implementation and routing evolve independently.
 content digests, reparses only changed files, and removes deleted files. Index
 queries validate the current size and modification time of matched files; an absent
 or stale-only result falls back to `ScanRetriever`. Explicit indexing keeps full
-repository walks and parser work out of foreground search latency.
+repository walks out of foreground search latency. Successful `write_file` and
+`apply_patch` executions pass through a `ToolResultObserver` that refreshes only the
+reported changed paths; observer failures are diagnostic metadata and never change
+the already-completed tool result.
 
 The initial benchmark records the behavior of the existing deterministic scan
 backend, including known failures on semantic-only queries. Future context-engine
@@ -294,6 +297,7 @@ cost baseline rather than assumed to be improvements.
 - `resume --last` resumes the latest valid session; explicit interactive resume by session id is not implemented.
 - Context compaction is represented in event/reconstruction paths, but full automatic compaction is v1.1 work.
 - There is no automatic pruning or repair for invalid session logs yet.
-- Index refresh is explicit; external edits are detected for returned indexed hits,
-  but newly added files require another `codecraft index` run.
+- Agent file writes refresh an existing index automatically. External edits are
+  detected for returned indexed hits, but newly added external files require
+  another `codecraft index` run.
 - Retrieval has lexical ranking and symbol lookup but no graph or semantic retriever.

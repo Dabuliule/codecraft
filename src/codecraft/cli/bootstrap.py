@@ -20,6 +20,7 @@ from codecraft.retrieval import (
     RepositoryIndex,
     ScanRetriever,
     SymbolRetriever,
+    WorkspaceIndexObserver,
 )
 from codecraft.schema.session import SessionConfig, SessionSource
 from codecraft.tool import (
@@ -114,6 +115,7 @@ def build_runtime(
     llm_providers: LLMProviderRegistry | None = None,
     tool_registry: ToolRegistry | None = None,
 ) -> AgentRuntime:
+    index = RepositoryIndex(config.codecraft_home / "indexes")
     return AgentRuntime(
         session_store=SessionStore(config.codecraft_home),
         llm_providers=llm_providers or build_provider_registry(config),
@@ -122,6 +124,7 @@ def build_runtime(
             policy=config.approval_policy,
             reviewer=ThreadApprovalReviewer(),
         ),
+        tool_result_observers=[WorkspaceIndexObserver(index)],
     )
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from time import monotonic
 
@@ -13,6 +13,7 @@ from codecraft.sandbox.policy import SandboxPolicy
 from codecraft.schema.event import RuntimeEventType
 from codecraft.schema.tool import ToolCall, ToolResult
 from codecraft.tool.base import ToolContext
+from codecraft.tool.observer import ToolResultObserver
 from codecraft.tool.registry import ToolRegistry
 
 
@@ -33,9 +34,14 @@ class ToolRunner:
         self,
         registry: ToolRegistry,
         approval_manager: ApprovalManager | None = None,
+        observers: Sequence[ToolResultObserver] | None = None,
     ) -> None:
         self.registry = registry
         self.approval_manager = approval_manager or ApprovalManager()
+        self.observers = tuple(observers or ())
+        names = [observer.name for observer in self.observers]
+        if len(names) != len(set(names)):
+            raise ValueError("tool result observers must have unique names")
 
     async def run(
         self,
@@ -152,6 +158,11 @@ class ToolRunner:
                 suggestion="Check the tool arguments, workspace permissions, or runtime environment.",
             )
 
+        if result.success and self.observers:
+            post_actions = await self._run_observers(call, result, context)
+            if post_actions:
+                result.metadata["post_actions"] = post_actions
+
         finished_payload = {
             "call_id": call.call_id,
             "name": call.name,
@@ -176,6 +187,25 @@ class ToolRunner:
                     "deleted": result.data.get("deleted", 0) if result.data else 0,
                 },
             )
+
+    async def _run_observers(
+        self,
+        call: ToolCall,
+        result: ToolResult,
+        context: TurnContext,
+    ) -> dict:
+        actions = {}
+        for observer in self.observers:
+            try:
+                details = await observer.after_result(call, result, context)
+            except Exception as exc:
+                details = {
+                    "status": "failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            if details is not None:
+                actions[observer.name] = details
+        return actions
 
     @staticmethod
     def _sandbox_policy(context: TurnContext) -> SandboxPolicy:
