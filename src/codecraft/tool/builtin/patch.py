@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from pydantic import BaseModel
@@ -109,7 +110,11 @@ class ApplyPatchTool(BaseTool):
     @staticmethod
     def _parse_patch(patch: str) -> list[PatchFile]:
         """从 unified diff 中提取文件路径和 hunk。"""
-        lines = patch.splitlines(keepends=True)
+        # The tool argument is a transport string, so its final record may omit the
+        # transport newline. Unified diff uses an explicit marker when file content
+        # itself has no trailing newline.
+        normalized_patch = patch if patch.endswith("\n") else f"{patch}\n"
+        lines = normalized_patch.splitlines(keepends=True)
         files: list[PatchFile] = []
         index = 0
 
@@ -183,9 +188,7 @@ class ApplyPatchTool(BaseTool):
             result.extend(source[cursor:target_index])
             cursor = target_index
 
-            for line in hunk[1:]:
-                prefix = line[:1]
-                body = line[1:]
+            for prefix, body in ApplyPatchTool._hunk_records(hunk[1:]):
                 if prefix == " ":
                     if cursor >= len(source) or source[cursor] != body:
                         raise ValueError("patch context does not match")
@@ -197,11 +200,29 @@ class ApplyPatchTool(BaseTool):
                     cursor += 1
                 elif prefix == "+":
                     result.append(body)
-                elif prefix == "\\":
-                    continue
 
         result.extend(source[cursor:])
         return "".join(result)
+
+    @staticmethod
+    def _hunk_records(lines: list[str]) -> Iterator[tuple[str, str]]:
+        index = 0
+        while index < len(lines):
+            line = lines[index]
+            prefix = line[:1]
+            if prefix == "\\":
+                raise ValueError("newline marker has no preceding patch line")
+
+            body = line[1:]
+            if index + 1 < len(lines) and lines[index + 1].startswith("\\"):
+                marker = lines[index + 1].rstrip("\r\n")
+                if marker != "\\ No newline at end of file":
+                    raise ValueError(f"unsupported patch marker: {marker}")
+                body = body.removesuffix("\n").removesuffix("\r")
+                index += 1
+
+            yield prefix, body
+            index += 1
 
     @staticmethod
     def _old_start_from_header(header: str) -> int:

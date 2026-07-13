@@ -680,6 +680,33 @@ def test_apply_patch_tool_modifies_workspace_file(tmp_path):
     asyncio.run(run_test())
 
 
+def test_apply_patch_tool_treats_missing_transport_newline_as_complete_record():
+    patch = """--- a/note.txt
++++ b/note.txt
+@@ -1 +1 @@
+-alpha
++bravo"""
+
+    parsed = ApplyPatchTool._parse_patch(patch)
+    result = ApplyPatchTool._apply_hunks("alpha\n", parsed[0].hunks)
+
+    assert result == "bravo\n"
+
+
+def test_apply_patch_tool_respects_explicit_no_newline_marker():
+    patch = """--- a/note.txt
++++ b/note.txt
+@@ -1 +1 @@
+-alpha
++bravo
+\\ No newline at end of file"""
+
+    parsed = ApplyPatchTool._parse_patch(patch)
+    result = ApplyPatchTool._apply_hunks("alpha\n", parsed[0].hunks)
+
+    assert result == "bravo"
+
+
 def test_apply_patch_tool_rejects_workspace_escape(tmp_path):
     async def run_test() -> None:
         config = make_config(tmp_path)
