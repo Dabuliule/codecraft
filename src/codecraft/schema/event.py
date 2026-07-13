@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from codecraft.schema.safety import sanitize_json_value
 
+RUNTIME_EVENT_SCHEMA_VERSION = 1
+
 
 class RuntimeEventType(StrEnum):
     SESSION_STARTED = "session_started"
-    SESSION_CONFIGURED = "session_configured"
     SESSION_RESTORED = "session_restored"
 
     TURN_STARTED = "turn_started"
@@ -38,6 +39,7 @@ class RuntimeEventType(StrEnum):
 
 
 class RuntimeEvent(BaseModel):
+    schema_version: Literal[1] = RUNTIME_EVENT_SCHEMA_VERSION
     event_id: str
     session_id: str
     turn_id: str | None = None

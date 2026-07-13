@@ -176,7 +176,8 @@ def test_inspect_raw_prints_invalid_session_lines(tmp_path):
     assert raw_result.exit_code == 0
     assert "session_id: ses_cli" in raw_result.output
     assert "raw_lines: 1" in raw_result.output
-    assert '1: {"event_id":' in raw_result.output
+    assert '1: {"schema_version":1,' in raw_result.output
+    assert '"event_id":"evt_' in raw_result.output
     assert '"seq":2' in raw_result.output
 
 

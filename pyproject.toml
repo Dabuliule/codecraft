@@ -53,7 +53,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-codecraft = ["prompt/resources/*.md"]
+codecraft = ["prompt/resources/*.md", "tui/*.tcss"]
 
 [dependency-groups]
 dev = [

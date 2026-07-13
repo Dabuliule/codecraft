@@ -87,7 +87,6 @@ class RuntimeEventRenderer:
                 self.console.print("[muted]session restored[/muted]")
         elif event.type in {
             RuntimeEventType.SESSION_STARTED,
-            RuntimeEventType.SESSION_CONFIGURED,
             RuntimeEventType.TURN_STARTED,
             RuntimeEventType.USER_MESSAGE,
             RuntimeEventType.MODEL_TOOL_CALL,

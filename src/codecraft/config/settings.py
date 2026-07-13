@@ -29,13 +29,10 @@ class SandboxSettings(BaseModel):
 
 class PathsSettings(BaseModel):
     codecraft_home: Path = Path("~/.codecraft")
-    sessions_dir: Path | None = None
 
-    @field_validator("codecraft_home", "sessions_dir")
+    @field_validator("codecraft_home")
     @classmethod
-    def expand_path(cls, value: Path | None) -> Path | None:
-        if value is None:
-            return None
+    def expand_path(cls, value: Path) -> Path:
         return value.expanduser()
 
 

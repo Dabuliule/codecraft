@@ -1,24 +1,32 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 
 import pytest
 from pydantic import BaseModel
 
-from codecraft import (
-    AgentRuntime,
+from codecraft.approval import (
     ApprovalManager,
     ApprovalPolicy,
-    ApplyPatchTool,
     AutoApprovalReviewer,
-    BashTool,
-    BaseTool,
-    DeepSeekProvider,
+    ThreadApprovalReviewer,
+)
+from codecraft.core import (
     EventBus,
+    SessionError,
+    SessionRestoreError,
+    SessionStore,
+    TurnContext,
+    WorkspaceAccessError,
+    new_id,
+)
+from codecraft.core.runtime import AgentRuntime
+from codecraft.llm import (
+    DeepSeekProvider,
     LLMProvider,
     LLMProviderRegistry,
-    ListFilesTool,
     ModelEvent,
     ModelEventType,
     ModelMessage,
@@ -28,31 +36,33 @@ from codecraft import (
     OpenAICompatibleProvider,
     OpenAIProvider,
     QwenProvider,
-    ReadFileTool,
+)
+from codecraft.schema import (
     RuntimeEvent,
     RuntimeEventType,
     SessionConfig,
-    SessionError,
     SessionInput,
     SessionSource,
-    SessionStore,
     ToolCall,
     ToolEffect,
-    ToolRegistry,
     ToolResult,
-    ToolRunner,
     ToolSpec,
-    ThreadApprovalReviewer,
-    TurnContext,
-    WorkspaceAccessError,
+)
+from codecraft.tool import (
+    ApplyPatchTool,
+    BashTool,
+    BaseTool,
+    ListFilesTool,
+    ReadFileTool,
+    ToolContext,
+    ToolRegistry,
     WorkspaceSearchTool,
     WorkspaceGuard,
     WriteFileTool,
-    new_id,
 )
+from codecraft.tool.runner import ToolRunner
 from codecraft.sandbox import CommandPolicy, CommandRisk, SandboxMode, SandboxPolicy
 from codecraft.prompt import BASE_INSTRUCTIONS, InstructionLoader
-from codecraft.tool import ToolContext
 
 
 def make_config(tmp_path) -> SessionConfig:
@@ -96,6 +106,7 @@ def test_runtime_event_is_json_serializable(tmp_path):
     decoded = RuntimeEvent.model_validate_json(encoded)
 
     assert decoded.type == RuntimeEventType.SESSION_STARTED
+    assert decoded.schema_version == 1
     assert decoded.seq == 1
     assert decoded.payload["config"]["session_id"] == "ses_test"
 
@@ -1746,6 +1757,56 @@ def test_session_store_rejects_seq_gaps(tmp_path):
 
         with pytest.raises(Exception, match="sequence"):
             await store.load_events(config.session_id)
+
+    asyncio.run(run_test())
+
+
+def test_session_store_rejects_unknown_event_schema_version(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        path = await store.create_session(config)
+        event = RuntimeEvent(
+            event_id="evt_version",
+            session_id=config.session_id,
+            seq=1,
+            type=RuntimeEventType.SESSION_STARTED,
+            payload={"config": config.model_dump(mode="json")},
+        ).model_dump(mode="json")
+        event["schema_version"] = 2
+        path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+        with pytest.raises(SessionRestoreError) as raised:
+            await store.load_events(config.session_id)
+
+        assert raised.value.code == "session_event_schema_unsupported"
+        assert raised.value.metadata["version"] == 2
+
+    asyncio.run(run_test())
+
+
+def test_session_store_rejects_unknown_config_schema_version(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        await store.create_session(config)
+        config_payload = config.model_dump(mode="json")
+        config_payload["schema_version"] = 2
+        await store.append_event(
+            RuntimeEvent(
+                event_id="evt_started",
+                session_id=config.session_id,
+                seq=1,
+                type=RuntimeEventType.SESSION_STARTED,
+                payload={"config": config_payload},
+            )
+        )
+
+        with pytest.raises(SessionRestoreError) as raised:
+            await store.resume(config.session_id)
+
+        assert raised.value.code == "session_config_schema_unsupported"
+        assert raised.value.metadata["version"] == 2
 
     asyncio.run(run_test())
 

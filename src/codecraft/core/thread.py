@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
-from codecraft.core.session import Session, SessionStatus
+from codecraft.core.session import Session
 from codecraft.approval.manager import ApprovalRequest
 from codecraft.approval.thread_reviewer import ThreadApprovalReviewer
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
@@ -59,11 +59,7 @@ class AgentThread:
 
         测试和命令行一次性执行会用它确保事件都写完后再退出。
         """
-        task = self.session._runner_task
-        if task is not None:
-            await task
-        while self.session.status == SessionStatus.RUNNING:
-            await asyncio.sleep(0)
+        await self.session.wait_until_idle()
 
     async def _capture_event(self, event: RuntimeEvent) -> None:
         await self._events.put(event)

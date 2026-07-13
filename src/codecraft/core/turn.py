@@ -19,11 +19,8 @@ if TYPE_CHECKING:
 class TurnStatus(StrEnum):
     CREATED = "created"
     RUNNING = "running"
-    WAITING_TOOL = "waiting_tool"
-    WAITING_APPROVAL = "waiting_approval"
     FINISHED = "finished"
     ABORTED = "aborted"
-    FAILED = "failed"
 
 
 class Turn:
@@ -45,7 +42,6 @@ class Turn:
         self.context = self._build_context()
         self.status = TurnStatus.CREATED
         self.step_count = 0
-        self.cancel_requested = False
         self.prompt_builder = PromptBuilder()
 
     async def run(self, user_input: SessionInput) -> None:
@@ -73,12 +69,12 @@ class Turn:
 
         while True:
             if self.step_count >= self.context.max_steps:
-                await self._abort(
+                await self.abort(
                     "max_steps_exceeded", "Turn exceeded max tool/model steps."
                 )
                 return
 
-            tool_was_called = False
+            tool_calls: list[dict] = []
             assistant_parts: list[str] = []
             completed_message: str | None = None
 
@@ -91,10 +87,6 @@ class Turn:
                 self.context.available_tools,
                 self.context,
             ):
-                if self.cancel_requested:
-                    await self._abort("user_interrupt", "Turn interrupted by user.")
-                    return
-
                 if model_event.type == ModelEventType.MESSAGE_DELTA:
                     delta = str(model_event.payload.get("text", ""))
                     assistant_parts.append(delta)
@@ -123,13 +115,7 @@ class Turn:
                     )
 
                 elif model_event.type == ModelEventType.TOOL_CALL:
-                    completed_message = await self._flush_streamed_message(
-                        assistant_parts,
-                        completed_message,
-                    )
-                    tool_was_called = True
-                    await self._run_tool_call(model_event.payload)
-                    break
+                    tool_calls.append(dict(model_event.payload))
 
                 elif model_event.type == ModelEventType.ERROR:
                     await self.session.emit(
@@ -137,7 +123,7 @@ class Turn:
                         dict(model_event.payload),
                         turn_id=self.turn_id,
                     )
-                    await self._abort(
+                    await self.abort(
                         "model_error", str(model_event.payload.get("message", ""))
                     )
                     return
@@ -145,8 +131,20 @@ class Turn:
                 elif model_event.type == ModelEventType.COMPLETED:
                     break
 
-            if tool_was_called:
-                self.step_count += 1
+            if tool_calls:
+                completed_message = await self._flush_streamed_message(
+                    assistant_parts,
+                    completed_message,
+                )
+                for payload in tool_calls:
+                    if self.step_count >= self.context.max_steps:
+                        await self.abort(
+                            "max_steps_exceeded",
+                            "Turn exceeded max tool/model steps.",
+                        )
+                        return
+                    await self._run_tool_call(payload)
+                    self.step_count += 1
                 continue
 
             if completed_message is None:
@@ -265,7 +263,7 @@ class Turn:
             created_at=datetime.now(UTC),
         )
 
-    async def _abort(self, reason: str, message: str) -> None:
+    async def abort(self, reason: str, message: str) -> None:
         self.status = TurnStatus.ABORTED
         await self.session.emit(
             RuntimeEventType.TURN_ABORTED,

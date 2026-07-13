@@ -11,7 +11,6 @@ from codecraft.core.errors import CodecraftError
 from codecraft.core.conversation import Conversation
 from codecraft.core.event_bus import EventBus
 from codecraft.core.ids import new_id
-from codecraft.core.input_queue import InputQueue
 from codecraft.core.session_store import SessionStore
 from codecraft.core.turn import Turn
 from codecraft.llm.base import LLMProvider
@@ -26,9 +25,7 @@ from codecraft.tool.runner import ToolRunner
 class SessionStatus(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
-    WAITING_APPROVAL = "waiting_approval"
     INTERRUPTED = "interrupted"
-    FAILED = "failed"
     CLOSED = "closed"
 
 
@@ -57,7 +54,7 @@ class Session:
         self.thread_id = config.thread_id
         self.config = config
         self.conversation = conversation or Conversation()
-        self.input_queue = InputQueue()
+        self.input_queue: asyncio.Queue[SessionInput] = asyncio.Queue()
         self.active_turn: Turn | None = None
         self.status = SessionStatus.IDLE
         self.event_bus = event_bus or EventBus()
@@ -65,9 +62,8 @@ class Session:
         self.seq = seq
         self.llm_provider = llm_provider
         self.tool_registry = tool_registry
-        self.approval_reviewer = ThreadApprovalReviewer()
         self.approval_manager = approval_manager or ApprovalManager(
-            reviewer=self.approval_reviewer
+            reviewer=ThreadApprovalReviewer()
         )
         self.tool_runner = ToolRunner(
             tool_registry,
@@ -75,15 +71,18 @@ class Session:
             observers=tool_result_observers,
         )
         self._emit_lock = asyncio.Lock()
+        self._state_lock = asyncio.Lock()
+        self._close_lock = asyncio.Lock()
         self._runner_task: asyncio.Task[None] | None = None
+        self._closed_event_emitted = False
 
     async def submit(self, input: SessionInput) -> str:
         """提交用户输入、审批结果或中断请求。"""
-        if self.status == SessionStatus.CLOSED:
-            raise RuntimeError("session is closed")
-
         if input.type == SessionInputType.USER_MESSAGE:
-            await self.input_queue.put(input)
+            async with self._state_lock:
+                if self.status == SessionStatus.CLOSED:
+                    raise RuntimeError("session is closed")
+                self.input_queue.put_nowait(input)
             await self.start_turn_if_idle()
             return input.input_id
 
@@ -92,11 +91,12 @@ class Session:
             return input.input_id
 
         if input.type == SessionInputType.APPROVAL_DECISION:
+            if self.status == SessionStatus.CLOSED:
+                raise RuntimeError("session is closed")
             self.submit_approval_decision(input)
             return input.input_id
 
-        await self.input_queue.put(input)
-        return input.input_id
+        raise ValueError(f"unsupported session input type: {input.type}")
 
     def submit_approval_decision(self, input: SessionInput) -> None:
         """把用户审批结果交给正在等待的 reviewer。"""
@@ -115,19 +115,23 @@ class Session:
 
     async def start_turn_if_idle(self) -> None:
         """如果当前空闲，就从输入队列取一条消息启动新 turn。"""
-        if self.status != SessionStatus.IDLE:
-            return
-        if self.input_queue.empty():
-            return
+        async with self._state_lock:
+            if self.status != SessionStatus.IDLE or self._runner_task is not None:
+                return
+            if self.input_queue.empty():
+                return
 
-        user_input = await self.input_queue.get()
-        turn = Turn(
-            session=self,
-            turn_id=new_id("turn_"),
-        )
-        self.active_turn = turn
-        self.status = SessionStatus.RUNNING
-        self._runner_task = asyncio.create_task(self._run_turn(turn, user_input))
+            user_input = self.input_queue.get_nowait()
+            turn = Turn(
+                session=self,
+                turn_id=new_id("turn_"),
+            )
+            self.active_turn = turn
+            self.status = SessionStatus.RUNNING
+            self._runner_task = asyncio.create_task(
+                self._run_turn(turn, user_input),
+                name=f"codecraft-turn-{turn.turn_id}",
+            )
 
     async def emit(
         self,
@@ -159,31 +163,49 @@ class Session:
             return event
 
     async def interrupt(self, reason: str) -> None:
-        """请求当前 turn 尽快停止，并让 session 回到可接收输入的状态。"""
-        if self.active_turn is not None:
-            self.active_turn.cancel_requested = True
-            await self.emit(
-                RuntimeEventType.TURN_ABORTED,
-                {"reason": reason, "message": reason},
-                turn_id=self.active_turn.turn_id,
-            )
-        self.status = SessionStatus.INTERRUPTED
-        self.status = SessionStatus.IDLE
+        """取消当前 turn，并等待后台 task 完成清理。"""
+        async with self._state_lock:
+            if self.status == SessionStatus.CLOSED:
+                return
+            task = self._runner_task
+            if task is None:
+                return
+            self.status = SessionStatus.INTERRUPTED
+            if task.cancelling() == 0:
+                task.cancel(reason)
+        await asyncio.shield(task)
 
     async def close(self) -> None:
-        if self.status == SessionStatus.CLOSED:
-            return
-        if self.active_turn is not None:
-            self.active_turn.cancel_requested = True
-        await self.emit(RuntimeEventType.SESSION_CLOSED)
-        self.status = SessionStatus.CLOSED
+        async with self._close_lock:
+            if self._closed_event_emitted:
+                return
+            async with self._state_lock:
+                self.status = SessionStatus.CLOSED
+                task = self._runner_task
+                if task is not None and task.cancelling() == 0:
+                    task.cancel("session_closed")
+            if task is not None:
+                await asyncio.shield(task)
+            await self.emit(RuntimeEventType.SESSION_CLOSED)
+            self._closed_event_emitted = True
+
+    async def wait_until_idle(self) -> None:
+        """等待当前及已排队 turn 全部处理完成。"""
+        while True:
+            async with self._state_lock:
+                task = self._runner_task
+            if task is None:
+                return
+            await asyncio.shield(task)
 
     async def _run_turn(self, turn: Turn, user_input: SessionInput) -> None:
         """包装 turn.run，确保异常也会变成可追踪的事件。"""
         try:
             await turn.run(user_input)
+        except asyncio.CancelledError as exc:
+            reason = str(exc.args[0]) if exc.args else "turn_cancelled"
+            await turn.abort(reason, reason)
         except Exception as exc:
-            self.status = SessionStatus.FAILED
             error_payload = self._error_payload(exc)
             await self.emit(
                 RuntimeEventType.ERROR,
@@ -201,10 +223,16 @@ class Session:
                 turn_id=turn.turn_id,
             )
         finally:
-            if self.status != SessionStatus.CLOSED:
-                self.active_turn = None
-                if self.status != SessionStatus.FAILED:
+            current_task = asyncio.current_task()
+            async with self._state_lock:
+                if self._runner_task is current_task:
+                    self._runner_task = None
+                if self.active_turn is turn:
+                    self.active_turn = None
+                should_continue = self.status != SessionStatus.CLOSED
+                if should_continue:
                     self.status = SessionStatus.IDLE
+            if should_continue:
                 await self.start_turn_if_idle()
 
     @staticmethod

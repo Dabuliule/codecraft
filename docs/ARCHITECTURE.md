@@ -84,6 +84,8 @@ The thread captures events from the session `EventBus` and hands them to consume
 
 `Session.emit()` is the single event creation path. It assigns monotonically increasing `seq`, writes the event to `SessionStore`, then publishes it through `EventBus`.
 
+The session also owns the active turn task. `interrupt()` and `close()` cancel that task and wait for its cleanup before exposing an idle or closed state. State transitions are serialized so a cancelled turn cannot start a queued turn after the session has closed, and `session_closed` is always emitted after the active turn's terminal event.
+
 ### `Turn`
 
 `Turn` runs one user input to completion. Its loop is:
@@ -98,6 +100,8 @@ The thread captures events from the session `EventBus` and hands them to consume
 
 The turn is also responsible for reconstructing the assistant message from streaming deltas when the provider does not emit a final completed message.
 
+A provider response may contain multiple tool calls. `Turn` preserves the complete ordered batch, executes each call through `ToolRunner`, appends every result, and only then requests the next model response. A turn step is one executed tool call, so limits remain meaningful for both single-call and batched responses.
+
 ### `SessionStore`
 
 `SessionStore` stores JSONL logs under:
@@ -107,6 +111,8 @@ The turn is also responsible for reconstructing the assistant message from strea
 ```
 
 It supports create, append, load, list, raw-line inspection, and resume. The JSONL log is the fact source for audit and recovery.
+
+Persisted `RuntimeEvent` and embedded `SessionConfig` objects carry independent schema versions. Readers treat unversioned alpha logs as version 1 for local compatibility and reject unknown versions explicitly instead of partially restoring data with newer semantics.
 
 ### `Conversation` And Resume
 
@@ -273,6 +279,8 @@ CLI responsibilities are config loading, runtime construction, input submission,
 ## TUI Layer
 
 `CodeCraftTUI` is a Textual presentation layer over `AgentRuntime` and `AgentThread`. It creates or resumes a normal session, submits `SessionInput`, and consumes the same persisted `RuntimeEvent` stream as the line-oriented CLI. It does not call model providers or tools directly.
+
+The TUI package separates coordination (`app`), modal screens (`screens`), reusable message widgets (`widgets`), presentation formatting (`rendering`), and Textual styles (`codecraft.tcss`). These modules remain presentation-only and do not introduce a second runtime API.
 
 An async Textual worker reads thread events and projects them into stable UI state: streamed assistant content updates one message block, tool calls append to a bounded activity log, token events update runtime status, and approval requests suspend the worker on a typed `ModalScreen` result before submitting an approval decision. Shutdown rejects pending approvals and closes the thread and runtime through the existing lifecycle.
 

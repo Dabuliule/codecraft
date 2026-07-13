@@ -456,6 +456,8 @@ Session events are stored as JSONL:
 
 The event log includes session, turn, user, assistant, model tool call, tool start/finish, approval, token, error, and finish events.
 
+Events and the embedded session configuration carry schema versions. Existing unversioned alpha logs are read as version 1; logs from an unknown future schema are rejected with a restore error instead of being interpreted partially.
+
 `resume --last` loads the latest valid session, reconstructs conversation from events, and continues without replaying historical tools.
 
 If a session log is invalid, normal listing skips it. To see invalid logs:

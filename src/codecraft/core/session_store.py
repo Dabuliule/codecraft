@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 from codecraft.core.errors import SessionError, SessionRestoreError
-from codecraft.schema.event import RuntimeEvent, RuntimeEventType
-from codecraft.schema.session import SessionConfig, SessionSnapshot, SessionSummary
+from codecraft.schema.event import (
+    RUNTIME_EVENT_SCHEMA_VERSION,
+    RuntimeEvent,
+    RuntimeEventType,
+)
+from codecraft.schema.session import (
+    SESSION_CONFIG_SCHEMA_VERSION,
+    SessionConfig,
+    SessionSnapshot,
+    SessionSummary,
+)
 
 
 class SessionStore:
@@ -68,11 +78,45 @@ class SessionStore:
                     if not stripped:
                         continue
                     try:
-                        events.append(RuntimeEvent.model_validate_json(stripped))
+                        data = json.loads(stripped)
                     except Exception as exc:
                         raise SessionRestoreError(
                             "failed to parse session event",
                             code="session_event_parse_failed",
+                            metadata={
+                                "session_id": session_id,
+                                "path": str(path),
+                                "line": line_number,
+                            },
+                        ) from exc
+                    if not isinstance(data, dict):
+                        raise SessionRestoreError(
+                            "session event must be a JSON object",
+                            code="session_event_shape_invalid",
+                            metadata={
+                                "session_id": session_id,
+                                "path": str(path),
+                                "line": line_number,
+                            },
+                        )
+                    version = data.get("schema_version", 1)
+                    if version != RUNTIME_EVENT_SCHEMA_VERSION:
+                        raise SessionRestoreError(
+                            "session event schema version is not supported",
+                            code="session_event_schema_unsupported",
+                            metadata={
+                                "session_id": session_id,
+                                "path": str(path),
+                                "line": line_number,
+                                "version": version,
+                            },
+                        )
+                    try:
+                        events.append(RuntimeEvent.model_validate(data))
+                    except Exception as exc:
+                        raise SessionRestoreError(
+                            "failed to validate session event",
+                            code="session_event_validation_failed",
                             metadata={
                                 "session_id": session_id,
                                 "path": str(path),
@@ -207,6 +251,13 @@ class SessionStore:
                 "session_started event is missing config payload",
                 code="session_config_missing",
                 metadata={"session_id": session_id},
+            )
+        config_version = config_data.get("schema_version", 1)
+        if config_version != SESSION_CONFIG_SCHEMA_VERSION:
+            raise SessionRestoreError(
+                "session config schema version is not supported",
+                code="session_config_schema_unsupported",
+                metadata={"session_id": session_id, "version": config_version},
             )
 
         return SessionSnapshot(

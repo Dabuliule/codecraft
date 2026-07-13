@@ -32,6 +32,7 @@ class ThreadApprovalReviewer(ApprovalReviewer):
             return await future
         finally:
             self.pending.pop(request.approval_id, None)
+            self.requests.pop(request.approval_id, None)
 
     def decide(self, decision: ApprovalDecision) -> None:
         """用用户决定唤醒对应的 approval Future。"""

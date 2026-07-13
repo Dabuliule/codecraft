@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -12,19 +12,21 @@ from codecraft.mcp.config import MCPServerSettings
 from codecraft.sandbox import DockerSandboxConfig, SandboxBackendType, SandboxMode
 from codecraft.schema.event import RuntimeEvent
 
+SESSION_CONFIG_SCHEMA_VERSION = 1
+
 
 class SessionSource(StrEnum):
     CLI_CHAT = "cli_chat"
     CLI_EXEC = "cli_exec"
     CLI_EVAL = "cli_eval"
     CLI_TUI = "cli_tui"
-    RESUME = "resume"
     TEST = "test"
 
 
 class SessionConfig(BaseModel):
     """启动或恢复 session 所需的完整运行配置。"""
 
+    schema_version: Literal[1] = SESSION_CONFIG_SCHEMA_VERSION
     session_id: str
     thread_id: str
     source: SessionSource
@@ -51,7 +53,6 @@ class SessionConfig(BaseModel):
 
     max_turn_steps: int = 30
     max_tool_output_chars: int = 80_000
-    max_conversation_items: int = 200
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = Field(default_factory=dict)

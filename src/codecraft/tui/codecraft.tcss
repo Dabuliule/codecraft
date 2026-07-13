@@ -1,0 +1,268 @@
+Screen {
+    background: #111315;
+    color: #d9dde3;
+}
+
+Header {
+    background: #181b1f;
+    color: #f4f6f8;
+}
+
+#main {
+    height: 1fr;
+}
+
+#conversation-pane {
+    width: 1fr;
+    height: 1fr;
+    padding: 1 2;
+    scrollbar-color: #4ec9b0;
+    scrollbar-background: #181b1f;
+}
+
+MessageBlock {
+    width: 1fr;
+    height: auto;
+    min-height: 3;
+    padding: 1 2;
+    margin-bottom: 1;
+    background: #181b1f;
+    border-left: thick #d7a95b;
+}
+
+MessageBlock.user {
+    background: #171d21;
+    border-left: thick #4eb6c2;
+}
+
+MessageBlock.assistant {
+    background: #171c19;
+    border-left: thick #4eaf78;
+}
+
+MessageBlock.error {
+    background: #211719;
+    border-left: thick #ef6b73;
+}
+
+#side-panel {
+    width: 38;
+    min-width: 30;
+    height: 1fr;
+    background: #16191c;
+    border-left: solid #3a4148;
+}
+
+.panel-title {
+    height: 2;
+    padding: 0 1;
+    color: #d7a95b;
+    text-style: bold;
+    content-align-vertical: middle;
+}
+
+#runtime-heading {
+    height: 3;
+}
+
+#runtime-heading .panel-title {
+    width: 1fr;
+    height: 3;
+}
+
+#open-trace {
+    width: 9;
+    min-width: 9;
+    height: 3;
+    border: none;
+    background: #263138;
+    color: #7bdff2;
+}
+
+#open-trace:focus, #open-trace:hover {
+    background: #28535a;
+    color: #f4f6f8;
+}
+
+#runtime-status {
+    height: auto;
+    min-height: 9;
+    padding: 0 1 1 1;
+    border-bottom: solid #3a4148;
+}
+
+#tool-log {
+    height: 1fr;
+    min-width: 1;
+    padding: 0 1;
+    scrollbar-color: #d7a95b;
+    scrollbar-background: #181b1f;
+}
+
+#prompt {
+    dock: bottom;
+    height: 3;
+    padding: 0 1;
+    border: tall #4eaf78;
+    background: #181b1f;
+    color: #f4f6f8;
+}
+
+#prompt:focus {
+    border: tall #7bdff2;
+}
+
+ApprovalScreen {
+    align: center middle;
+    background: #000000 55%;
+}
+
+#approval-dialog {
+    width: 72;
+    max-width: 92%;
+    height: auto;
+    max-height: 82%;
+    padding: 1 2;
+    background: #1c1b18;
+    border: solid #d7a95b;
+}
+
+#approval-title {
+    height: 2;
+    color: #f0c674;
+    text-style: bold;
+}
+
+#approval-details {
+    height: auto;
+    max-height: 20;
+    overflow-y: auto;
+}
+
+#approval-actions {
+    height: 3;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+#approval-actions Button {
+    width: 14;
+    margin-left: 1;
+}
+
+SessionBrowserScreen {
+    align: center middle;
+    background: #000000 55%;
+}
+
+#session-dialog {
+    width: 96;
+    max-width: 94%;
+    height: 75%;
+    min-height: 16;
+    padding: 1 2;
+    background: #181b1f;
+    border: solid #4eb6c2;
+}
+
+#session-title {
+    height: 2;
+    color: #7bdff2;
+    text-style: bold;
+}
+
+#session-table {
+    height: 1fr;
+    background: #14171a;
+    color: #d9dde3;
+}
+
+#session-table > .datatable--header {
+    background: #20252a;
+    color: #f0c674;
+    text-style: bold;
+}
+
+#session-table > .datatable--cursor {
+    background: #28535a;
+    color: #f4f6f8;
+}
+
+#session-actions {
+    height: 3;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+#session-actions Button {
+    width: 16;
+    margin-left: 1;
+}
+
+TraceScreen {
+    align: center middle;
+    background: #000000 55%;
+}
+
+#trace-dialog {
+    width: 96%;
+    height: 92%;
+    padding: 1 2;
+    background: #181b1f;
+    border: solid #4eb6c2;
+}
+
+#trace-heading {
+    height: 3;
+}
+
+#trace-title {
+    width: 1fr;
+    height: 3;
+    color: #7bdff2;
+    text-style: bold;
+    content-align-vertical: middle;
+}
+
+#close-trace {
+    width: 12;
+}
+
+#trace-metrics {
+    height: 3;
+    padding: 0 1;
+    background: #20252a;
+}
+
+#trace-events {
+    height: 1fr;
+    min-height: 6;
+    margin-top: 1;
+    background: #14171a;
+    color: #d9dde3;
+}
+
+#trace-events > .datatable--header {
+    background: #20252a;
+    color: #f0c674;
+    text-style: bold;
+}
+
+#trace-events > .datatable--cursor {
+    background: #28535a;
+    color: #f4f6f8;
+}
+
+#trace-payload-title {
+    height: 2;
+    padding-top: 1;
+    color: #d7a95b;
+    text-style: bold;
+}
+
+#trace-payload {
+    height: 9;
+    padding: 0 1;
+    overflow-y: auto;
+    background: #111315;
+}

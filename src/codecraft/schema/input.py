@@ -13,7 +13,6 @@ class SessionInputType(StrEnum):
     USER_MESSAGE = "user_message"
     INTERRUPT = "interrupt"
     APPROVAL_DECISION = "approval_decision"
-    STEER = "steer"
 
 
 class SessionInput(BaseModel):

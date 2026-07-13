@@ -31,8 +31,21 @@ Important rules:
 - Events are written to `SessionStore` before being published through `EventBus`.
 - CLI consumes events; it does not inspect or mutate session internals.
 - JSONL session logs are the source for inspect, resume, and debugging.
+- Persisted events and session configuration are versioned independently; unknown versions fail restoration explicitly.
 
 This is why assistant streaming, tool starts/finishes, approvals, errors, token counts, and final turn status are all represented as events.
+
+## Session Owns Turn Lifetime
+
+`Session` is the sole owner of the active `asyncio.Task`. Interrupt and close are completion barriers: they cancel the task and wait until `Turn` emits its terminal event and releases state. This prevents a provider stream or tool call from continuing after callers observe an idle or closed session.
+
+The same ownership rule applies to queued input. Starting the next turn is decided under the session state lock, after cleanup, and is forbidden once close has begun. `Turn` reports cancellation through `turn_aborted`; it does not maintain a second cooperative cancellation flag.
+
+## One Model Response May Request Multiple Tools
+
+Tool calls from a single provider response form an ordered batch. `Turn` collects the entire batch, executes every call through the normal governance path, records every result in conversation, and then returns control to the model. The runtime does not discard later calls or create provider-specific parallel execution semantics.
+
+Execution is intentionally serial for now. It preserves model order, approval order, deterministic event traces, and behavior when calls touch the same files. Independent parallel tool scheduling can be added later as an explicit planner concern if measurements justify the additional conflict handling.
 
 ## JSONL Is A Fact Log, Not A Hidden Database
 
@@ -157,17 +170,11 @@ CLI explicit options / --config
 
 API keys should be provided through environment variables named by `api_key_env`; plaintext keys in TOML are intentionally not recommended.
 
-## Public API Is Conservative
+## Application Boundaries, Not An SDK Surface
 
-The root `codecraft` package exports the objects most useful for tests and embedding, such as:
+CodeCraft is shipped as an application. The root `codecraft` package deliberately does not re-export the runtime object graph or promise an embedding API. Internal modules use explicit imports from their owning packages, which keeps dependencies visible and allows the architecture to evolve before v1.0 without compatibility aliases.
 
-- runtime/session/thread types;
-- event/session/tool schemas;
-- providers;
-- built-in tools;
-- approval and workspace helpers.
-
-Deep module paths can still change as v1.0 stabilizes. New public exports should have tests, especially when they are intended for external embedding.
+Stable user-facing contracts are the CLI behavior, configuration format, persisted schema versions, and documented tool/runtime semantics. A supported Python SDK should only be introduced later as a separately designed product boundary, not accumulated accidentally through convenient root imports.
 
 ## Known Follow-Up Work
 
