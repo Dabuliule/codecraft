@@ -170,8 +170,13 @@ Evaluation tasks can read, search, write, and patch their generated workspaces.
 They do not receive the bash tool or network access. A complete run makes real
 model API calls, so use `--task` or `--limit` for a smaller smoke run.
 
-No real-provider benchmark baseline has been recorded yet. Current automated
-verification uses the mock provider and does not spend model API credits.
+A first real-provider baseline is recorded in
+[`docs/EVAL_BASELINE.md`](docs/EVAL_BASELINE.md): Qwen3.7 Max Preview completed the
+10-task suite once with 70.0% success, 200,485 total tokens, 13.4 s p50 latency,
+and 22.6 s p95 latency. Exact graders exposed a trailing-newline defect in the
+patch runtime; the document separates the original baseline from targeted
+post-fix reruns. Automated CI still uses the mock provider and does not spend
+model API credits.
 
 Run the model-free repository retrieval baseline:
 

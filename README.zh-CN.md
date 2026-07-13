@@ -161,7 +161,7 @@ uv run codecraft eval --limit 3 --output-dir ./outputs/eval-run
 
 评测任务只能读取、检索、写入和 patch 自己生成的 workspace，不提供 bash 工具，也不开网络。完整评测会产生真实模型 API 调用，可以先用 `--task` 或 `--limit` 做小规模 smoke run。
 
-目前尚未记录真实 provider 的 benchmark baseline。现有自动化验证使用 mock provider，不会消耗模型 API 额度。
+第一版真实 provider baseline 已记录在 [`docs/EVAL_BASELINE.md`](docs/EVAL_BASELINE.md)：Qwen3.7 Max Preview 完整运行一次 10 题，成功率为 70.0%，总 Token 为 200,485，p50 延迟为 13.4 秒，p95 延迟为 22.6 秒。精确 grader 暴露了 patch runtime 的尾换行缺陷；文档将原始 baseline 与修复后的定向重跑分开记录。自动化 CI 仍使用 mock provider，不消耗模型 API 额度。
 
 ## 配置
 

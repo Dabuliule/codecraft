@@ -295,9 +295,12 @@ tool failures, and failure categories. Compatible providers emit token usage bef
 tool-call events so a turn cannot drop usage when it pauses the model stream to run
 a tool.
 
-The repository does not currently publish a real-provider evaluation baseline.
-Automated tests validate the evaluation path with `MockProvider`; real model runs
-remain an explicit follow-up because they consume external API credits.
+The first real-provider evaluation is documented in `docs/EVAL_BASELINE.md`.
+Qwen3.7 Max Preview completed one 10-task run with a 70.0% success rate; exact
+graders exposed a patch newline defect, and targeted post-fix reruns are recorded
+separately rather than presented as a replacement aggregate baseline. Automated
+tests continue to validate the evaluation path with `MockProvider` without using
+external API credits.
 
 The suite intentionally uses the same read, list, workspace search, write, and
 patch tools as normal sessions. Bash and network access are excluded from eval
