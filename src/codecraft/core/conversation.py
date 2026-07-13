@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from codecraft.core.ids import new_id
 from codecraft.llm.messages import ModelMessage, ModelMessageType, ModelRole
+from codecraft.schema.tool import ToolCall
 
 
 class ConversationRole(StrEnum):
@@ -86,6 +87,13 @@ class Conversation(BaseModel):
         )
         self.append(item)
         return item
+
+    def append_model_tool_calls(self, calls: list[ToolCall]) -> list[ConversationItem]:
+        """按同一模型响应中的顺序追加一批 tool call。"""
+        return [
+            self.append_model_tool_call(call.call_id, call.name, call.arguments)
+            for call in calls
+        ]
 
     def append_tool_result(
         self, tool_call_id: str, name: str, content: str

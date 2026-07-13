@@ -134,8 +134,30 @@ def test_runtime_event_requires_positive_seq():
 def test_session_input_sanitizes_invalid_unicode_user_message():
     input = SessionInput.user_message("inp_test", "你能联网吗\udce4")
 
-    assert input.payload["text"] == "你能联网吗?"
+    assert input.payload.text == "你能联网吗?"
     input.model_dump_json()
+
+
+def test_session_input_rejects_blank_messages_and_unknown_payload_fields():
+    with pytest.raises(ValueError, match="must not be blank"):
+        SessionInput.user_message("inp_blank", "   ")
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        SessionInput.model_validate(
+            {
+                "input_id": "inp_extra",
+                "type": "user_message",
+                "payload": {"text": "hello", "unexpected": True},
+            }
+        )
+
+
+def test_model_tool_call_event_requires_normalized_identity():
+    with pytest.raises(ValueError, match="call_id"):
+        ModelEvent(
+            type=ModelEventType.TOOL_CALL,
+            payload={"name": "read_file", "arguments": {"path": "README.md"}},
+        )
 
 
 def test_session_emit_rolls_back_seq_when_append_fails(tmp_path):
@@ -1065,7 +1087,7 @@ def test_llm_provider_stream_contract(tmp_path):
         ModelEventType.MESSAGE_COMPLETED,
         ModelEventType.COMPLETED,
     ]
-    assert events[0].payload["text"] == "hello"
+    assert events[0].payload.text == "hello"
 
 
 def test_openai_provider_converts_response_to_model_events(tmp_path):
@@ -1144,9 +1166,9 @@ def test_openai_provider_converts_response_to_model_events(tmp_path):
             ModelEventType.TOOL_CALL,
             ModelEventType.COMPLETED,
         ]
-        assert events[0].payload["text"] == "done"
-        assert events[1].payload["total_tokens"] == 17
-        assert events[2].payload["arguments"] == {"path": "README.md"}
+        assert events[0].payload.text == "done"
+        assert events[1].payload.total_tokens == 17
+        assert events[2].payload.arguments == {"path": "README.md"}
 
     asyncio.run(run_test())
 
@@ -1241,12 +1263,12 @@ def test_openai_provider_streams_response_deltas_and_tool_calls(tmp_path):
             ModelEventType.TOOL_CALL,
             ModelEventType.COMPLETED,
         ]
-        assert [event.payload.get("text") for event in events[:2]] == [
+        assert [event.payload.text for event in events[:2]] == [
             "hello ",
             "stream",
         ]
-        assert events[2].payload["total_tokens"] == 5
-        assert events[3].payload["arguments"] == {"path": "README.md"}
+        assert events[2].payload.total_tokens == 5
+        assert events[3].payload.arguments == {"path": "README.md"}
 
     asyncio.run(run_test())
 
@@ -1324,7 +1346,7 @@ def test_openai_provider_serializes_tool_history_as_response_items(tmp_path):
                 "output": "README contents",
             },
         ]
-        assert events[0].payload["text"] == "final"
+        assert events[0].payload.text == "final"
 
     asyncio.run(run_test())
 
@@ -1424,11 +1446,11 @@ def test_qwen_provider_streams_chat_completion_deltas(tmp_path):
             ModelEventType.TOKEN_COUNT,
             ModelEventType.COMPLETED,
         ]
-        assert [event.payload.get("text") for event in events[:2]] == [
+        assert [event.payload.text for event in events[:2]] == [
             "qwen ",
             "stream",
         ]
-        assert events[2].payload["total_tokens"] == 7
+        assert events[2].payload.total_tokens == 7
 
     asyncio.run(run_test())
 
@@ -1586,7 +1608,7 @@ def test_qwen_provider_streams_chat_completion_tool_calls(tmp_path):
             ModelEventType.TOOL_CALL,
             ModelEventType.COMPLETED,
         ]
-        assert events[0].payload == {
+        assert events[0].payload.model_dump(mode="json") == {
             "call_id": "call_read",
             "name": "read_file",
             "arguments": {"path": "README.md"},
@@ -1683,11 +1705,11 @@ def test_deepseek_provider_streams_chat_completion_deltas(tmp_path):
             ModelEventType.TOKEN_COUNT,
             ModelEventType.COMPLETED,
         ]
-        assert [event.payload.get("text") for event in events[:2]] == [
+        assert [event.payload.text for event in events[:2]] == [
             "deepseek ",
             "stream",
         ]
-        assert events[2].payload["total_tokens"] == 11
+        assert events[2].payload.total_tokens == 11
 
     asyncio.run(run_test())
 

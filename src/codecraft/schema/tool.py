@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ToolEffect(StrEnum):
@@ -28,8 +28,10 @@ class ToolSpec(BaseModel):
 class ToolCall(BaseModel):
     """模型请求执行某个 tool 时的结构化调用。"""
 
-    call_id: str
-    name: str
+    model_config = ConfigDict(extra="forbid")
+
+    call_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 

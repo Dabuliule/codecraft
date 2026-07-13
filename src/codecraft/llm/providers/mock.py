@@ -30,6 +30,7 @@ class MockProvider(LLMProvider):
                 ModelEventType.TOOL_CALL,
                 ModelEventType.COMPLETED,
             }:
+                yield ModelEvent(type=ModelEventType.COMPLETED)
                 return
 
             event = self.script.pop(0)

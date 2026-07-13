@@ -43,7 +43,7 @@ The same ownership rule applies to queued input. Starting the next turn is decid
 
 ## One Model Response May Request Multiple Tools
 
-Tool calls from a single provider response form an ordered batch. `Turn` collects the entire batch, executes every call through the normal governance path, records every result in conversation, and then returns control to the model. The runtime does not discard later calls or create provider-specific parallel execution semantics.
+Tool calls from a single provider response form an ordered batch. `Turn` collects and records the entire batch before execution, executes every call through the normal governance path, records every result in conversation, and then returns control to the model. Chat adapters preserve that boundary as one assistant message containing multiple calls. The runtime does not discard later calls or create provider-specific parallel execution semantics.
 
 Execution is intentionally serial for now. It preserves model order, approval order, deterministic event traces, and behavior when calls touch the same files. Independent parallel tool scheduling can be added later as an explicit planner concern if measurements justify the additional conflict handling.
 

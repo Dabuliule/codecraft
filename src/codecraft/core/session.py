@@ -15,7 +15,12 @@ from codecraft.core.session_store import SessionStore
 from codecraft.core.turn import Turn
 from codecraft.llm.base import LLMProvider
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
-from codecraft.schema.input import SessionInput, SessionInputType
+from codecraft.schema.input import (
+    ApprovalDecisionPayload,
+    InterruptPayload,
+    SessionInput,
+    SessionInputType,
+)
 from codecraft.schema.session import SessionConfig
 from codecraft.tool.registry import ToolRegistry
 from codecraft.tool.observer import ToolResultObserver
@@ -86,7 +91,9 @@ class Session:
             return input.input_id
 
         if input.type == SessionInputType.INTERRUPT:
-            await self.interrupt(str(input.payload.get("reason", "user_interrupt")))
+            if not isinstance(input.payload, InterruptPayload):
+                raise TypeError("interrupt input has the wrong payload type")
+            await self.interrupt(input.payload.reason)
             return input.input_id
 
         if input.type == SessionInputType.APPROVAL_DECISION:
@@ -99,11 +106,13 @@ class Session:
 
     def submit_approval_decision(self, input: SessionInput) -> None:
         """把用户审批结果交给正在等待的 reviewer。"""
+        if not isinstance(input.payload, ApprovalDecisionPayload):
+            raise TypeError("approval input has the wrong payload type")
         decision = ApprovalDecision(
-            approval_id=str(input.payload["approval_id"]),
-            approved=bool(input.payload["approved"]),
+            approval_id=input.payload.approval_id,
+            approved=input.payload.approved,
             reviewer="user",
-            reason=input.payload.get("reason"),
+            reason=input.payload.reason,
         )
         reviewer = self.approval_manager.reviewer
         if not isinstance(reviewer, ThreadApprovalReviewer):
@@ -211,15 +220,10 @@ class Session:
                 error_payload,
                 turn_id=turn.turn_id,
             )
-            await self.emit(
-                RuntimeEventType.TURN_ABORTED,
-                {
-                    "reason": error_payload["code"],
-                    "message": error_payload["message"],
-                    "metadata": error_payload.get("metadata", {}),
-                    "tool_calls": turn.tool_call_count,
-                },
-                turn_id=turn.turn_id,
+            await turn.abort(
+                error_payload["code"],
+                error_payload["message"],
+                metadata=error_payload.get("metadata", {}),
             )
         finally:
             current_task = asyncio.current_task()

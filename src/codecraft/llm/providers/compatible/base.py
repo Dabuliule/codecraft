@@ -67,7 +67,38 @@ class OpenAICompatibleProvider(LLMProvider):
 
     @staticmethod
     def _messages_to_chat(messages: list[ModelMessage]) -> list[dict[str, Any]]:
-        return [_message_to_chat_item(message) for message in messages]
+        items: list[dict[str, Any]] = []
+        pending_calls: list[ModelMessage] = []
+
+        def flush_calls() -> None:
+            if not pending_calls:
+                return
+            content = None
+            if (
+                items
+                and items[-1].get("role") == "assistant"
+                and "tool_calls" not in items[-1]
+            ):
+                content = items.pop().get("content")
+            items.append(
+                {
+                    "role": "assistant",
+                    "content": content,
+                    "tool_calls": [
+                        _message_to_chat_tool_call(message) for message in pending_calls
+                    ],
+                }
+            )
+            pending_calls.clear()
+
+        for message in messages:
+            if message.type == ModelMessageType.FUNCTION_CALL:
+                pending_calls.append(message)
+                continue
+            flush_calls()
+            items.append(_message_to_chat_item(message))
+        flush_calls()
+        return items
 
     @staticmethod
     def _tools_to_chat(tools: list[ToolSpec]) -> list[dict[str, Any]]:
@@ -389,16 +420,7 @@ def _message_to_chat_item(message: ModelMessage) -> dict[str, Any]:
         return {
             "role": "assistant",
             "content": None,
-            "tool_calls": [
-                {
-                    "id": message.tool_call_id or "",
-                    "type": "function",
-                    "function": {
-                        "name": message.name or "",
-                        "arguments": _arguments_to_json(message),
-                    },
-                }
-            ],
+            "tool_calls": [_message_to_chat_tool_call(message)],
         }
 
     if message.type == ModelMessageType.FUNCTION_CALL_OUTPUT:
@@ -411,6 +433,17 @@ def _message_to_chat_item(message: ModelMessage) -> dict[str, Any]:
     return {
         "role": message.role.value,
         "content": message.content,
+    }
+
+
+def _message_to_chat_tool_call(message: ModelMessage) -> dict[str, Any]:
+    return {
+        "id": message.tool_call_id or "",
+        "type": "function",
+        "function": {
+            "name": message.name or "",
+            "arguments": _arguments_to_json(message),
+        },
     }
 
 

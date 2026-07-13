@@ -3,17 +3,22 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
+import pytest
+
+from codecraft.core.turn import TurnStatus
 from codecraft.core.event_bus import EventBus
 from codecraft.core.runtime import AgentRuntime
 from codecraft.core.session_store import SessionStore
 from codecraft.core.turn_context import TurnContext
 from codecraft.llm import (
     LLMProvider,
+    LLMProviderError,
     LLMProviderRegistry,
     MockProvider,
     ModelEvent,
     ModelEventType,
     ModelMessage,
+    QwenProvider,
 )
 from codecraft.schema.event import RuntimeEventType
 from codecraft.schema.input import SessionInput
@@ -242,6 +247,28 @@ def test_runtime_executes_all_tool_calls_from_one_model_response(tmp_path):
         assert snapshot.events[-1].payload["tool_calls"] == 2
         assert len(provider.calls) == 2
 
+        event_types = [event.type for event in snapshot.events]
+        first_call = event_types.index(RuntimeEventType.MODEL_TOOL_CALL)
+        first_start = event_types.index(RuntimeEventType.TOOL_CALL_STARTED)
+        assert event_types[first_call:first_start] == [
+            RuntimeEventType.MODEL_TOOL_CALL,
+            RuntimeEventType.MODEL_TOOL_CALL,
+        ]
+
+        chat_messages = QwenProvider._messages_to_chat(provider.calls[1][0])
+        assistant_batch = next(
+            message for message in chat_messages if message.get("tool_calls")
+        )
+        assert [item["id"] for item in assistant_batch["tool_calls"]] == [
+            "call_one",
+            "call_two",
+        ]
+        assert [
+            message["tool_call_id"]
+            for message in chat_messages
+            if message["role"] == "tool"
+        ] == ["call_one", "call_two"]
+
     asyncio.run(run_test())
 
 
@@ -286,5 +313,75 @@ def test_runtime_rejects_over_budget_tool_batch_without_partial_execution(tmp_pa
         assert snapshot.events[-1].type == RuntimeEventType.TURN_ABORTED
         assert snapshot.events[-1].payload["reason"] == "max_tool_calls_exceeded"
         assert snapshot.events[-1].payload["tool_calls"] == 0
+        assert [
+            call["call_id"]
+            for call in snapshot.events[-1].payload["metadata"]["requested_tool_calls"]
+        ] == ["call_one", "call_two"]
+
+    asyncio.run(run_test())
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        [
+            ModelEvent(
+                type=ModelEventType.MESSAGE_COMPLETED,
+                payload={"text": "unterminated"},
+            )
+        ],
+        [ModelEvent(type=ModelEventType.COMPLETED)],
+    ],
+)
+def test_runtime_rejects_incomplete_or_empty_model_responses(tmp_path, script):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([MockProvider(script)]),
+            tool_registry=ToolRegistry(),
+        )
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "answer me"))
+        turn = thread.session.active_turn
+        assert turn is not None
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert turn.status == TurnStatus.ABORTED
+        assert snapshot.events[-1].type == RuntimeEventType.TURN_ABORTED
+        assert snapshot.events[-1].payload["reason"] == "model_protocol_error"
+        assert snapshot.events[-1].payload["duration_ms"] >= 0
+
+    asyncio.run(run_test())
+
+
+def test_runtime_classifies_provider_exceptions_as_model_errors(tmp_path):
+    class FailingProvider(LLMProvider):
+        name = "failing"
+
+        async def stream(self, messages, tools, context):
+            if False:
+                yield
+            raise LLMProviderError("provider unavailable")
+
+    async def run_test() -> None:
+        config = make_config(tmp_path).model_copy(update={"model_provider": "failing"})
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([FailingProvider()]),
+            tool_registry=ToolRegistry(),
+        )
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "answer me"))
+        turn = thread.session.active_turn
+        assert turn is not None
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert turn.status == TurnStatus.ABORTED
+        assert snapshot.events[-2].type == RuntimeEventType.ERROR
+        assert snapshot.events[-2].payload["code"] == "model_error"
+        assert snapshot.events[-1].payload["reason"] == "model_error"
 
     asyncio.run(run_test())

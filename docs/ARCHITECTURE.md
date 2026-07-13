@@ -98,9 +98,9 @@ The session also owns the active turn task. `interrupt()` and `close()` cancel t
 6. append tool call/results back into conversation;
 7. emit `turn_finished` or `turn_aborted`.
 
-The turn is also responsible for reconstructing the assistant message from streaming deltas when the provider does not emit a final completed message.
+The turn reconstructs the assistant message from streaming deltas. Every provider response must end with an explicit `COMPLETED` event and must contain either non-empty assistant text or at least one valid `ToolCall`; incomplete or empty responses abort with `model_protocol_error`.
 
-A provider response may contain multiple tool calls. `Turn` preserves the complete ordered batch, executes each call through `ToolRunner`, appends every result, and only then requests the next model response. `max_tool_calls` counts executed calls, rejects an over-budget batch before any part of it runs, and still permits a final model response after the exact limit is reached.
+A provider response may contain multiple tool calls. `Turn` validates and records the complete ordered batch before executing any call, appends results in the same order, and only then requests the next model response. Chat Completions adapters serialize the batch as one assistant message with multiple `tool_calls`. `max_tool_calls` counts executed calls, rejects an over-budget batch before any part of it runs, records the rejected request in abort metadata, and still permits a final model response after the exact limit is reached.
 
 ### `SessionStore`
 
@@ -142,6 +142,8 @@ Current providers:
 - `deepseek`
 
 OpenAI uses the Responses-style compatible path. Qwen and DeepSeek use OpenAI-compatible Chat Completions streaming and translate `choices[].delta.content` into `MESSAGE_DELTA` events. Tool call argument chunks are accumulated before emitting a complete `TOOL_CALL`.
+
+`ModelEvent` payloads are validated by event type. Providers must supply non-empty text, normalized tool identities and arguments, non-negative token counts, and an explicit terminal event; `Turn` does not contain provider-specific field aliases or generated fallback call IDs.
 
 Provider connection configuration comes from `SessionConfig`:
 

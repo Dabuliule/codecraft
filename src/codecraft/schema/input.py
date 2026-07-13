@@ -4,9 +4,9 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from codecraft.schema.safety import sanitize_json_value, sanitize_text
+from codecraft.schema.safety import sanitize_text
 
 
 class SessionInputType(StrEnum):
@@ -15,19 +15,71 @@ class SessionInputType(StrEnum):
     APPROVAL_DECISION = "approval_decision"
 
 
+class UserMessagePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        sanitized = sanitize_text(value)
+        if not sanitized.strip():
+            raise ValueError("user message text must not be blank")
+        return sanitized
+
+
+class InterruptPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = "user_interrupt"
+
+    @field_validator("reason")
+    @classmethod
+    def sanitize_reason(cls, value: str) -> str:
+        return sanitize_text(value) or "user_interrupt"
+
+
+class ApprovalDecisionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approval_id: str = Field(min_length=1)
+    approved: bool
+    reason: str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def sanitize_reason(cls, value: str | None) -> str | None:
+        return sanitize_text(value) if value is not None else None
+
+
+SessionInputPayload = UserMessagePayload | InterruptPayload | ApprovalDecisionPayload
+
+
 class SessionInput(BaseModel):
-    input_id: str
+    model_config = ConfigDict(extra="forbid")
+
+    input_id: str = Field(min_length=1)
     type: SessionInputType
-    payload: dict[str, Any] = Field(default_factory=dict)
+    payload: SessionInputPayload
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    @field_validator("payload", mode="after")
+    @model_validator(mode="before")
     @classmethod
-    def _sanitize_payload(cls, value: dict[str, Any]) -> dict[str, Any]:
-        sanitized = sanitize_json_value(value)
-        if isinstance(sanitized, dict):
-            return sanitized
-        return {}
+    def validate_payload_for_type(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        input_type = SessionInputType(value.get("type"))
+        payload_type: type[BaseModel]
+        if input_type == SessionInputType.USER_MESSAGE:
+            payload_type = UserMessagePayload
+        elif input_type == SessionInputType.INTERRUPT:
+            payload_type = InterruptPayload
+        else:
+            payload_type = ApprovalDecisionPayload
+        normalized = dict(value)
+        normalized["payload"] = payload_type.model_validate(value.get("payload", {}))
+        return normalized
 
     @classmethod
     def user_message(cls, input_id: str, text: str) -> SessionInput:

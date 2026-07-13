@@ -3,13 +3,19 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 from time import monotonic
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from codecraft.core.turn_context import TurnContext
-from codecraft.llm.events import ModelEventType
+from codecraft.llm.base import LLMProtocolError
+from codecraft.llm.events import (
+    ModelErrorPayload,
+    ModelEventType,
+    ModelTextPayload,
+    ModelTokenCountPayload,
+)
 from codecraft.prompt import PromptBuilder
 from codecraft.schema.event import RuntimeEventType
-from codecraft.schema.input import SessionInput
+from codecraft.schema.input import SessionInput, UserMessagePayload
 from codecraft.schema.tool import ToolCall, ToolResult
 
 if TYPE_CHECKING:
@@ -43,6 +49,7 @@ class Turn:
         self.status = TurnStatus.CREATED
         self.tool_call_count = 0
         self.prompt_builder = PromptBuilder()
+        self._started_at: float | None = None
 
     async def run(self, user_input: SessionInput) -> None:
         """运行一次用户输入，直到模型给出最终回复或轮次中止。
@@ -50,9 +57,11 @@ class Turn:
         模型可能在一次响应中要求调用工具；工具结果会回填到 conversation，
         然后继续下一次模型调用，直到没有新的 tool call。
         """
-        started_at = monotonic()
+        self._started_at = monotonic()
         self.status = TurnStatus.RUNNING
-        text = str(user_input.payload.get("text", ""))
+        if not isinstance(user_input.payload, UserMessagePayload):
+            raise TypeError("turn requires a user message input")
+        text = user_input.payload.text
         await self.session.emit(
             RuntimeEventType.TURN_STARTED,
             {"input_id": user_input.input_id},
@@ -68,9 +77,10 @@ class Turn:
         answer = ""
 
         while True:
-            tool_calls: list[dict] = []
+            tool_calls: list[ToolCall] = []
             assistant_parts: list[str] = []
             completed_message: str | None = None
+            response_completed = False
 
             async for model_event in self.session.llm_provider.stream(
                 self.prompt_builder.build(
@@ -82,7 +92,13 @@ class Turn:
                 self.context,
             ):
                 if model_event.type == ModelEventType.MESSAGE_DELTA:
-                    delta = str(model_event.payload.get("text", ""))
+                    if not isinstance(model_event.payload, ModelTextPayload):
+                        raise LLMProtocolError("message delta has an invalid payload")
+                    if completed_message is not None:
+                        raise LLMProtocolError(
+                            "message delta arrived after a completed message"
+                        )
+                    delta = model_event.payload.text
                     assistant_parts.append(delta)
                     await self.session.emit(
                         RuntimeEventType.ASSISTANT_MESSAGE_DELTA,
@@ -91,7 +107,15 @@ class Turn:
                     )
 
                 elif model_event.type == ModelEventType.MESSAGE_COMPLETED:
-                    completed_message = str(model_event.payload.get("text", ""))
+                    if not isinstance(model_event.payload, ModelTextPayload):
+                        raise LLMProtocolError(
+                            "completed message has an invalid payload"
+                        )
+                    if assistant_parts or completed_message is not None:
+                        raise LLMProtocolError(
+                            "provider mixed streamed and completed message events"
+                        )
+                    completed_message = model_event.payload.text
                     await self.session.emit(
                         RuntimeEventType.ASSISTANT_MESSAGE,
                         {"text": completed_message},
@@ -102,31 +126,44 @@ class Turn:
                     )
 
                 elif model_event.type == ModelEventType.TOKEN_COUNT:
+                    if not isinstance(model_event.payload, ModelTokenCountPayload):
+                        raise LLMProtocolError("token count has an invalid payload")
                     await self.session.emit(
                         RuntimeEventType.TOKEN_COUNT,
-                        dict(model_event.payload),
+                        model_event.payload.model_dump(mode="json"),
                         turn_id=self.turn_id,
                     )
 
                 elif model_event.type == ModelEventType.TOOL_CALL:
-                    tool_calls.append(dict(model_event.payload))
+                    if not isinstance(model_event.payload, ToolCall):
+                        raise LLMProtocolError("tool call has an invalid payload")
+                    tool_calls.append(model_event.payload)
 
                 elif model_event.type == ModelEventType.ERROR:
+                    if not isinstance(model_event.payload, ModelErrorPayload):
+                        raise LLMProtocolError("model error has an invalid payload")
                     await self.session.emit(
                         RuntimeEventType.ERROR,
-                        dict(model_event.payload),
+                        {
+                            "code": "model_error",
+                            "message": model_event.payload.message,
+                        },
                         turn_id=self.turn_id,
                     )
-                    await self.abort(
-                        "model_error", str(model_event.payload.get("message", ""))
-                    )
+                    await self.abort("model_error", model_event.payload.message)
                     return
 
                 elif model_event.type == ModelEventType.COMPLETED:
+                    response_completed = True
                     break
 
+            if not response_completed:
+                raise LLMProtocolError(
+                    "model event stream ended without a completed event"
+                )
+
             if tool_calls:
-                completed_message = await self._flush_streamed_message(
+                await self._flush_streamed_message(
                     assistant_parts,
                     completed_message,
                 )
@@ -134,10 +171,19 @@ class Turn:
                     await self.abort(
                         "max_tool_calls_exceeded",
                         "Turn requested more tool calls than the configured limit.",
+                        metadata={
+                            "requested_tool_calls": [
+                                call.model_dump(mode="json") for call in tool_calls
+                            ],
+                            "remaining_tool_calls": (
+                                self.context.max_tool_calls - self.tool_call_count
+                            ),
+                        },
                     )
                     return
-                for payload in tool_calls:
-                    await self._run_tool_call(payload)
+                await self._record_tool_calls(tool_calls)
+                for call in tool_calls:
+                    await self._run_tool_call(call)
                     self.tool_call_count += 1
                 continue
 
@@ -153,20 +199,26 @@ class Turn:
                         completed_message
                     )
 
-            answer = completed_message or ""
+            if not completed_message:
+                raise LLMProtocolError(
+                    "model completed without an assistant message or tool call"
+                )
+            answer = completed_message
             break
 
-        self.status = TurnStatus.FINISHED
+        await self.finish(answer)
+
+    async def finish(self, answer: str) -> None:
         await self.session.emit(
             RuntimeEventType.TURN_FINISHED,
             {
-                "status": "success",
-                "answer": answer or "",
+                "answer": answer,
                 "tool_calls": self.tool_call_count,
-                "duration_ms": int((monotonic() - started_at) * 1000),
+                "duration_ms": self._duration_ms(),
             },
             turn_id=self.turn_id,
         )
+        self.status = TurnStatus.FINISHED
 
     async def _flush_streamed_message(
         self,
@@ -188,20 +240,18 @@ class Turn:
         self.session.conversation.append_assistant_message(streamed_message)
         return streamed_message
 
-    async def _run_tool_call(self, payload: dict) -> ToolResult:
-        """执行模型发起的 tool call，并把调用和结果写回 conversation。"""
-        call = self._build_tool_call(payload)
-        await self.session.emit(
-            RuntimeEventType.MODEL_TOOL_CALL,
-            call.model_dump(mode="json"),
-            turn_id=self.turn_id,
-        )
-        self.session.conversation.append_model_tool_call(
-            call.call_id,
-            call.name,
-            call.arguments,
-        )
+    async def _record_tool_calls(self, calls: list[ToolCall]) -> None:
+        for call in calls:
+            await self.session.emit(
+                RuntimeEventType.MODEL_TOOL_CALL,
+                call.model_dump(mode="json"),
+                turn_id=self.turn_id,
+            )
+        self.session.conversation.append_model_tool_calls(calls)
 
+    async def _run_tool_call(self, call: ToolCall) -> ToolResult:
+        """执行模型发起的 tool call，并把调用和结果写回 conversation。"""
+        started_at = monotonic()
         result: ToolResult | None = None
         async for runner_event in self.session.tool_runner.run(call, self.context):
             await self.session.emit(
@@ -218,6 +268,16 @@ class Turn:
                 content="Tool did not produce a result.",
                 error="tool_result_missing",
             )
+            await self.session.emit(
+                RuntimeEventType.TOOL_CALL_FINISHED,
+                {
+                    "call_id": call.call_id,
+                    "name": call.name,
+                    "result": result.model_dump(mode="json"),
+                    "duration_ms": int((monotonic() - started_at) * 1000),
+                },
+                turn_id=self.turn_id,
+            )
 
         self.session.conversation.append_tool_result(
             call.call_id,
@@ -225,18 +285,6 @@ class Turn:
             result.content,
         )
         return result
-
-    @staticmethod
-    def _build_tool_call(payload: dict) -> ToolCall:
-        """兼容不同 provider 的 tool call 字段命名。"""
-        if "call_id" in payload and "name" in payload:
-            return ToolCall.model_validate(payload)
-
-        return ToolCall(
-            call_id=str(payload.get("call_id", "")) or "call_auto",
-            name=str(payload.get("name") or payload.get("tool")),
-            arguments=dict(payload.get("arguments") or payload.get("args") or {}),
-        )
 
     def _build_context(self) -> TurnContext:
         config = self.session.config
@@ -257,14 +305,29 @@ class Turn:
             created_at=datetime.now(UTC),
         )
 
-    async def abort(self, reason: str, message: str) -> None:
-        self.status = TurnStatus.ABORTED
+    async def abort(
+        self,
+        reason: str,
+        message: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if self.status in {TurnStatus.FINISHED, TurnStatus.ABORTED}:
+            return
         await self.session.emit(
             RuntimeEventType.TURN_ABORTED,
             {
                 "reason": reason,
                 "message": message,
                 "tool_calls": self.tool_call_count,
+                "duration_ms": self._duration_ms(),
+                "metadata": metadata or {},
             },
             turn_id=self.turn_id,
         )
+        self.status = TurnStatus.ABORTED
+
+    def _duration_ms(self) -> int:
+        if self._started_at is None:
+            return 0
+        return int((monotonic() - self._started_at) * 1000)

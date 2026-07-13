@@ -772,6 +772,11 @@ def test_exec_command_prints_bash_approval_details(tmp_path, monkeypatch):
                                 },
                             ),
                             ModelEvent(type=ModelEventType.COMPLETED),
+                            ModelEvent(
+                                type=ModelEventType.MESSAGE_COMPLETED,
+                                payload={"text": "Command was not run."},
+                            ),
+                            ModelEvent(type=ModelEventType.COMPLETED),
                         ]
                     )
                 ]
