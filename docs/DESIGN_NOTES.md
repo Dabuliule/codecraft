@@ -142,7 +142,7 @@ CodeCraft's own MCP server is deliberately narrower than its client. It exports 
 
 The Textual interface is another consumer of `RuntimeEvent`, not a parallel runtime. It submits normal `SessionInput` values and waits for approval through `AgentThread`, preserving session logs, policy decisions, and trace behavior across CLI and TUI surfaces.
 
-The TUI is the only multi-turn human interface. The CLI remains focused on one-shot execution, automation, diagnostics, evaluation, indexing, and server processes; it does not maintain a second line-oriented chat or resume shell.
+The TUI is the only multi-turn human interface and launches from bare `codecraft`. Named CLI subcommands remain focused on one-shot execution, automation, diagnostics, evaluation, indexing, and server processes; they do not maintain a second line-oriented chat or resume shell.
 
 Streaming UI state is local and disposable: assistant deltas update the current visual message block, while the persisted assistant event remains the recovery source. This keeps rendering concerns out of `Session` and lets headless pilot tests verify interaction without changing core execution semantics.
 
@@ -195,8 +195,6 @@ Stable user-facing contracts are the CLI behavior, configuration format, persist
 
 These are intentional future items rather than hidden assumptions:
 
-- automatic context compaction beyond current event/reconstruction support;
-- explicit interactive resume by session id;
 - automatic invalid session pruning or repair;
 - warm Docker sandboxes and persistent tool caches;
 - Streamable HTTP MCP transport, resources, prompts, and dynamic tool refresh;

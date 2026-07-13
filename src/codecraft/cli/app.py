@@ -11,9 +11,9 @@ from codecraft.cli.commands import (
     register_inspect_command,
     register_mcp_server_command,
     register_retrieval_eval_command,
+    register_root_command,
     register_sessions_command,
     register_trace_command,
-    register_tui_command,
 )
 from codecraft.core.runtime import AgentRuntime
 from codecraft.llm import LLMProviderRegistry
@@ -22,7 +22,7 @@ from codecraft.tool import ToolRegistry
 
 
 app = typer.Typer(
-    no_args_is_help=True,
+    no_args_is_help=False,
     help="CodeCraft local coding agent.",
 )
 
@@ -82,7 +82,7 @@ register_sessions_command(app)
 register_inspect_command(app)
 register_mcp_server_command(app)
 register_trace_command(app)
-register_tui_command(app)
+register_root_command(app)
 
 
 if __name__ == "__main__":

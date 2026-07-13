@@ -64,10 +64,10 @@ def seed_session(tmp_path) -> SessionConfig:
     return asyncio.run(run())
 
 
-def test_cli_exposes_tui_as_the_only_interactive_command():
+def test_cli_uses_root_as_the_only_interactive_entrypoint():
     command_names = {command.name for command in app.registered_commands}
 
-    assert "tui" in command_names
+    assert "tui" not in command_names
     assert "exec" in command_names
     assert "chat" not in command_names
     assert "resume" not in command_names

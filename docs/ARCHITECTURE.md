@@ -281,6 +281,7 @@ Project instructions come from `AGENTS.md` and `CODECRAFT.md`, searched upward f
 
 The Typer CLI supports:
 
+- bare `codecraft` for the interactive TUI
 - `codecraft exec`
 - `codecraft sessions`
 - `codecraft inspect`
@@ -289,7 +290,6 @@ The Typer CLI supports:
 - `codecraft index`
 - `codecraft retrieval-eval`
 - `codecraft mcp-server`
-- `codecraft tui`
 
 CLI responsibilities are config loading, runtime construction, one-shot input submission, approval prompting, diagnostics, evaluation, indexing, and service commands. Multi-turn human interaction and session continuation belong to the TUI. Core runtime modules do not depend on CLI code.
 

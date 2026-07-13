@@ -351,7 +351,7 @@ def test_tui_browses_resumes_and_continues_session(tmp_path):
     asyncio.run(run_test())
 
 
-def test_tui_command_uses_tui_session_source(tmp_path, monkeypatch):
+def test_root_command_uses_tui_session_source(tmp_path, monkeypatch):
     captured: list[SessionConfig] = []
 
     def fake_run(self) -> None:
@@ -362,7 +362,6 @@ def test_tui_command_uses_tui_session_source(tmp_path, monkeypatch):
     result = runner.invoke(
         app,
         [
-            "tui",
             "--provider",
             "mock",
             "--model",
@@ -377,7 +376,7 @@ def test_tui_command_uses_tui_session_source(tmp_path, monkeypatch):
     assert captured[0].model_provider == "mock"
 
 
-def test_tui_command_forwards_direct_resume_options(tmp_path, monkeypatch):
+def test_root_command_forwards_direct_resume_options(tmp_path, monkeypatch):
     captured: list[CodeCraftTUI] = []
 
     def fake_run(self) -> None:
@@ -388,7 +387,6 @@ def test_tui_command_forwards_direct_resume_options(tmp_path, monkeypatch):
     result = runner.invoke(
         app,
         [
-            "tui",
             "--provider",
             "mock",
             "--model",

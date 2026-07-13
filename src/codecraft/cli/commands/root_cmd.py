@@ -11,9 +11,10 @@ from codecraft.schema.session import SessionSource
 from codecraft.tui import CodeCraftTUI
 
 
-def register_tui_command(app: typer.Typer) -> None:
-    @app.command("tui")
-    def tui_command(
+def register_root_command(app: typer.Typer) -> None:
+    @app.callback(invoke_without_command=True)
+    def root_command(
+        context: typer.Context,
         provider: Annotated[
             str | None,
             typer.Option(
@@ -53,6 +54,9 @@ def register_tui_command(app: typer.Typer) -> None:
             ),
         ] = False,
     ) -> None:
+        if context.invoked_subcommand is not None:
+            return
+
         from codecraft.cli import app as cli_app
 
         if resume is not None and last:

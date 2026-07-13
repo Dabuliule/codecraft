@@ -57,7 +57,7 @@ pipx upgrade codecraft
 After installation, run:
 
 ```zsh
-codecraft tui
+codecraft
 ```
 
 For local development from a clone:
@@ -66,7 +66,7 @@ For local development from a clone:
 git clone https://github.com/Dabuliule/codecraft.git
 cd codecraft
 uv sync
-uv run codecraft tui
+uv run codecraft
 ```
 
 ## Current CLI
@@ -80,7 +80,7 @@ uv run codecraft exec "summarize this repository"
 Start the full-screen terminal UI:
 
 ```zsh
-uv run codecraft tui
+uv run codecraft
 ```
 
 The TUI keeps conversation, runtime status, token usage, and tool activity visible at the same time. Assistant Markdown updates in place while streaming, risky tool calls open an approval modal, and the input remains locked until the active turn finishes. It consumes the same `RuntimeEvent` stream as the CLI and does not implement a separate agent loop.
@@ -88,8 +88,8 @@ The TUI keeps conversation, runtime status, token usage, and tool activity visib
 When the current repository has previous sessions, startup opens a session browser. Select one to restore its persisted configuration and conversation, or start a new session. Direct resume is also available:
 
 ```zsh
-uv run codecraft tui --last
-uv run codecraft tui --resume <session_id>
+uv run codecraft --last
+uv run codecraft --resume <session_id>
 ```
 
 The restored visual history is bounded to keep long-running terminal sessions responsive; the runtime still reconstructs the full available model context from the event log.
@@ -251,12 +251,12 @@ CodeCraft intentionally uses `api_key_env` instead of recommending plaintext API
 Useful CLI overrides:
 
 ```zsh
-uv run codecraft tui --provider qwen --model qwen-plus
-uv run codecraft tui --provider deepseek --model deepseek-v4-flash
-uv run codecraft tui --config ./my-config.toml
-uv run codecraft tui --profile work
-uv run codecraft tui --approval-policy on_request
-uv run codecraft tui --network
+uv run codecraft --provider qwen --model qwen-plus
+uv run codecraft --provider deepseek --model deepseek-v4-flash
+uv run codecraft --config ./my-config.toml
+uv run codecraft --profile work
+uv run codecraft --approval-policy on_request
+uv run codecraft --network
 ```
 
 ## Providers
@@ -472,7 +472,7 @@ The event log includes session, turn, user, assistant, model tool call, tool sta
 
 Events and the embedded session configuration carry schema versions. Missing or unknown versions are rejected with a restore error instead of being interpreted partially.
 
-`tui --last` loads the latest valid session for the current workspace, reconstructs conversation from events, and continues without replaying historical tools.
+`codecraft --last` loads the latest valid session for the current workspace, reconstructs conversation from events, and continues without replaying historical tools.
 
 If a session log is invalid, normal listing skips it. To see invalid logs:
 
@@ -492,7 +492,7 @@ Install and run from the repository:
 
 ```zsh
 uv sync
-uv run codecraft tui
+uv run codecraft
 ```
 
 Quality checks:

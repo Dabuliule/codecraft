@@ -56,7 +56,7 @@ pipx upgrade codecraft
 安装后运行：
 
 ```zsh
-codecraft tui
+codecraft
 ```
 
 从源码本地开发：
@@ -65,7 +65,7 @@ codecraft tui
 git clone https://github.com/Dabuliule/codecraft.git
 cd codecraft
 uv sync
-uv run codecraft tui
+uv run codecraft
 ```
 
 ## 当前 CLI
@@ -79,7 +79,7 @@ uv run codecraft exec "总结一下这个仓库"
 启动全屏终端界面：
 
 ```zsh
-uv run codecraft tui
+uv run codecraft
 ```
 
 TUI 会同时显示对话、runtime 状态、Token 用量和工具活动。Assistant Markdown 在流式输出时原位更新，高风险工具调用会打开审批弹窗，当前 turn 结束前输入框保持锁定。它消费与 CLI 相同的 `RuntimeEvent`，没有实现第二套 Agent loop。
@@ -87,8 +87,8 @@ TUI 会同时显示对话、runtime 状态、Token 用量和工具活动。Assis
 当前仓库存在历史 session 时，TUI 启动后会打开 session 浏览器，可以选择恢复原有配置和对话，也可以新建 session。还可以直接恢复：
 
 ```zsh
-uv run codecraft tui --last
-uv run codecraft tui --resume <session_id>
+uv run codecraft --last
+uv run codecraft --resume <session_id>
 ```
 
 为了让长 session 的终端渲染保持流畅，恢复时只显示有限数量的历史消息；Runtime 仍会从事件日志重建全部可用模型上下文。
@@ -195,12 +195,12 @@ CodeCraft 推荐使用 `api_key_env`，不推荐把明文 API key 写进 TOML。
 常用 CLI 覆盖：
 
 ```zsh
-uv run codecraft tui --provider qwen --model qwen-plus
-uv run codecraft tui --provider deepseek --model deepseek-v4-flash
-uv run codecraft tui --config ./my-config.toml
-uv run codecraft tui --profile work
-uv run codecraft tui --approval-policy on_request
-uv run codecraft tui --network
+uv run codecraft --provider qwen --model qwen-plus
+uv run codecraft --provider deepseek --model deepseek-v4-flash
+uv run codecraft --config ./my-config.toml
+uv run codecraft --profile work
+uv run codecraft --approval-policy on_request
+uv run codecraft --network
 ```
 
 ## Provider
@@ -414,7 +414,7 @@ Session 事件以 JSONL 存储：
 
 事件与其中的 session 配置分别携带 schema 版本。缺失或未知版本会被明确拒绝，避免按不完整语义恢复。
 
-`tui --last` 会加载当前 workspace 最近一个有效 session，从事件重建 conversation，然后继续对话，不会重新执行历史工具。
+`codecraft --last` 会加载当前 workspace 最近一个有效 session，从事件重建 conversation，然后继续对话，不会重新执行历史工具。
 
 如果 session log 损坏，默认列表会跳过它。要查看损坏日志：
 
@@ -434,7 +434,7 @@ uv run codecraft inspect <session_id> --raw
 
 ```zsh
 uv sync
-uv run codecraft tui
+uv run codecraft
 ```
 
 质量检查：
