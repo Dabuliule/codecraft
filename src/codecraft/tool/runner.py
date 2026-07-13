@@ -112,9 +112,7 @@ class ToolRunner:
                 approval_started_at = monotonic()
                 approval_error: str | None = None
                 approval_exception_type: str | None = None
-                approval_deadline = asyncio.timeout(
-                    context.approval_timeout_seconds
-                )
+                approval_deadline = asyncio.timeout(context.approval_timeout_seconds)
                 try:
                     async with approval_deadline:
                         approval_decision = await self.approval_manager.request(
@@ -127,21 +125,23 @@ class ToolRunner:
                         else "approval_error"
                     )
                     approval_exception_type = type(exc).__name__
-                    approval_decision = self.approval_manager.build_reviewer_failure_decision(
-                        approval_request,
-                        timed_out=approval_deadline.expired(),
+                    approval_decision = (
+                        self.approval_manager.build_reviewer_failure_decision(
+                            approval_request,
+                            timed_out=approval_deadline.expired(),
+                        )
                     )
                 except Exception as exc:
                     approval_error = "approval_error"
                     approval_exception_type = type(exc).__name__
-                    approval_decision = self.approval_manager.build_reviewer_failure_decision(
-                        approval_request,
-                        timed_out=False,
+                    approval_decision = (
+                        self.approval_manager.build_reviewer_failure_decision(
+                            approval_request,
+                            timed_out=False,
+                        )
                     )
                 finally:
-                    approval_wait_ms = int(
-                        (monotonic() - approval_started_at) * 1000
-                    )
+                    approval_wait_ms = int((monotonic() - approval_started_at) * 1000)
                 yield ToolRunnerEvent(
                     RuntimeEventType.APPROVAL_DECIDED,
                     approval_decision.model_dump(mode="json"),
@@ -166,9 +166,7 @@ class ToolRunner:
                             ),
                         },
                     )
-                    result = self._limit_output(
-                        result, context.max_tool_output_chars
-                    )
+                    result = self._limit_output(result, context.max_tool_output_chars)
                     yield ToolRunnerEvent(
                         RuntimeEventType.TOOL_CALL_FINISHED,
                         self._finished_payload(
@@ -311,7 +309,9 @@ class ToolRunner:
                 }
             return observer.name, details
 
-        completed = await asyncio.gather(*(run(observer) for observer in self.observers))
+        completed = await asyncio.gather(
+            *(run(observer) for observer in self.observers)
+        )
         return {name: details for name, details in completed if details is not None}
 
     @staticmethod

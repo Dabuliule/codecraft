@@ -137,7 +137,9 @@ def test_runtime_compacts_context_and_reconstructs_exact_snapshot(tmp_path):
             if event.type == RuntimeEventType.CONTEXT_COMPACTED
         ]
         assert len(compacted) == 1
-        assert compacted[0].payload["after_chars"] < compacted[0].payload["before_chars"]
+        assert (
+            compacted[0].payload["after_chars"] < compacted[0].payload["before_chars"]
+        )
         assert provider.calls[1][0][1].role.value == "system"
         assert provider.calls[1][0][-1].content == "new question"
         reconstructed = reconstruct_conversation(snapshot.events)
@@ -268,9 +270,7 @@ def test_tool_runner_enforces_tool_and_approval_timeouts(tmp_path):
 
         raised_events = [
             event
-            async for event in ToolRunner(
-                ToolRegistry([RaisesTimeoutTool()])
-            ).run(
+            async for event in ToolRunner(ToolRegistry([RaisesTimeoutTool()])).run(
                 ToolCall(
                     call_id="call_owned_timeout",
                     name="raises_timeout",
