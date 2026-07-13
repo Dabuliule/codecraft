@@ -46,6 +46,12 @@ user = "Always answer in Chinese."
 [turn]
 max_tool_calls = 12
 max_tool_output_chars = 4096
+turn_timeout_seconds = 900
+tool_timeout_seconds = 120
+approval_timeout_seconds = 60
+max_context_chars = 200000
+context_keep_recent_items = 8
+max_parallel_read_tools = 3
 """,
         encoding="utf-8",
     )
@@ -71,6 +77,12 @@ policy = "untrusted"
     assert settings.instructions.user == "Always answer in Chinese."
     assert settings.turn.max_tool_calls == 12
     assert settings.turn.max_tool_output_chars == 4096
+    assert settings.turn.turn_timeout_seconds == 900
+    assert settings.turn.tool_timeout_seconds == 120
+    assert settings.turn.approval_timeout_seconds == 60
+    assert settings.turn.max_context_chars == 200_000
+    assert settings.turn.context_keep_recent_items == 8
+    assert settings.turn.max_parallel_read_tools == 3
 
 
 def test_config_loader_uses_builtin_defaults_when_files_are_missing(tmp_path):
@@ -85,3 +97,9 @@ def test_config_loader_uses_builtin_defaults_when_files_are_missing(tmp_path):
     assert settings.instructions.user is None
     assert settings.turn.max_tool_calls == 30
     assert settings.turn.max_tool_output_chars == 80_000
+    assert settings.turn.turn_timeout_seconds == 1800
+    assert settings.turn.tool_timeout_seconds == 300
+    assert settings.turn.approval_timeout_seconds == 300
+    assert settings.turn.max_context_chars == 400_000
+    assert settings.turn.context_keep_recent_items == 12
+    assert settings.turn.max_parallel_read_tools == 4

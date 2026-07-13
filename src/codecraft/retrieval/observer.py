@@ -30,8 +30,7 @@ class WorkspaceIndexObserver:
         if not grouped:
             return None
 
-        updates = []
-        for root, changed in grouped.items():
+        async def refresh(root: Path, changed: list[Path]) -> dict[str, Any]:
             try:
                 stats = await asyncio.to_thread(
                     self.index.refresh_paths,
@@ -39,24 +38,23 @@ class WorkspaceIndexObserver:
                     changed,
                 )
             except RetrievalUnavailableError:
-                updates.append(
-                    {
-                        "workspace": str(root),
-                        "status": "skipped",
-                        "reason": "index_not_built",
-                    }
-                )
-                continue
-            updates.append(
-                {
+                return {
                     "workspace": str(root),
-                    "status": "updated",
-                    "updated_files": stats.updated_file_count,
-                    "unchanged_files": stats.unchanged_file_count,
-                    "deleted_files": stats.deleted_file_count,
-                    "indexed_bytes": stats.indexed_bytes,
+                    "status": "skipped",
+                    "reason": "index_not_built",
                 }
-            )
+            return {
+                "workspace": str(root),
+                "status": "updated",
+                "updated_files": stats.updated_file_count,
+                "unchanged_files": stats.unchanged_file_count,
+                "deleted_files": stats.deleted_file_count,
+                "indexed_bytes": stats.indexed_bytes,
+            }
+
+        updates = await asyncio.gather(
+            *(refresh(root, changed) for root, changed in grouped.items())
+        )
         return {"workspaces": updates}
 
 

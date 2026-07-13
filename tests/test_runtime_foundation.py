@@ -2336,7 +2336,18 @@ def test_runtime_resume_uses_context_compaction_summary(tmp_path):
                 turn_id="turn_one",
                 seq=3,
                 type=RuntimeEventType.CONTEXT_COMPACTED,
-                payload={"summary": "old conversation summary"},
+                payload={
+                    "summary": "old conversation summary",
+                    "conversation": {
+                        "items": [
+                            {
+                                "item_id": "item_summary",
+                                "role": "summary",
+                                "content": "old conversation summary",
+                            }
+                        ]
+                    },
+                },
             )
         )
         provider = MockProvider(

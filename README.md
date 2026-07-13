@@ -226,7 +226,19 @@ user = "Answer concisely."
 [turn]
 max_tool_calls = 30
 max_tool_output_chars = 80000
+turn_timeout_seconds = 1800
+tool_timeout_seconds = 300
+approval_timeout_seconds = 300
+max_context_chars = 400000
+context_keep_recent_items = 12
+max_parallel_read_tools = 4
 ```
+
+The runtime applies separate deadlines to the whole turn, each tool execution,
+and interactive approval. `max_context_chars` is a provider-neutral guardrail:
+older complete turns are compacted into a persisted summary while the current
+tool protocol remains intact. Only batches made entirely of approval-free,
+read-only tools use bounded parallel execution.
 
 Then set the API key through the environment:
 

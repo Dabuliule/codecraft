@@ -123,6 +123,12 @@ def load_session_config(
         user_instructions=settings.instructions.user,
         max_tool_calls=settings.turn.max_tool_calls,
         max_tool_output_chars=settings.turn.max_tool_output_chars,
+        turn_timeout_seconds=settings.turn.turn_timeout_seconds,
+        tool_timeout_seconds=settings.turn.tool_timeout_seconds,
+        approval_timeout_seconds=settings.turn.approval_timeout_seconds,
+        max_context_chars=settings.turn.max_context_chars,
+        context_keep_recent_items=settings.turn.context_keep_recent_items,
+        max_parallel_read_tools=settings.turn.max_parallel_read_tools,
     )
 
 

@@ -43,9 +43,22 @@ The same ownership rule applies to queued input. Starting the next turn is decid
 
 ## One Model Response May Request Multiple Tools
 
-Tool calls from a single provider response form an ordered batch. `Turn` collects and records the entire batch before execution, executes every call through the normal governance path, records every result in conversation, and then returns control to the model. Chat adapters preserve that boundary as one assistant message containing multiple calls. The runtime does not discard later calls or create provider-specific parallel execution semantics.
+Tool calls from a single provider response form an ordered batch. `Turn` collects and records the entire batch before execution, executes every call through the normal governance path, records every result in conversation, and then returns control to the model. Chat adapters preserve that boundary as one assistant message containing multiple calls. The runtime does not discard later calls or create provider-specific scheduling semantics.
 
-Execution is intentionally serial for now. It preserves model order, approval order, deterministic event traces, and behavior when calls touch the same files. Independent parallel tool scheduling can be added later as an explicit planner concern if measurements justify the additional conflict handling.
+Scheduling follows declared effects. A batch runs concurrently only when every tool is approval-free and has no effect beyond `read_only`, with `max_parallel_read_tools` as a hard bound. All other batches execute serially, preserving approval order and avoiding write conflicts. Completion events may interleave for concurrent reads, but results are appended to conversation in the provider's original call order.
+
+## Context Budget Is A Runtime Boundary
+
+The runtime uses serialized character count as a conservative, provider-neutral
+budget instead of pretending tokenizers are interchangeable. Compaction only
+removes complete history before the current user turn, emits a deterministic
+summary, and persists the exact resulting conversation. If the fixed system and
+tool payload or current turn cannot fit, the turn aborts with
+`context_limit_exceeded` instead of sending a partially valid tool protocol.
+
+`assistant_message` is the conversation fact used for resume.
+`turn_finished.answer` is the terminal snapshot returned to callers and is not a
+second conversation item; both values are produced from the same finalized text.
 
 ## JSONL Is A Fact Log, Not A Hidden Database
 

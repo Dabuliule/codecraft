@@ -38,10 +38,9 @@ def reconstruct_conversation(events: list[RuntimeEvent]) -> Conversation:
             conversation.append_tool_result(call_id, name, content)
 
         elif event.type == RuntimeEventType.CONTEXT_COMPACTED:
-            summary = event.payload.get("summary")
-            if isinstance(summary, str) and summary:
-                # 压缩事件代表旧上下文被摘要替换，之前的消息不再进入模型上下文。
-                conversation = Conversation()
-                conversation.append_summary(summary)
+            snapshot = event.payload.get("conversation")
+            if not isinstance(snapshot, dict):
+                raise ValueError("context_compacted event is missing its conversation")
+            conversation = Conversation.model_validate(snapshot)
 
     return conversation

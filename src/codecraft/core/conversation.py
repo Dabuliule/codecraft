@@ -157,6 +157,109 @@ class Conversation(BaseModel):
                 return item
         return None
 
+    def context_chars(self) -> int:
+        """Return a provider-neutral size estimate for the model-visible history."""
+        return len(
+            json.dumps(
+                [
+                    message.model_dump(mode="json")
+                    for message in self.build_model_messages()
+                ],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+
+    def compact(
+        self,
+        *,
+        max_chars: int,
+        keep_recent_items: int,
+    ) -> dict[str, Any] | None:
+        """Replace older complete turns with a deterministic summary.
+
+        The latest user turn is always kept intact so function calls and their
+        outputs cannot be separated. If that turn alone exceeds the budget, the
+        caller must reject the request instead of producing an invalid history.
+        """
+        before_chars = self.context_chars()
+        if before_chars <= max_chars or not self.items:
+            return None
+
+        latest_user_index = next(
+            (
+                index
+                for index in range(len(self.items) - 1, -1, -1)
+                if self.items[index].role == ConversationRole.USER
+            ),
+            None,
+        )
+        if latest_user_index is None:
+            return None
+
+        target_index = min(
+            latest_user_index,
+            max(0, len(self.items) - keep_recent_items),
+        )
+        start_index = next(
+            (
+                index
+                for index in range(target_index, latest_user_index + 1)
+                if self.items[index].role == ConversationRole.USER
+            ),
+            latest_user_index,
+        )
+        removed = self.items[:start_index]
+        if not removed:
+            return None
+
+        retained = [item.model_copy(deep=True) for item in self.items[start_index:]]
+        summary_text = self._summarize(removed)
+        compacted = Conversation(items=retained)
+        compacted.items.insert(
+            0,
+            ConversationItem(
+                item_id=new_id("item_"),
+                role=ConversationRole.SUMMARY,
+                content=summary_text,
+            ),
+        )
+
+        overflow = compacted.context_chars() - max_chars
+        if overflow > 0:
+            shortened = summary_text[: max(0, len(summary_text) - overflow - 1)].rstrip()
+            compacted.items[0].content = shortened
+
+        if not compacted.items[0].content or compacted.context_chars() > max_chars:
+            return None
+
+        self.items = compacted.items
+        after_chars = self.context_chars()
+        return {
+            "summary": self.items[0].content,
+            "before_chars": before_chars,
+            "after_chars": after_chars,
+            "removed_items": len(removed),
+            "retained_items": len(retained),
+            "conversation": self.model_dump(mode="json"),
+        }
+
+    @staticmethod
+    def _summarize(items: list[ConversationItem]) -> str:
+        lines = ["Earlier conversation summary:"]
+        for item in items:
+            if item.metadata.get("type") == ModelMessageType.FUNCTION_CALL.value:
+                detail = f"requested tool {item.name or 'unknown'}"
+            else:
+                detail = " ".join(item.content.split())
+                if len(detail) > 400:
+                    detail = f"{detail[:397]}..."
+            label = item.role.value
+            if item.role == ConversationRole.TOOL and item.name:
+                label = f"tool {item.name}"
+            lines.append(f"- {label}: {detail}")
+        return "\n".join(lines)
+
     @staticmethod
     def _to_model_role(role: ConversationRole) -> ModelRole | None:
         if role == ConversationRole.SUMMARY:

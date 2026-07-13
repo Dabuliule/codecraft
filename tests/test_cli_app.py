@@ -674,6 +674,12 @@ user = "Be terse."
 [turn]
 max_tool_calls = 7
 max_tool_output_chars = 2048
+turn_timeout_seconds = 600
+tool_timeout_seconds = 90
+approval_timeout_seconds = 45
+max_context_chars = 120000
+context_keep_recent_items = 6
+max_parallel_read_tools = 2
 """,
         encoding="utf-8",
     )
@@ -722,6 +728,12 @@ max_tool_output_chars = 2048
     assert seen_configs[0].user_instructions == "Be terse."
     assert seen_configs[0].max_tool_calls == 7
     assert seen_configs[0].max_tool_output_chars == 2048
+    assert seen_configs[0].turn_timeout_seconds == 600
+    assert seen_configs[0].tool_timeout_seconds == 90
+    assert seen_configs[0].approval_timeout_seconds == 45
+    assert seen_configs[0].max_context_chars == 120_000
+    assert seen_configs[0].context_keep_recent_items == 6
+    assert seen_configs[0].max_parallel_read_tools == 2
 
 
 def test_provider_registry_receives_session_model_connection_config(tmp_path):

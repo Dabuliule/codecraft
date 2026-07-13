@@ -208,23 +208,26 @@ class Session:
 
     async def _run_turn(self, turn: Turn, user_input: SessionInput) -> None:
         """包装 turn.run，确保异常也会变成可追踪的事件。"""
+        deadline = asyncio.timeout(turn.context.turn_timeout_seconds)
         try:
-            await turn.run(user_input)
+            async with deadline:
+                await turn.run(user_input)
+        except TimeoutError as exc:
+            if deadline.expired():
+                await turn.abort(
+                    "turn_timeout",
+                    "Turn exceeded the configured execution deadline.",
+                    metadata={
+                        "timeout_seconds": turn.context.turn_timeout_seconds,
+                    },
+                )
+            else:
+                await self._abort_from_exception(turn, exc)
         except asyncio.CancelledError as exc:
             reason = str(exc.args[0]) if exc.args else "turn_cancelled"
             await turn.abort(reason, reason)
         except Exception as exc:
-            error_payload = self._error_payload(exc)
-            await self.emit(
-                RuntimeEventType.ERROR,
-                error_payload,
-                turn_id=turn.turn_id,
-            )
-            await turn.abort(
-                error_payload["code"],
-                error_payload["message"],
-                metadata=error_payload.get("metadata", {}),
-            )
+            await self._abort_from_exception(turn, exc)
         finally:
             current_task = asyncio.current_task()
             async with self._state_lock:
@@ -237,6 +240,19 @@ class Session:
                     self.status = SessionStatus.IDLE
             if should_continue:
                 await self.start_turn_if_idle()
+
+    async def _abort_from_exception(self, turn: Turn, exc: Exception) -> None:
+        error_payload = self._error_payload(exc)
+        await self.emit(
+            RuntimeEventType.ERROR,
+            error_payload,
+            turn_id=turn.turn_id,
+        )
+        await turn.abort(
+            error_payload["code"],
+            error_payload["message"],
+            metadata=error_payload.get("metadata", {}),
+        )
 
     @staticmethod
     def _error_payload(exc: Exception) -> dict[str, Any]:

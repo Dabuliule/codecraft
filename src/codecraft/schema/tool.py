@@ -85,4 +85,11 @@ class ToolResult(BaseModel):
             details.append(
                 f"[output truncated from {original_chars} characters; request a narrower result]"
             )
+        if self.data is not None and self.data.get("data_truncated") is True:
+            original_chars = self.data.get("original_data_chars", "unknown")
+            details.append(
+                f"[structured data truncated from {original_chars} characters]"
+            )
+        if self.metadata.get("metadata_truncated") is True:
+            details.append("[tool metadata truncated]")
         return "\n".join(part for part in details if part)

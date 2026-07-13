@@ -62,6 +62,12 @@ class SessionConfig(BaseModel):
 
     max_tool_calls: int = Field(default=30, ge=1, le=1000)
     max_tool_output_chars: int = Field(default=80_000, ge=1, le=10_000_000)
+    turn_timeout_seconds: int = Field(default=1800, ge=1, le=7200)
+    tool_timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    approval_timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    max_context_chars: int = Field(default=400_000, ge=1000, le=20_000_000)
+    context_keep_recent_items: int = Field(default=12, ge=1, le=100)
+    max_parallel_read_tools: int = Field(default=4, ge=1, le=32)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     evaluation: EvalSessionContext | None = None

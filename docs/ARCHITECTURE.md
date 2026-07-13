@@ -84,7 +84,7 @@ The thread captures events from the session `EventBus` and hands them to consume
 
 `Session.emit()` is the single event creation path. It assigns monotonically increasing `seq`, writes the event to `SessionStore`, then publishes it through `EventBus`.
 
-The session also owns the active turn task. `interrupt()` and `close()` cancel that task and wait for its cleanup before exposing an idle or closed state. State transitions are serialized so a cancelled turn cannot start a queued turn after the session has closed, and `session_closed` is always emitted after the active turn's terminal event.
+The session also owns the active turn task. `interrupt()` and `close()` cancel that task and wait for its cleanup before exposing an idle or closed state. `turn_timeout_seconds` is enforced at this ownership boundary, so provider, tool, and observer work cannot outlive the turn deadline. State transitions are serialized so a cancelled turn cannot start a queued turn after the session has closed, and `session_closed` is always emitted after the active turn's terminal event.
 
 ### `Turn`
 
@@ -100,7 +100,7 @@ The session also owns the active turn task. `interrupt()` and `close()` cancel t
 
 The turn reconstructs the assistant message from streaming deltas. Every provider response must end with an explicit `COMPLETED` event and must contain either non-empty assistant text or at least one valid `ToolCall`; incomplete or empty responses abort with `model_protocol_error`.
 
-A provider response may contain multiple tool calls. `Turn` validates and records the complete ordered batch before executing any call, appends results in the same order, and only then requests the next model response. Chat Completions adapters serialize the batch as one assistant message with multiple `tool_calls`. `max_tool_calls` counts executed calls, rejects an over-budget batch before any part of it runs, records the rejected request in abort metadata, and still permits a final model response after the exact limit is reached.
+A provider response may contain multiple tool calls. `Turn` validates and records the complete ordered batch before executing any call, appends results in the same order, and only then requests the next model response. Batches composed entirely of approval-free `read_only` tools run with bounded concurrency; mixed, write, process, network, and approval-bearing batches remain serial. Chat Completions adapters serialize the batch as one assistant message with multiple `tool_calls`. `max_tool_calls` counts attempted calls, rejects an over-budget batch before any part of it runs, records the rejected request in abort metadata, and still permits a final model response after the exact limit is reached.
 
 ### `SessionStore`
 
@@ -122,9 +122,16 @@ Resume reconstructs conversation from existing runtime events instead of replayi
 - assistant messages
 - model tool calls
 - tool results
-- context compaction summaries when present
+- exact post-compaction conversation snapshots when present
 
 This keeps historical side effects from running twice.
+
+Before each provider request, `Turn` measures the serialized provider-neutral
+message and tool payload against `max_context_chars`. It replaces older complete
+turns with a deterministic summary while retaining the current user turn and its
+complete function-call protocol. `context_compacted` persists both the summary
+and exact compacted conversation snapshot, so resume reconstructs the context
+that was actually sent rather than regenerating a summary.
 
 ## LLM Providers
 
@@ -203,7 +210,7 @@ This keeps side-effect governance in one place.
 
 `WorkspaceGuard` prevents filesystem path escape for workspace tools and bash cwd.
 
-`ToolRunner` applies `max_tool_output_chars` to every model-facing `ToolResult.content` after observers run and before the result is persisted or appended to conversation. `ToolResult.model_content()` adds stable failure codes, recovery suggestions, and an explicit truncation marker to the text returned to the model; reconstruction uses the same method. Individual tools may impose stricter structured-data limits.
+`ToolRunner` applies `max_tool_output_chars` to model-facing content, structured data, metadata, and tool-emitted event payloads after observers run and before persistence. `ToolResult.model_content()` adds stable failure codes, recovery suggestions, and explicit truncation markers to the text returned to the model; reconstruction uses the same method. Tool execution and approval use independent deadlines. Every `tool_call_finished` event includes governance, approval wait, execution, observer, and total phase timings. Independent observers run concurrently but finish before the result is persisted, preserving event-log consistency.
 
 ## Approval And Sandbox
 

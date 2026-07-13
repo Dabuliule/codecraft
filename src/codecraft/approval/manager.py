@@ -157,6 +157,17 @@ class ApprovalManager:
         return decision
 
     @staticmethod
+    def build_reviewer_failure_decision(
+        request: ApprovalRequest,
+        *,
+        timed_out: bool,
+    ) -> ApprovalDecision:
+        return ApprovalDecision.deny(
+            request.approval_id,
+            "approval timed out" if timed_out else "approval review failed",
+        )
+
+    @staticmethod
     def build_request(
         *,
         call: ToolCall,

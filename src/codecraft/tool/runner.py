@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+import json
 from time import monotonic
 
 from pydantic import ValidationError
@@ -61,6 +63,10 @@ class ToolRunner:
         started_at = monotonic()
         result: ToolResult
         approved = False
+        approval_wait_ms = 0
+        execution_ms = 0
+        observer_ms = 0
+        execution_deadline: asyncio.Timeout | None = None
         try:
             tool = self.registry.get(call.name)
             args = tool.args_schema.model_validate(call.arguments)
@@ -80,14 +86,14 @@ class ToolRunner:
                         "denied_effect": sandbox_evaluation.denied_effect,
                     },
                 )
+                result = self._limit_output(result, context.max_tool_output_chars)
                 yield ToolRunnerEvent(
                     RuntimeEventType.TOOL_CALL_FINISHED,
-                    {
-                        "call_id": call.call_id,
-                        "name": call.name,
-                        "result": result.model_dump(mode="json"),
-                        "duration_ms": int((monotonic() - started_at) * 1000),
-                    },
+                    self._finished_payload(
+                        call,
+                        result,
+                        started_at=started_at,
+                    ),
                 )
                 return
 
@@ -103,9 +109,39 @@ class ToolRunner:
                     RuntimeEventType.APPROVAL_REQUESTED,
                     approval_request.model_dump(mode="json"),
                 )
-                approval_decision = await self.approval_manager.request(
-                    approval_request
+                approval_started_at = monotonic()
+                approval_error: str | None = None
+                approval_exception_type: str | None = None
+                approval_deadline = asyncio.timeout(
+                    context.approval_timeout_seconds
                 )
+                try:
+                    async with approval_deadline:
+                        approval_decision = await self.approval_manager.request(
+                            approval_request
+                        )
+                except TimeoutError as exc:
+                    approval_error = (
+                        "approval_timeout"
+                        if approval_deadline.expired()
+                        else "approval_error"
+                    )
+                    approval_exception_type = type(exc).__name__
+                    approval_decision = self.approval_manager.build_reviewer_failure_decision(
+                        approval_request,
+                        timed_out=approval_deadline.expired(),
+                    )
+                except Exception as exc:
+                    approval_error = "approval_error"
+                    approval_exception_type = type(exc).__name__
+                    approval_decision = self.approval_manager.build_reviewer_failure_decision(
+                        approval_request,
+                        timed_out=False,
+                    )
+                finally:
+                    approval_wait_ms = int(
+                        (monotonic() - approval_started_at) * 1000
+                    )
                 yield ToolRunnerEvent(
                     RuntimeEventType.APPROVAL_DECIDED,
                     approval_decision.model_dump(mode="json"),
@@ -113,34 +149,69 @@ class ToolRunner:
                 if not approval_decision.approved:
                     result = ToolResult(
                         success=False,
-                        content="Tool execution denied by approval.",
-                        error="approval_denied",
+                        content=(
+                            "Tool approval timed out."
+                            if approval_error == "approval_timeout"
+                            else "Tool execution denied by approval."
+                        ),
+                        error=approval_error or "approval_denied",
                         suggestion=approval_decision.reason,
                         metadata={
                             "approval_id": approval_decision.approval_id,
                             "tool": call.name,
+                            **(
+                                {"exception_type": approval_exception_type}
+                                if approval_exception_type is not None
+                                else {}
+                            ),
                         },
+                    )
+                    result = self._limit_output(
+                        result, context.max_tool_output_chars
                     )
                     yield ToolRunnerEvent(
                         RuntimeEventType.TOOL_CALL_FINISHED,
-                        {
-                            "call_id": call.call_id,
-                            "name": call.name,
-                            "result": result.model_dump(mode="json"),
-                            "duration_ms": int((monotonic() - started_at) * 1000),
-                        },
+                        self._finished_payload(
+                            call,
+                            result,
+                            started_at=started_at,
+                            approval_wait_ms=approval_wait_ms,
+                        ),
                     )
                     return
                 approved = True
-            result = await tool.arun(
-                args,
-                ToolContext(
-                    context=context,
-                    call=call,
-                    approved=approved,
-                    command_decision=evaluation.command_decision,
-                ),
-            )
+            execution_started_at = monotonic()
+            execution_deadline = asyncio.timeout(context.tool_timeout_seconds)
+            try:
+                async with execution_deadline:
+                    result = await tool.arun(
+                        args,
+                        ToolContext(
+                            context=context,
+                            call=call,
+                            approved=approved,
+                            command_decision=evaluation.command_decision,
+                        ),
+                    )
+            finally:
+                execution_ms = int((monotonic() - execution_started_at) * 1000)
+        except TimeoutError as exc:
+            if execution_deadline is not None and execution_deadline.expired():
+                result = ToolResult(
+                    success=False,
+                    content="Tool execution timed out.",
+                    error="tool_timeout",
+                    suggestion="Retry with a narrower operation or increase the tool timeout.",
+                    metadata={"timeout_seconds": context.tool_timeout_seconds},
+                )
+            else:
+                result = ToolResult(
+                    success=False,
+                    content="Tool execution failed.",
+                    error="tool_execution_error",
+                    suggestion="Check the tool arguments or runtime environment.",
+                    metadata={"exception_type": type(exc).__name__},
+                )
         except ValidationError as exc:
             result = ToolResult(
                 success=False,
@@ -176,26 +247,36 @@ class ToolRunner:
             )
 
         if result.success and self.observers:
+            observer_started_at = monotonic()
             post_actions = await self._run_observers(call, result, context)
+            observer_ms = int((monotonic() - observer_started_at) * 1000)
             if post_actions:
                 result.metadata["post_actions"] = post_actions
 
         result = self._limit_output(result, context.max_tool_output_chars)
-        finished_payload = {
-            "call_id": call.call_id,
-            "name": call.name,
-            "result": result.model_dump(mode="json"),
-            "duration_ms": int((monotonic() - started_at) * 1000),
-        }
         yield ToolRunnerEvent(
             RuntimeEventType.TOOL_CALL_FINISHED,
-            finished_payload,
+            self._finished_payload(
+                call,
+                result,
+                started_at=started_at,
+                approval_wait_ms=approval_wait_ms,
+                execution_ms=execution_ms,
+                observer_ms=observer_ms,
+            ),
         )
 
         for runtime_event in result.runtime_events:
             yield ToolRunnerEvent(
                 runtime_event.type,
-                {"call_id": call.call_id, **runtime_event.payload},
+                {
+                    **self._limit_mapping(
+                        runtime_event.payload,
+                        context.max_tool_output_chars,
+                        label="payload",
+                    ),
+                    "call_id": call.call_id,
+                },
             )
 
     async def _run_observers(
@@ -204,19 +285,34 @@ class ToolRunner:
         result: ToolResult,
         context: TurnContext,
     ) -> dict:
-        actions = {}
-        for observer in self.observers:
+        async def run(observer: ToolResultObserver) -> tuple[str, dict | None]:
+            deadline = asyncio.timeout(context.tool_timeout_seconds)
             try:
-                details = await observer.after_result(call, result, context)
+                async with deadline:
+                    details = await observer.after_result(call, result, context)
+            except TimeoutError as exc:
+                if deadline.expired():
+                    details = {
+                        "status": "failed",
+                        "error": "observer_timeout",
+                        "timeout_seconds": context.tool_timeout_seconds,
+                    }
+                else:
+                    details = {
+                        "status": "failed",
+                        "error": "observer_error",
+                        "exception_type": type(exc).__name__,
+                    }
             except Exception as exc:
                 details = {
                     "status": "failed",
                     "error": "observer_error",
                     "exception_type": type(exc).__name__,
                 }
-            if details is not None:
-                actions[observer.name] = details
-        return actions
+            return observer.name, details
+
+        completed = await asyncio.gather(*(run(observer) for observer in self.observers))
+        return {name: details for name, details in completed if details is not None}
 
     @staticmethod
     def _sandbox_policy(context: TurnContext) -> SandboxPolicy:
@@ -228,15 +324,85 @@ class ToolRunner:
 
     @staticmethod
     def _limit_output(result: ToolResult, max_chars: int) -> ToolResult:
-        if len(result.content) <= max_chars:
-            return result
-        return result.model_copy(
-            update={
-                "content": result.content[:max_chars],
-                "metadata": {
-                    **result.metadata,
+        content = result.content
+        metadata = dict(result.metadata)
+        data = result.data
+
+        if len(content) > max_chars:
+            content = content[:max_chars]
+            metadata.update(
+                {
                     "content_truncated": True,
                     "original_content_chars": len(result.content),
-                },
+                }
+            )
+
+        if data is not None:
+            data = ToolRunner._limit_mapping(data, max_chars, label="data")
+
+        metadata_chars = ToolRunner._json_chars(metadata)
+        if metadata_chars > max_chars:
+            preserved = {
+                key: metadata[key]
+                for key in ("content_truncated", "original_content_chars")
+                if key in metadata
             }
+            metadata = {
+                **preserved,
+                "metadata_truncated": True,
+                "original_metadata_chars": metadata_chars,
+            }
+
+        return result.model_copy(
+            update={"content": content, "data": data, "metadata": metadata}
         )
+
+    @staticmethod
+    def _limit_mapping(value: dict, max_chars: int, *, label: str) -> dict:
+        original_chars = ToolRunner._json_chars(value)
+        if original_chars <= max_chars:
+            return value
+        return {
+            f"{label}_truncated": True,
+            f"original_{label}_chars": original_chars,
+        }
+
+    @staticmethod
+    def _json_chars(value: object) -> int:
+        return len(
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+        )
+
+    @staticmethod
+    def _finished_payload(
+        call: ToolCall,
+        result: ToolResult,
+        *,
+        started_at: float,
+        approval_wait_ms: int = 0,
+        execution_ms: int = 0,
+        observer_ms: int = 0,
+    ) -> dict:
+        total_ms = int((monotonic() - started_at) * 1000)
+        governance_ms = max(
+            0,
+            total_ms - approval_wait_ms - execution_ms - observer_ms,
+        )
+        return {
+            "call_id": call.call_id,
+            "name": call.name,
+            "result": result.model_dump(mode="json"),
+            "duration_ms": total_ms,
+            "timings_ms": {
+                "governance": governance_ms,
+                "approval_wait": approval_wait_ms,
+                "execution": execution_ms,
+                "observers": observer_ms,
+                "total": total_ms,
+            },
+        }
