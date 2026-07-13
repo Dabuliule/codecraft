@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from pydantic import BaseModel, Field, field_validator
 
 from codecraft.approval.policy import ApprovalPolicy
 from codecraft.mcp.config import MCPSettings
 from codecraft.sandbox import DockerSandboxConfig, SandboxBackendType, SandboxMode
+
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class ModelSettings(BaseModel):
@@ -23,8 +26,17 @@ class ApprovalSettings(BaseModel):
 class SandboxSettings(BaseModel):
     mode: SandboxMode = SandboxMode.WORKSPACE_WRITE
     network_access: bool = False
-    backend: SandboxBackendType = SandboxBackendType.LOCAL
+    backend: SandboxBackendType = SandboxBackendType.AUTO
+    env_allowlist: list[str] = Field(default_factory=list)
     docker: DockerSandboxConfig = Field(default_factory=DockerSandboxConfig)
+
+    @field_validator("env_allowlist")
+    @classmethod
+    def validate_env_names(cls, values: list[str]) -> list[str]:
+        invalid = [value for value in values if not _ENV_NAME.fullmatch(value)]
+        if invalid:
+            raise ValueError(f"invalid environment variable names: {invalid}")
+        return list(dict.fromkeys(values))
 
 
 class PathsSettings(BaseModel):

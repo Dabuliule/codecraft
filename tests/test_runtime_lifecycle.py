@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
-from codecraft.core import EventBus, SessionStore, TurnContext
+from codecraft.core.event_bus import EventBus
 from codecraft.core.runtime import AgentRuntime
+from codecraft.core.session_store import SessionStore
+from codecraft.core.turn_context import TurnContext
 from codecraft.llm import (
     LLMProvider,
     LLMProviderRegistry,
@@ -13,13 +15,10 @@ from codecraft.llm import (
     ModelEventType,
     ModelMessage,
 )
-from codecraft.schema import (
-    RuntimeEventType,
-    SessionConfig,
-    SessionInput,
-    SessionSource,
-    ToolSpec,
-)
+from codecraft.schema.event import RuntimeEventType
+from codecraft.schema.input import SessionInput
+from codecraft.schema.session import SessionConfig, SessionSource
+from codecraft.schema.tool import ToolSpec
 from codecraft.tool import ReadFileTool, ToolRegistry
 
 

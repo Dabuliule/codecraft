@@ -27,6 +27,7 @@ class TurnContext(BaseModel):
     approval_policy: ApprovalPolicy
     sandbox_mode: SandboxMode
     network_access: bool
+    sandbox_env_allowlist: list[str] = Field(default_factory=list)
 
     available_tools: list[ToolSpec]
 

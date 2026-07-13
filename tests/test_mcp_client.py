@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from codecraft.approval import ApprovalManager, ApprovalPolicy
+from codecraft.approval.manager import ApprovalManager
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.config import RuntimeSettings
 from codecraft.cli.bootstrap import build_tool_registry, load_session_config
 from codecraft.core.errors import ToolNotFoundError

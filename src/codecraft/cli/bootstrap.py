@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from codecraft.approval import ApprovalManager, ApprovalPolicy, ThreadApprovalReviewer
+from codecraft.approval.manager import ApprovalManager
+from codecraft.approval.policy import ApprovalPolicy
+from codecraft.approval.thread_reviewer import ThreadApprovalReviewer
 from codecraft.config import ConfigLoader, ConfigOverrides
 from codecraft.core.ids import new_id
 from codecraft.core.runtime import AgentRuntime
@@ -108,6 +110,7 @@ def load_session_config(
         sandbox_mode=settings.sandbox.mode,
         network_access=settings.sandbox.network_access,
         sandbox_backend=settings.sandbox.backend,
+        sandbox_env_allowlist=settings.sandbox.env_allowlist,
         docker_sandbox=settings.sandbox.docker,
         mcp_servers=settings.mcp.servers,
         user_instructions=settings.instructions.user,
@@ -184,7 +187,7 @@ def build_tool_registry(config: SessionConfig | None = None) -> ToolRegistry:
     sandbox_backend = (
         build_sandbox_backend(config.sandbox_backend, config.docker_sandbox)
         if config is not None
-        else build_sandbox_backend(SandboxBackendType.LOCAL)
+        else build_sandbox_backend(SandboxBackendType.PROCESS)
     )
     registry = ToolRegistry(
         [

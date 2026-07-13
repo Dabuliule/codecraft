@@ -24,9 +24,7 @@ pytestmark = [
 def test_docker_backend_enforces_runtime_boundaries(tmp_path, monkeypatch):
     monkeypatch.setenv("CODECRAFT_ALLOWED_ENV", "forwarded")
     monkeypatch.setenv("CODECRAFT_BLOCKED_ENV", "hidden")
-    backend = DockerSandboxBackend(
-        DockerSandboxConfig(env_allowlist=["CODECRAFT_ALLOWED_ENV"])
-    )
+    backend = DockerSandboxBackend(DockerSandboxConfig())
     request = SandboxExecutionRequest(
         command=(
             "printf sandbox-ok > sandbox-output.txt; "
@@ -43,6 +41,7 @@ def test_docker_backend_enforces_runtime_boundaries(tmp_path, monkeypatch):
         sandbox_mode=SandboxMode.WORKSPACE_WRITE,
         network_access=False,
         timeout_seconds=30,
+        env_allowlist=("CODECRAFT_ALLOWED_ENV",),
     )
 
     result = asyncio.run(backend.execute(request))

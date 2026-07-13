@@ -2,23 +2,30 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
-import codecraft.sandbox.backend as backend_module
-from codecraft.approval import ApprovalPolicy
+import codecraft.sandbox.docker as docker_module
+import codecraft.sandbox.factory as factory_module
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.cli.bootstrap import build_tool_registry, load_session_config
 from codecraft.config import RuntimeSettings
 from codecraft.core.turn_context import TurnContext
 from codecraft.sandbox import (
+    BubblewrapSandboxBackend,
     DockerSandboxBackend,
     DockerSandboxConfig,
-    LocalSandboxBackend,
+    ProcessSandboxBackend,
     SandboxBackend,
     SandboxBackendError,
+    SandboxBackendType,
     SandboxExecutionRequest,
     SandboxExecutionResult,
     SandboxMode,
+    SeatbeltSandboxBackend,
+    UnavailableSandboxBackend,
+    build_sandbox_backend,
 )
 from codecraft.schema.tool import ToolCall
 from codecraft.schema.session import SessionSource
@@ -79,12 +86,16 @@ def test_docker_command_applies_isolation_and_resource_limits(tmp_path, monkeypa
             memory_mb=768,
             pids_limit=128,
             tmpfs_mb=64,
-            env_allowlist=["SAFE_TOKEN"],
         )
     )
 
     command = backend.build_command(
-        _request(workspace, cwd=cwd, command="pytest -q"),
+        _request(
+            workspace,
+            cwd=cwd,
+            command="pytest -q",
+            env_allowlist=("SAFE_TOKEN",),
+        ),
         container_name="codecraft-test",
     )
 
@@ -121,9 +132,12 @@ def test_docker_command_uses_read_only_mount_and_rejects_unsafe_inputs(tmp_path)
     assert mount.endswith(",readonly")
     with pytest.raises(ValueError, match="not a CLI option"):
         DockerSandboxConfig(image="--privileged")
-    with pytest.raises(ValueError, match="environment variable"):
-        DockerSandboxConfig(env_allowlist=["BAD-NAME"])
-    with pytest.raises(SandboxBackendError, match="outside mounted workspaces"):
+    with pytest.raises(SandboxBackendError, match="environment variable"):
+        backend.build_command(
+            _request(tmp_path, env_allowlist=("BAD-NAME",)),
+            container_name="codecraft-bad-env",
+        )
+    with pytest.raises(SandboxBackendError, match="outside workspace roots"):
         backend.build_command(
             _request(tmp_path, cwd=tmp_path.parent),
             container_name="codecraft-escaped",
@@ -203,7 +217,9 @@ def test_docker_backend_classifies_engine_failure(tmp_path, monkeypatch):
     assert result.backend_error == "Unable to find image locally"
 
 
-def test_local_backend_keeps_exit_125_as_command_failure(tmp_path, monkeypatch):
+def test_process_backend_is_explicit_and_filters_environment(tmp_path, monkeypatch):
+    captured = []
+
     class FakeProcess:
         returncode = 125
 
@@ -214,17 +230,109 @@ def test_local_backend_keeps_exit_125_as_command_failure(tmp_path, monkeypatch):
             raise AssertionError("completed process should not be killed")
 
     async def fake_create_subprocess_shell(*arguments, **kwargs):
+        captured.append((arguments, kwargs))
         return FakeProcess()
 
     monkeypatch.setattr(
         asyncio, "create_subprocess_shell", fake_create_subprocess_shell
     )
-    backend = LocalSandboxBackend()
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "secret")
+    monkeypatch.setenv("SAFE_TOKEN", "forwarded")
+    backend = ProcessSandboxBackend()
 
-    result = asyncio.run(backend.execute(_request(tmp_path)))
+    result = asyncio.run(
+        backend.execute(_request(tmp_path, env_allowlist=("SAFE_TOKEN",)))
+    )
 
     assert result.exit_code == 125
     assert result.backend_error is None
+    assert result.metadata["isolation"] == "none"
+    _, kwargs = captured[0]
+    assert kwargs["env"]["SAFE_TOKEN"] == "forwarded"
+    assert "DASHSCOPE_API_KEY" not in kwargs["env"]
+    assert "codecraft-process-" in kwargs["env"]["HOME"]
+
+
+def test_seatbelt_command_enforces_workspace_write_and_network_policy(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    temp_root = tmp_path / "temp"
+    temp_root.mkdir()
+    backend = SeatbeltSandboxBackend()
+
+    command = backend.build_command(
+        _request(workspace, command="pytest -q"),
+        temp_root=temp_root,
+    )
+
+    profile = command[command.index("-p") + 1]
+    assert "(deny file-write*)" in profile
+    assert '(subpath (param "WRITABLE_ROOT_0"))' in profile
+    assert "(deny network*)" in profile
+    assert f"-DWRITABLE_ROOT_0={workspace}" in command
+    assert f"-DTEMP_ROOT={temp_root}" in command
+    assert command[-4:] == ["--", "/bin/sh", "-lc", "pytest -q"]
+
+
+def test_seatbelt_read_only_does_not_allow_workspace_writes(tmp_path):
+    temp_root = tmp_path / "temp"
+    temp_root.mkdir()
+    command = SeatbeltSandboxBackend().build_command(
+        _request(tmp_path, sandbox_mode=SandboxMode.READ_ONLY),
+        temp_root=temp_root,
+    )
+
+    assert not any(argument.startswith("-DWRITABLE_ROOT") for argument in command)
+
+
+def test_bubblewrap_command_uses_os_namespaces_and_bind_mounts(tmp_path):
+    workspace = tmp_path / "workspace"
+    cwd = workspace / "src"
+    cwd.mkdir(parents=True)
+    temp_root = tmp_path / "temp"
+    temp_root.mkdir()
+    backend = BubblewrapSandboxBackend(executable="/usr/bin/bwrap")
+
+    command = backend.build_command(
+        _request(workspace, cwd=cwd, command="pytest -q"),
+        temp_root=temp_root,
+    )
+
+    assert command[0] == "/usr/bin/bwrap"
+    assert "--die-with-parent" in command
+    assert "--unshare-pid" in command
+    assert "--unshare-net" in command
+    assert command[command.index("--ro-bind") + 1 :][:2] == ["/", "/"]
+    workspace_bind = ["--bind", str(workspace), str(workspace)]
+    assert any(
+        command[index : index + 3] == workspace_bind
+        for index in range(len(command) - 2)
+    )
+    assert command[command.index("--chdir") + 1] == str(cwd)
+    assert command[-4:] == ["--", "/bin/sh", "-lc", "pytest -q"]
+
+
+def test_auto_backend_prefers_native_os_sandbox(monkeypatch):
+    monkeypatch.setattr(factory_module.platform, "system", lambda: "Darwin")
+    assert isinstance(
+        build_sandbox_backend(SandboxBackendType.AUTO), SeatbeltSandboxBackend
+    )
+
+    monkeypatch.setattr(factory_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(factory_module.shutil, "which", lambda name: "/usr/bin/bwrap")
+    assert isinstance(
+        build_sandbox_backend(SandboxBackendType.AUTO), BubblewrapSandboxBackend
+    )
+
+
+def test_auto_backend_fails_closed_when_native_sandbox_is_unavailable(monkeypatch):
+    monkeypatch.setattr(factory_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(factory_module.shutil, "which", lambda name: None)
+    backend = build_sandbox_backend(SandboxBackendType.AUTO)
+
+    assert isinstance(backend, UnavailableSandboxBackend)
+    with pytest.raises(SandboxBackendError, match="bubblewrap is required"):
+        asyncio.run(backend.execute(_request(Path.cwd())))
 
 
 def test_docker_backend_force_removes_timed_out_container(tmp_path, monkeypatch):
@@ -243,7 +351,7 @@ def test_docker_backend_force_removes_timed_out_container(tmp_path, monkeypatch)
         removed.append(container_name)
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
-    monkeypatch.setattr(backend_module, "_communicate", fake_communicate)
+    monkeypatch.setattr(docker_module, "communicate", fake_communicate)
     backend = DockerSandboxBackend()
     monkeypatch.setattr(backend, "_force_remove", fake_remove)
 
@@ -294,11 +402,11 @@ def test_runtime_settings_parse_docker_backend():
             "sandbox": {
                 "backend": "docker",
                 "network_access": False,
+                "env_allowlist": ["CI"],
                 "docker": {
                     "image": "sandbox:test",
                     "cpus": 2,
                     "memory_mb": 2048,
-                    "env_allowlist": ["CI"],
                 },
             }
         }
@@ -308,6 +416,9 @@ def test_runtime_settings_parse_docker_backend():
     assert settings.sandbox.docker.image == "sandbox:test"
     assert settings.sandbox.docker.cpus == 2
     assert settings.sandbox.docker.memory_mb == 2048
+    assert settings.sandbox.env_allowlist == ["CI"]
+    with pytest.raises(ValueError, match="environment variable"):
+        RuntimeSettings.model_validate({"sandbox": {"env_allowlist": ["BAD-NAME"]}})
 
 
 def test_session_config_and_tool_registry_preserve_docker_backend(tmp_path):
@@ -317,6 +428,7 @@ def test_session_config_and_tool_registry_preserve_docker_backend(tmp_path):
 [sandbox]
 backend = "docker"
 network_access = false
+env_allowlist = ["CI"]
 
 [sandbox.docker]
 image = "sandbox:test"
@@ -340,6 +452,7 @@ memory_mb = 640
 
     assert config.sandbox_backend == "docker"
     assert config.docker_sandbox.image == "sandbox:test"
+    assert config.sandbox_env_allowlist == ["CI"]
     assert config.model_dump(mode="json")["sandbox_backend"] == "docker"
     assert isinstance(bash.sandbox_backend, DockerSandboxBackend)
     assert bash.sandbox_backend.config.memory_mb == 640

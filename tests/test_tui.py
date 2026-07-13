@@ -4,11 +4,9 @@ import asyncio
 
 from typer.testing import CliRunner
 
-from codecraft.approval import (
-    ApprovalManager,
-    ApprovalPolicy,
-    ThreadApprovalReviewer,
-)
+from codecraft.approval.manager import ApprovalManager
+from codecraft.approval.policy import ApprovalPolicy
+from codecraft.approval.thread_reviewer import ThreadApprovalReviewer
 from codecraft.cli.app import app
 from codecraft.core.runtime import AgentRuntime
 from codecraft.core.session_store import SessionStore

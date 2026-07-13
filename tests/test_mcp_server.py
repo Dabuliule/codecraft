@@ -5,7 +5,8 @@ import json
 import sys
 from datetime import UTC, datetime
 
-from codecraft.approval import ApprovalManager, ApprovalPolicy
+from codecraft.approval.manager import ApprovalManager
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.core.turn_context import TurnContext
 from codecraft.mcp.client import MCPStdioProvider
 from codecraft.mcp.config import MCPServerSettings, MCPToolPolicySettings

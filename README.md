@@ -4,7 +4,7 @@
 
 CodeCraft is a local coding-agent runtime for working inside a repository. It is focused on the runtime pieces that make an agent governable: configuration, prompt/instruction loading, model providers, tool execution, approval, session event logs, resume, and inspection.
 
-The project is currently being rebuilt toward a v1.0 runtime. It runs real multi-turn TUI sessions and scriptable CLI tasks with Qwen, DeepSeek, or OpenAI-compatible providers. Local execution uses application-level guards by default; an optional Docker backend adds OS-level isolation for bash processes.
+The project is currently being rebuilt toward a v1.0 runtime. It runs real multi-turn TUI sessions and scriptable CLI tasks with Qwen, DeepSeek, or OpenAI-compatible providers. Local bash execution uses the operating system sandbox by default; Docker remains an explicit option for reproducible or stronger isolation.
 
 License: Apache-2.0.
 
@@ -17,7 +17,7 @@ License: Apache-2.0.
 - Exposes tools to the model through structured tool schemas, not by hardcoding tool descriptions into the prompt.
 - Executes all tool calls through `ToolRunner`.
 - Gates write, patch, bash, and risky commands through approval policy.
-- Runs bash through a pluggable local or Docker sandbox backend.
+- Runs bash through native macOS Seatbelt or Linux bubblewrap isolation by default, with explicit process and Docker backends.
 - Stores session events as JSONL under `~/.codecraft/sessions`.
 - Reconstructs conversation history from session events for resume.
 - Provides CLI inspection and trace export for events, tools, errors, raw logs, and invalid sessions.
@@ -216,8 +216,9 @@ policy = "on_request"
 
 [sandbox]
 mode = "workspace_write"
-backend = "local"
+backend = "auto"
 network_access = false
+env_allowlist = []
 
 [instructions]
 user = "Answer concisely."
@@ -306,7 +307,7 @@ Current tools:
 | `workspace_search` | Search workspace paths and text content | Deterministic `auto` routing, or explicit `scan`, indexed `lexical`, and indexed `symbol` strategies |
 | `write_file` | Write a text file inside the workspace | Requires approval |
 | `apply_patch` | Apply a unified diff inside the workspace | Requires approval |
-| `bash` | Run a shell command from inside the workspace | Command policy + approval + local/Docker backend |
+| `bash` | Run a shell command from inside the workspace | Command policy + approval + native/process/Docker backend |
 
 All tools execute through `ToolRunner`. `ToolRegistry` only registers and looks up tools; it does not execute them.
 
@@ -342,7 +343,19 @@ Sandbox modes:
 | `workspace_write` | Allows workspace writes/process execution, still governed by approval and command policy |
 | `danger_full_access` | Adds no mode-based effect restrictions; network policy, approval, and backend isolation still apply |
 
-Sandbox mode controls which capabilities may run. The configured backend controls where an approved bash process runs. The default `local` backend executes on the host and is not OS isolation.
+Sandbox mode controls which capabilities may run. The configured backend controls where an approved bash process runs. The default `auto` backend selects macOS Seatbelt or Linux bubblewrap and fails closed when no supported OS sandbox is available.
+
+### Native Sandbox
+
+The default backend requires no Docker daemon:
+
+- macOS uses the built-in `/usr/bin/sandbox-exec` Seatbelt runtime;
+- Linux uses `bwrap`, which must be installed through the system package manager;
+- unsupported systems reject bash execution instead of silently running without isolation.
+
+Native backends allow reads from the host, restrict writes to the workspace in `workspace_write`, provide a private temporary directory, deny network system calls when `network_access=false`, and apply the boundary to the complete process tree. Bash receives a small safe environment plus names explicitly listed in `sandbox.env_allowlist`; model API keys are not inherited by default.
+
+Set `backend = "process"` only to explicitly run commands as ordinary host processes without OS isolation. `seatbelt` and `bubblewrap` can also be selected explicitly for diagnostics. Docker remains useful for CI, evaluation, untrusted repositories, and reproducible toolchains.
 
 ### Docker Sandbox
 
@@ -359,6 +372,7 @@ Then opt in through configuration:
 mode = "workspace_write"
 backend = "docker"
 network_access = false
+env_allowlist = []
 
 [sandbox.docker]
 image = "codecraft-sandbox:py311"
@@ -366,12 +380,11 @@ cpus = 1.0
 memory_mb = 1024
 pids_limit = 256
 tmpfs_mb = 256
-env_allowlist = []
 ```
 
 The image must already exist locally because CodeCraft runs Docker with `--pull never`. Use a custom image when a repository needs another language or toolchain.
 
-The Docker backend creates an ephemeral container per bash command. It uses a read-only container root, a bounded `/tmp` tmpfs, the host UID/GID, dropped Linux capabilities, `no-new-privileges`, CPU/memory/PID limits, workspace-only bind mounts, explicit environment-variable forwarding, and `--network none` when network is disabled. Timed-out containers are force removed.
+The Docker backend creates an ephemeral container per bash command. It uses a read-only container root, a bounded `/tmp` tmpfs, the host UID/GID, dropped Linux capabilities, `no-new-privileges`, CPU/memory/PID limits, workspace-only bind mounts, `sandbox.env_allowlist` for explicit environment forwarding, and `--network none` when network is disabled. Timed-out containers are force removed.
 
 Important boundary: Docker isolates bash processes, not the mounted repository from intentional writes. In `workspace_write` mode the real workspace is mounted read-write, while built-in file tools continue to run on the host behind `WorkspaceGuard`. Approval and command policy remain part of the security model.
 
@@ -502,7 +515,7 @@ fix(tool): handle empty apply_patch payload
 chore: update workflow permissions
 ```
 
-Current test coverage includes runtime events, session store, resume, config loading, prompt injection, model providers, MCP stdio client/server interoperability, tool runner, workspace tools, bash policy, local/Docker sandbox backends, approval flow, CLI behavior, and Textual pilot interaction tests.
+Current test coverage includes runtime events, session store, resume, config loading, prompt injection, model providers, MCP stdio client/server interoperability, tool runner, workspace tools, bash policy, native/process/Docker sandbox backends, approval flow, CLI behavior, and Textual pilot interaction tests.
 
 ## Current Limitations
 

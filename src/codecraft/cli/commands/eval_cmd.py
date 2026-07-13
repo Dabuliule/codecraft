@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-from codecraft.approval import ApprovalPolicy
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.cli.options import CodecraftHomeOption
 from codecraft.cli.ui import make_console
 from codecraft.core.ids import new_id

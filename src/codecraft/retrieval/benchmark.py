@@ -8,7 +8,7 @@ from pathlib import Path
 from time import monotonic, perf_counter_ns
 from typing import Any, Protocol
 
-from codecraft.approval import ApprovalPolicy
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.core.ids import new_id
 from codecraft.core.turn_context import TurnContext
 from codecraft.sandbox import SandboxMode

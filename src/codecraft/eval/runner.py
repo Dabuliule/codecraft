@@ -6,7 +6,8 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from codecraft.approval import ApprovalManager, ApprovalPolicy
+from codecraft.approval.manager import ApprovalManager
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.core.ids import new_id
 from codecraft.core.runtime import AgentRuntime
 from codecraft.core.session_store import SessionStore

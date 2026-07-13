@@ -5,7 +5,7 @@ from typing import Annotated
 
 import typer
 
-from codecraft.approval import ApprovalPolicy
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.cli.commands.common import build_event_renderer, render_startup_error
 from codecraft.cli.options import CodecraftHomeOption
 from codecraft.cli.runtime_runner import submit_user_message

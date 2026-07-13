@@ -257,6 +257,7 @@ class Turn:
             approval_policy=config.approval_policy,
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
+            sandbox_env_allowlist=config.sandbox_env_allowlist,
             available_tools=self.session.tool_registry.specs(),
             max_steps=config.max_turn_steps,
             max_tool_output_chars=config.max_tool_output_chars,

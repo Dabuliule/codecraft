@@ -2,7 +2,7 @@ from pathlib import Path
 
 import typer
 
-from codecraft.approval import ApprovalPolicy
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.cli import bootstrap
 from codecraft.cli.commands import (
     register_eval_command,

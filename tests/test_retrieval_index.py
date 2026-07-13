@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from typer.testing import CliRunner
 
 from codecraft.cli.app import app
-from codecraft.approval import ApprovalManager, ApprovalPolicy
+from codecraft.approval.manager import ApprovalManager
+from codecraft.approval.policy import ApprovalPolicy
 from codecraft.core.turn_context import TurnContext
 from codecraft.retrieval import (
     ContextEngine,

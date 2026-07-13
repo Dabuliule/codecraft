@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -13,6 +14,7 @@ from codecraft.sandbox import DockerSandboxConfig, SandboxBackendType, SandboxMo
 from codecraft.schema.event import RuntimeEvent
 
 SESSION_CONFIG_SCHEMA_VERSION = 1
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class SessionSource(StrEnum):
@@ -42,7 +44,8 @@ class SessionConfig(BaseModel):
     approval_policy: ApprovalPolicy
     sandbox_mode: SandboxMode
     network_access: bool = False
-    sandbox_backend: SandboxBackendType = SandboxBackendType.LOCAL
+    sandbox_backend: SandboxBackendType = SandboxBackendType.AUTO
+    sandbox_env_allowlist: list[str] = Field(default_factory=list)
     docker_sandbox: DockerSandboxConfig = Field(default_factory=DockerSandboxConfig)
     mcp_servers: dict[str, MCPServerSettings] = Field(default_factory=dict)
 
@@ -81,6 +84,14 @@ class SessionConfig(BaseModel):
             raise ValueError(f"workspace_roots must be directories: {missing}")
 
         return roots
+
+    @field_validator("sandbox_env_allowlist")
+    @classmethod
+    def validate_sandbox_env_names(cls, values: list[str]) -> list[str]:
+        invalid = [value for value in values if not _ENV_NAME.fullmatch(value)]
+        if invalid:
+            raise ValueError(f"invalid environment variable names: {invalid}")
+        return list(dict.fromkeys(values))
 
     @model_validator(mode="after")
     def validate_runtime_names(self) -> SessionConfig:

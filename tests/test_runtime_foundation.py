@@ -7,22 +7,22 @@ from collections.abc import AsyncIterator
 import pytest
 from pydantic import BaseModel
 
-from codecraft.approval import (
+from codecraft.approval.manager import (
     ApprovalManager,
-    ApprovalPolicy,
     AutoApprovalReviewer,
-    ThreadApprovalReviewer,
 )
-from codecraft.core import (
-    EventBus,
+from codecraft.approval.policy import ApprovalPolicy
+from codecraft.approval.thread_reviewer import ThreadApprovalReviewer
+from codecraft.core.errors import (
     SessionError,
     SessionRestoreError,
-    SessionStore,
-    TurnContext,
     WorkspaceAccessError,
-    new_id,
 )
+from codecraft.core.event_bus import EventBus
+from codecraft.core.ids import new_id
 from codecraft.core.runtime import AgentRuntime
+from codecraft.core.session_store import SessionStore
+from codecraft.core.turn_context import TurnContext
 from codecraft.llm import (
     DeepSeekProvider,
     LLMProvider,
@@ -37,17 +37,10 @@ from codecraft.llm import (
     OpenAIProvider,
     QwenProvider,
 )
-from codecraft.schema import (
-    RuntimeEvent,
-    RuntimeEventType,
-    SessionConfig,
-    SessionInput,
-    SessionSource,
-    ToolCall,
-    ToolEffect,
-    ToolResult,
-    ToolSpec,
-)
+from codecraft.schema.event import RuntimeEvent, RuntimeEventType
+from codecraft.schema.input import SessionInput
+from codecraft.schema.session import SessionConfig, SessionSource
+from codecraft.schema.tool import ToolCall, ToolEffect, ToolResult, ToolSpec
 from codecraft.tool import (
     ApplyPatchTool,
     BashTool,

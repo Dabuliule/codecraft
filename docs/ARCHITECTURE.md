@@ -33,7 +33,7 @@ flowchart TD
     Registry --> Tool[BaseTool]
     Registry --> MCPProvider[MCP stdio provider]
     MCPProvider --> Tool
-    Tool --> Backend[Local or Docker SandboxBackend]
+    Tool --> Backend[Native, Process, or Docker SandboxBackend]
     Tool --> ToolResult[ToolResult]
     Backend --> ToolResult
     Session --> EventBus[EventBus]
@@ -208,7 +208,7 @@ CodeCraft uses layered safeguards rather than treating one mechanism as the comp
 1. `SandboxPolicy` gates tool effects by configured capability mode.
 2. `ApprovalManager` applies the human-in-the-loop policy.
 3. Bash `CommandPolicy` classifies safe, prompt-required, denied, and network commands.
-4. `SandboxBackend` executes an approved bash command locally or in Docker.
+4. `SandboxBackend` executes an approved bash command in a native OS sandbox, an explicitly unsafe host process, or Docker.
 
 `SandboxPolicy` enforces coarse execution boundaries:
 
@@ -223,9 +223,13 @@ CodeCraft uses layered safeguards rather than treating one mechanism as the comp
 - `on_request`
 - `untrusted`
 
-The default `LocalSandboxBackend` preserves direct host execution and is not OS-level isolation. The optional `DockerSandboxBackend` creates an ephemeral container per command with workspace-only bind mounts, a read-only root filesystem, bounded tmpfs, host UID/GID, dropped capabilities, `no-new-privileges`, CPU/memory/PID limits, explicit environment forwarding, and no container network when `network_access=false`. It never pulls an image implicitly and force removes timed-out containers.
+The default `auto` selection uses `SeatbeltSandboxBackend` on macOS and `BubblewrapSandboxBackend` on Linux. Both enforce workspace writes and disabled networking at the OS boundary for the full bash process tree. Linux fails closed when `bwrap` is unavailable. `ProcessSandboxBackend` is an explicit no-isolation escape hatch, not a sandbox. All host-process backends receive a sanitized environment and a private temporary home; additional variables require `sandbox.env_allowlist`.
 
-Docker isolates the bash process but does not make a writable workspace immutable. Built-in file tools still execute on the host behind `WorkspaceGuard`, and command policy plus approval remain in force for both backends.
+Sandbox code is split by responsibility: `backend.py` defines the execution contract, `_execution.py` owns shared process lifecycle and validation, `factory.py` resolves configured backends, and `process.py`, `seatbelt.py`, `bubblewrap.py`, and `docker.py` contain platform-specific adapters. Platform modules depend on the contract and shared execution primitives; the contract does not depend on concrete backends.
+
+The optional `DockerSandboxBackend` creates an ephemeral container per command with workspace-only bind mounts, a read-only root filesystem, bounded tmpfs, host UID/GID, dropped capabilities, `no-new-privileges`, CPU/memory/PID limits, explicit environment forwarding, and no container network when `network_access=false`. It never pulls an image implicitly and force removes timed-out containers.
+
+Native and Docker backends isolate the bash process but do not make a writable workspace immutable. Built-in file tools still execute on the host behind `WorkspaceGuard`, and command policy plus approval remain in force for every backend.
 
 ## MCP Client
 

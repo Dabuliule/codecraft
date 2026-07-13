@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from codecraft.sandbox import (
-    LocalSandboxBackend,
+    ProcessSandboxBackend,
     SandboxBackend,
     SandboxBackendError,
     SandboxExecutionRequest,
@@ -42,7 +42,7 @@ class BashTool(BaseTool):
         sandbox_backend: SandboxBackend | None = None,
     ) -> None:
         self.command_policy = command_policy or CommandPolicy()
-        self.sandbox_backend = sandbox_backend or LocalSandboxBackend()
+        self.sandbox_backend = sandbox_backend or ProcessSandboxBackend()
 
     async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
         """执行命令并返回 stdout/stderr、exit code 和截断信息。"""
@@ -81,6 +81,7 @@ class BashTool(BaseTool):
                     sandbox_mode=context.context.sandbox_mode,
                     network_access=context.context.network_access,
                     timeout_seconds=bash_args.timeout_seconds,
+                    env_allowlist=tuple(context.context.sandbox_env_allowlist),
                 )
             )
         except SandboxBackendError as exc:
