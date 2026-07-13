@@ -9,57 +9,12 @@ from rich.panel import Panel
 from rich.table import Table
 
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
-from codecraft.schema.session import SessionConfig, SessionSummary
+from codecraft.schema.session import SessionSummary
 
 
 class SessionRenderer:
     def __init__(self, console: Console) -> None:
         self.console = console
-
-    def render_welcome(self, config: SessionConfig) -> None:
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style="muted")
-        table.add_column()
-        table.add_row("session", config.session_id)
-        table.add_row("cwd", str(config.cwd))
-        table.add_row("model", config.model)
-        table.add_row("provider", config.model_provider)
-        table.add_row("approval", config.approval_policy)
-        table.add_row("sandbox", config.sandbox_mode)
-        table.add_row("sandbox backend", config.sandbox_backend)
-        table.add_row("mcp servers", str(len(config.mcp_servers)))
-        self.console.print(Panel(table, title="CodeCraft", border_style="cyan"))
-        self.console.print(
-            f"session_id: {config.session_id}", style="muted", soft_wrap=True
-        )
-
-    def render_resumed(self, summary: SessionSummary) -> None:
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style="muted")
-        table.add_column()
-        table.add_row("session", summary.session_id)
-        table.add_row("events", str(summary.event_count))
-        table.add_row("cwd", str(summary.cwd or "-"))
-        self.console.print(Panel(table, title="resumed session", border_style="cyan"))
-        self.console.print(
-            f"session_id: {summary.session_id}", style="muted", soft_wrap=True
-        )
-
-    def render_summary(self, summary: SessionSummary) -> None:
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style="muted")
-        table.add_column()
-        table.add_row("session_id", summary.session_id)
-        table.add_row("thread_id", summary.thread_id or "-")
-        table.add_row("events", str(summary.event_count))
-        table.add_row("file", str(summary.path))
-        self.console.print(Panel(table, title="session summary", border_style="cyan"))
-        self.console.print(
-            f"session_id: {summary.session_id}", style="muted", soft_wrap=True
-        )
-        self.console.print(
-            f"events: {summary.event_count}", style="muted", soft_wrap=True
-        )
 
     def render_sessions(self, summaries: Iterable[SessionSummary]) -> None:
         table = Table(title="Recent Sessions")

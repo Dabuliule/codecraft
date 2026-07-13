@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+from codecraft.cli.ui.event_renderer import RuntimeEventRenderer
 from codecraft.core.ids import new_id
 from codecraft.core.thread import AgentThread
-from codecraft.cli.ui.event_renderer import RuntimeEventRenderer
 from codecraft.schema.event import RuntimeEventType
 from codecraft.schema.input import SessionInput
 

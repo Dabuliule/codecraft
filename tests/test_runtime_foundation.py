@@ -1811,6 +1811,41 @@ def test_session_store_rejects_unknown_config_schema_version(tmp_path):
     asyncio.run(run_test())
 
 
+def test_session_store_rejects_missing_schema_versions(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        store = SessionStore(config.codecraft_home)
+        path = await store.create_session(config)
+        config_payload = config.model_dump(mode="json")
+        config_payload.pop("schema_version")
+        event = RuntimeEvent(
+            event_id="evt_started",
+            session_id=config.session_id,
+            seq=1,
+            type=RuntimeEventType.SESSION_STARTED,
+            payload={"config": config_payload},
+        ).model_dump(mode="json")
+        event.pop("schema_version")
+        path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+        with pytest.raises(SessionRestoreError) as raised:
+            await store.resume(config.session_id)
+
+        assert raised.value.code == "session_event_schema_unsupported"
+        assert raised.value.metadata["version"] is None
+
+        event["schema_version"] = 1
+        path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+        with pytest.raises(SessionRestoreError) as raised:
+            await store.resume(config.session_id)
+
+        assert raised.value.code == "session_config_schema_unsupported"
+        assert raised.value.metadata["version"] is None
+
+    asyncio.run(run_test())
+
+
 def test_session_store_list_skips_invalid_session_logs(tmp_path):
     async def run_test() -> None:
         bad_config = make_config(tmp_path).model_copy(update={"session_id": "ses_bad"})

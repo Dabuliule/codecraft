@@ -36,21 +36,4 @@ async def run_sessions(*, codecraft_home: Path, all_sessions: bool) -> None:
         console.print("No sessions found.")
         return
 
-    renderer = SessionRenderer(console)
-    renderer.render_sessions(summaries)
-
-    # Keep compact substrings that older CLI tests and scripts may match.
-    for summary in summaries:
-        status = renderer.status_text(summary)
-        console.print(
-            " ".join(
-                [
-                    summary.session_id,
-                    f"status={status}",
-                    f"thread={summary.thread_id or '-'}",
-                    f"events={summary.event_count}",
-                    f"cwd={summary.cwd or '-'}",
-                ]
-            ),
-            style="muted",
-        )
+    SessionRenderer(console).render_sessions(summaries)

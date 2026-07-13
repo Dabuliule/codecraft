@@ -23,9 +23,6 @@ class ToolRenderer:
         self.console.print(
             self._format_started(name, arguments), markup=False, soft_wrap=True
         )
-        compat = self._format_started_compat(name, arguments)
-        if name == "bash":
-            self.console.print(compat, style="muted", markup=False, soft_wrap=True)
 
     def render_finished(self, payload: dict[str, Any]) -> None:
         name = str(payload.get("name") or "tool")
@@ -57,18 +54,6 @@ class ToolRenderer:
                 soft_wrap=True,
             )
             self.console.print(content)
-
-        if name in {"read_file", "list_files"} and success:
-            return
-
-        content = preview_tool_output(
-            str(result.get("content") or result.get("error") or ""),
-            self.config.max_tool_preview_chars,
-        )
-        legacy_status = "ok" if success else "failed"
-        legacy_duration = f" ({duration_ms}ms)" if isinstance(duration_ms, int) else ""
-        legacy = f"[tool] {name} {legacy_status}{legacy_duration}: {content}"
-        self.console.print(legacy, style="muted", markup=False, soft_wrap=True)
 
     def render_patch_applied(self, payload: dict[str, Any]) -> None:
         self.console.print(
@@ -150,13 +135,6 @@ class ToolRenderer:
         duration = f" · {duration_ms}ms" if isinstance(duration_ms, int) else ""
         summary = f": {content}" if content else ""
         return f"✗ {name} failed{duration}{summary}"
-
-    def _format_started_compat(self, name: str, arguments: Any) -> str:
-        if name == "bash" and isinstance(arguments, dict):
-            command = arguments.get("command")
-            if isinstance(command, str) and command:
-                return f"[tool] bash: {command}"
-        return f"[tool] {name}"
 
     def _display_path(self, result: dict[str, Any], arguments: dict[str, Any]) -> str:
         data = result.get("data")

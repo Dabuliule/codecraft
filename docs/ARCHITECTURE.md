@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the current CodeCraft v1.0 runtime architecture. The detailed source-of-truth design is `docs/design/codecraft-runtime-sdd.md`; this file is a shorter implementation-oriented map.
+This document is the source of truth for the current CodeCraft v1.0 runtime architecture.
 
 ## Goals
 
@@ -112,7 +112,7 @@ A provider response may contain multiple tool calls. `Turn` preserves the comple
 
 It supports create, append, load, list, raw-line inspection, and resume. The JSONL log is the fact source for audit and recovery.
 
-Persisted `RuntimeEvent` and embedded `SessionConfig` objects carry independent schema versions. Readers treat unversioned alpha logs as version 1 for local compatibility and reject unknown versions explicitly instead of partially restoring data with newer semantics.
+Persisted `RuntimeEvent` and embedded `SessionConfig` objects carry independent schema versions. Missing or unknown versions are rejected explicitly instead of being partially restored with different semantics. Before the first release, schema changes replace the current version directly.
 
 ### `Conversation` And Resume
 
@@ -263,8 +263,6 @@ Project instructions come from `AGENTS.md` and `CODECRAFT.md`, searched upward f
 The Typer CLI supports:
 
 - `codecraft exec`
-- `codecraft chat`
-- `codecraft resume --last`
 - `codecraft sessions`
 - `codecraft inspect`
 - `codecraft trace`
@@ -274,11 +272,11 @@ The Typer CLI supports:
 - `codecraft mcp-server`
 - `codecraft tui`
 
-CLI responsibilities are config loading, runtime construction, input submission, approval prompting, and event rendering. Core runtime modules do not depend on CLI code.
+CLI responsibilities are config loading, runtime construction, one-shot input submission, approval prompting, diagnostics, evaluation, indexing, and service commands. Multi-turn human interaction and session continuation belong to the TUI. Core runtime modules do not depend on CLI code.
 
 ## TUI Layer
 
-`CodeCraftTUI` is a Textual presentation layer over `AgentRuntime` and `AgentThread`. It creates or resumes a normal session, submits `SessionInput`, and consumes the same persisted `RuntimeEvent` stream as the line-oriented CLI. It does not call model providers or tools directly.
+`CodeCraftTUI` is a Textual presentation layer over `AgentRuntime` and `AgentThread`. It creates or resumes a normal session, submits `SessionInput`, and consumes the same persisted `RuntimeEvent` stream used by non-interactive CLI execution. It does not call model providers or tools directly.
 
 The TUI package separates coordination (`app`), modal screens (`screens`), reusable message widgets (`widgets`), presentation formatting (`rendering`), and Textual styles (`codecraft.tcss`). These modules remain presentation-only and do not introduce a second runtime API.
 

@@ -7,11 +7,9 @@ from rich.markdown import Markdown
 from codecraft.cli.ui.approval_renderer import ApprovalRenderer
 from codecraft.cli.ui.error_renderer import ErrorRenderer
 from codecraft.cli.ui.render_config import RenderConfig
-from codecraft.cli.ui.session_renderer import SessionRenderer
 from codecraft.cli.ui.tool_renderer import ToolRenderer
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 from codecraft.schema.input import SessionInput
-from codecraft.schema.session import SessionConfig
 
 
 class RuntimeEventRenderer:
@@ -23,20 +21,15 @@ class RuntimeEventRenderer:
         tool_renderer: ToolRenderer | None = None,
         approval_renderer: ApprovalRenderer | None = None,
         error_renderer: ErrorRenderer | None = None,
-        session_renderer: SessionRenderer | None = None,
     ) -> None:
         self.console = console
         self.render_config = render_config or RenderConfig()
         self.tool_renderer = tool_renderer or ToolRenderer(console, self.render_config)
         self.approval_renderer = approval_renderer or ApprovalRenderer(console)
         self.error_renderer = error_renderer or ErrorRenderer(console)
-        self.session_renderer = session_renderer or SessionRenderer(console)
         self._streaming = False
         self._stream_buffer: list[str] = []
         self._stream_live: Live | None = None
-
-    def render_welcome(self, config: SessionConfig) -> None:
-        self.session_renderer.render_welcome(config)
 
     async def render(self, event: RuntimeEvent) -> None:
         if event.type == RuntimeEventType.ASSISTANT_MESSAGE_DELTA:
@@ -67,10 +60,7 @@ class RuntimeEventRenderer:
         elif event.type == RuntimeEventType.PATCH_APPLIED:
             self.ensure_newline()
             self.tool_renderer.render_patch_applied(event.payload)
-        elif (
-            event.type == RuntimeEventType.TOKEN_COUNT
-            and self.render_config.show_token_usage
-        ):
+        elif event.type == RuntimeEventType.TOKEN_COUNT:
             if self.render_config.debug:
                 self.console.print(f"[muted]tokens {event.payload}[/muted]")
         elif event.type == RuntimeEventType.CONTEXT_COMPACTED:
@@ -99,9 +89,6 @@ class RuntimeEventRenderer:
     async def request_approval(self, event: RuntimeEvent) -> SessionInput:
         self.ensure_newline()
         return await self.approval_renderer.request_decision(event)
-
-    def render_unknown_slash_command(self, name: str) -> None:
-        self.console.print(f"[warning]unknown command:[/warning] /{name}")
 
     def ensure_newline(self) -> None:
         if self._streaming:

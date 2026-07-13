@@ -99,7 +99,7 @@ class SessionStore:
                                 "line": line_number,
                             },
                         )
-                    version = data.get("schema_version", 1)
+                    version = data.get("schema_version")
                     if version != RUNTIME_EVENT_SCHEMA_VERSION:
                         raise SessionRestoreError(
                             "session event schema version is not supported",
@@ -187,7 +187,25 @@ class SessionStore:
             first = events[0]
             last = events[-1]
             config = first.payload.get("config")
-            if not isinstance(config, dict):
+            if isinstance(config, dict):
+                try:
+                    self._validate_config_version(config, first.session_id)
+                except SessionRestoreError as exc:
+                    if include_invalid and cwd_resolved is None:
+                        summaries.append(
+                            SessionSummary(
+                                session_id=path.stem,
+                                thread_id="",
+                                path=path,
+                                valid=False,
+                                error_code=exc.code,
+                                error_message=exc.message,
+                                event_count=len(events),
+                                last_event_at=last.timestamp,
+                            )
+                        )
+                    continue
+            else:
                 config = {}
             session_cwd = self._optional_path(config.get("cwd"))
 
@@ -252,18 +270,22 @@ class SessionStore:
                 code="session_config_missing",
                 metadata={"session_id": session_id},
             )
-        config_version = config_data.get("schema_version", 1)
-        if config_version != SESSION_CONFIG_SCHEMA_VERSION:
-            raise SessionRestoreError(
-                "session config schema version is not supported",
-                code="session_config_schema_unsupported",
-                metadata={"session_id": session_id, "version": config_version},
-            )
+        self._validate_config_version(config_data, session_id)
 
         return SessionSnapshot(
             config=SessionConfig.model_validate(config_data),
             events=events,
         )
+
+    @staticmethod
+    def _validate_config_version(config_data: dict, session_id: str) -> None:
+        version = config_data.get("schema_version")
+        if version != SESSION_CONFIG_SCHEMA_VERSION:
+            raise SessionRestoreError(
+                "session config schema version is not supported",
+                code="session_config_schema_unsupported",
+                metadata={"session_id": session_id, "version": version},
+            )
 
     def _path_for_session(self, session_id: str) -> Path:
         """定位 session 日志路径，并缓存 glob 的结果。"""

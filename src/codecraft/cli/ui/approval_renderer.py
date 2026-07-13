@@ -51,19 +51,6 @@ class ApprovalRenderer:
         self.console.print(
             Panel(table, title="approval required", border_style="approval")
         )
-        self.console.print(
-            f"[approval] {payload.get('tool_name')} risk={payload.get('risk')} "
-            f"reason={payload.get('reason')}",
-            markup=False,
-            soft_wrap=True,
-        )
-        if isinstance(arguments, dict):
-            command = arguments.get("command")
-            cwd = arguments.get("cwd")
-            if isinstance(command, str) and command:
-                self.console.print(f"command: {command}", markup=False, soft_wrap=True)
-            if isinstance(cwd, str) and cwd:
-                self.console.print(f"cwd: {cwd}", markup=False, soft_wrap=True)
 
     def render_details(self, payload: dict[str, Any]) -> None:
         self.console.print(

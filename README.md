@@ -4,13 +4,13 @@
 
 CodeCraft is a local coding-agent runtime for working inside a repository. It is focused on the runtime pieces that make an agent governable: configuration, prompt/instruction loading, model providers, tool execution, approval, session event logs, resume, and inspection.
 
-The project is currently being rebuilt toward a v1.0 runtime. It already runs real multi-turn CLI sessions with Qwen, DeepSeek, or OpenAI-compatible providers. Local execution uses application-level guards by default; an optional Docker backend adds OS-level isolation for bash processes.
+The project is currently being rebuilt toward a v1.0 runtime. It runs real multi-turn TUI sessions and scriptable CLI tasks with Qwen, DeepSeek, or OpenAI-compatible providers. Local execution uses application-level guards by default; an optional Docker backend adds OS-level isolation for bash processes.
 
 License: Apache-2.0.
 
 ## What It Does
 
-- Runs coding tasks from the CLI with `exec`, `chat`, and `resume`.
+- Runs scriptable tasks with `exec` and multi-turn sessions through the TUI.
 - Loads configuration from user, profile, project, and explicit config files.
 - Injects runtime instructions from built-in instructions plus `AGENTS.md` / `CODECRAFT.md`.
 - Calls OpenAI-compatible providers, including Qwen, DeepSeek, and OpenAI.
@@ -57,7 +57,7 @@ pipx upgrade codecraft
 After installation, run:
 
 ```zsh
-codecraft chat
+codecraft tui
 ```
 
 For local development from a clone:
@@ -66,7 +66,7 @@ For local development from a clone:
 git clone https://github.com/Dabuliule/codecraft.git
 cd codecraft
 uv sync
-uv run codecraft chat
+uv run codecraft tui
 ```
 
 ## Current CLI
@@ -75,12 +75,6 @@ Run a single task:
 
 ```zsh
 uv run codecraft exec "summarize this repository"
-```
-
-Start a multi-turn session:
-
-```zsh
-uv run codecraft chat
 ```
 
 Start the full-screen terminal UI:
@@ -101,18 +95,6 @@ uv run codecraft tui --resume <session_id>
 The restored visual history is bounded to keep long-running terminal sessions responsive; the runtime still reconstructs the full available model context from the event log.
 
 Use the `Trace` command in the runtime panel to inspect the current persisted trace without leaving the TUI. The trace screen reuses the normal report model for aggregate metrics, a virtualized event table, and structured payload inspection.
-
-Resume the latest valid session:
-
-```zsh
-uv run codecraft resume --last
-```
-
-Print only the latest valid session summary:
-
-```zsh
-uv run codecraft resume --last --summary
-```
 
 List valid sessions:
 
@@ -252,12 +234,12 @@ CodeCraft intentionally uses `api_key_env` instead of recommending plaintext API
 Useful CLI overrides:
 
 ```zsh
-uv run codecraft chat --provider qwen --model qwen-plus
-uv run codecraft chat --provider deepseek --model deepseek-v4-flash
-uv run codecraft chat --config ./my-config.toml
-uv run codecraft chat --profile work
-uv run codecraft chat --approval-policy on_request
-uv run codecraft chat --network
+uv run codecraft tui --provider qwen --model qwen-plus
+uv run codecraft tui --provider deepseek --model deepseek-v4-flash
+uv run codecraft tui --config ./my-config.toml
+uv run codecraft tui --profile work
+uv run codecraft tui --approval-policy on_request
+uv run codecraft tui --network
 ```
 
 ## Providers
@@ -338,13 +320,16 @@ Approval policies:
 | `on_request` | Ask for tools/commands that require approval |
 | `untrusted` | Ask for side-effecting tools |
 
-The CLI prints approval details, including bash commands:
+The CLI displays approval details, including bash commands:
 
 ```text
-[tool] bash: python -c 'print(1)'
-[approval] bash risk=prompt reason=unknown command requires approval
-command: python -c 'print(1)'
-Approve? [y/N]:
+• bash python -c 'print(1)'
+approval required
+tool     bash
+risk     prompt
+reason   unknown command requires approval
+command  python -c 'print(1)'
+Approve? [y/n/d]
 ```
 
 Command policy classifies obvious safe commands, prompt-required commands, denied commands, and network commands. `python --version` and `python -V` are safe; arbitrary Python commands require approval.
@@ -456,9 +441,9 @@ Session events are stored as JSONL:
 
 The event log includes session, turn, user, assistant, model tool call, tool start/finish, approval, token, error, and finish events.
 
-Events and the embedded session configuration carry schema versions. Existing unversioned alpha logs are read as version 1; logs from an unknown future schema are rejected with a restore error instead of being interpreted partially.
+Events and the embedded session configuration carry schema versions. Missing or unknown versions are rejected with a restore error instead of being interpreted partially.
 
-`resume --last` loads the latest valid session, reconstructs conversation from events, and continues without replaying historical tools.
+`tui --last` loads the latest valid session for the current workspace, reconstructs conversation from events, and continues without replaying historical tools.
 
 If a session log is invalid, normal listing skips it. To see invalid logs:
 
@@ -478,7 +463,7 @@ Install and run from the repository:
 
 ```zsh
 uv sync
-uv run codecraft chat
+uv run codecraft tui
 ```
 
 Quality checks:
@@ -512,7 +497,7 @@ type(scope): subject
 Examples:
 
 ```text
-feat(cli): add resume summary option
+feat(tui): add session search
 fix(tool): handle empty apply_patch payload
 chore: update workflow permissions
 ```
@@ -537,7 +522,7 @@ Current test coverage includes runtime events, session store, resume, config loa
 High-level flow:
 
 ```text
-CLI
+CLI / TUI
   -> ConfigLoader
   -> AgentRuntime
   -> AgentThread / Session / Turn

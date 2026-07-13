@@ -51,7 +51,7 @@ def test_read_file_renderer_shows_summary_without_file_content():
     assert "[tool] read_file" not in output
 
 
-def test_workspace_search_renderer_shows_summary_and_preview():
+def test_workspace_search_renderer_shows_summary_without_result_content():
     stream = StringIO()
     console = Console(
         file=stream,
@@ -95,4 +95,4 @@ def test_workspace_search_renderer_shows_summary_and_preview():
     output = stream.getvalue()
     assert "• workspace_search Agent" in output
     assert "✓ workspace_search Agent · 1 matches · lexical · 3ms" in output
-    assert "[tool] workspace_search ok (3ms): src/app.py:12: class Agent:" in output
+    assert "src/app.py:12: class Agent:" not in output

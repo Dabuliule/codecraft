@@ -64,6 +64,15 @@ def seed_session(tmp_path) -> SessionConfig:
     return asyncio.run(run())
 
 
+def test_cli_exposes_tui_as_the_only_interactive_command():
+    command_names = {command.name for command in app.registered_commands}
+
+    assert "tui" in command_names
+    assert "exec" in command_names
+    assert "chat" not in command_names
+    assert "resume" not in command_names
+
+
 def test_sessions_command_lists_session(tmp_path):
     config = seed_session(tmp_path)
 
@@ -73,9 +82,9 @@ def test_sessions_command_lists_session(tmp_path):
     )
 
     assert result.exit_code == 0
+    assert "Recent Sessions" in result.output
     assert "ses_cli" in result.output
-    assert "status=valid" in result.output
-    assert "events=2" in result.output
+    assert "valid" in result.output
 
 
 def test_sessions_all_marks_invalid_session(tmp_path):
@@ -119,8 +128,10 @@ def test_sessions_all_marks_invalid_session(tmp_path):
     assert "ses_cli" in default_result.output
     assert "ses_bad" not in default_result.output
     assert all_result.exit_code == 0
-    assert "ses_cli status=valid" in all_result.output
-    assert "ses_bad status=invalid:session_seq_not_continuous" in all_result.output
+    assert "ses_cli" in all_result.output
+    assert "ses_bad" in all_result.output
+    assert "valid" in all_result.output
+    assert "invalid:" in all_result.output
 
 
 def test_inspect_command_prints_summary_and_events(tmp_path):
@@ -138,10 +149,12 @@ def test_inspect_command_prints_summary_and_events(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "session_id: ses_cli" in result.output
-    assert "events: 2" in result.output
-    assert "final_answer: done" in result.output
-    assert "2 turn_finished" in result.output
+    assert "session inspect" in result.output
+    assert "ses_cli" in result.output
+    assert "Events" in result.output
+    assert "session_started" in result.output
+    assert "turn_finished" in result.output
+    assert "done" in result.output
 
 
 def test_inspect_raw_prints_invalid_session_lines(tmp_path):
@@ -405,113 +418,14 @@ def test_inspect_command_prints_tool_and_error_summaries(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "2 model_tool_call read_file args={'path': 'README.md'}" in result.output
-    assert "3 [tool] read_file failed (4ms): File does not exist." in result.output
-    assert "3 tool_error read_file" in result.output
-    assert "4 error turn=turn_cli" in result.output
-
-
-def test_resume_last_prints_latest_session(tmp_path):
-    config = seed_session(tmp_path)
-
-    result = runner.invoke(
-        app,
-        [
-            "resume",
-            "--last",
-            "--summary",
-            "--codecraft-home",
-            str(config.codecraft_home),
-        ],
-    )
-
-    assert result.exit_code == 0
-    assert "session_id: ses_cli" in result.output
-    assert "events: 2" in result.output
-
-
-def test_resume_last_continues_latest_session(tmp_path, monkeypatch):
-    async def seed() -> SessionConfig:
-        config = make_config(tmp_path)
-        store = SessionStore(config.codecraft_home)
-        await store.create_session(config)
-        await store.append_event(
-            RuntimeEvent(
-                event_id=new_id("evt_"),
-                session_id=config.session_id,
-                seq=1,
-                type=RuntimeEventType.SESSION_STARTED,
-                payload={"config": config.model_dump(mode="json")},
-            )
-        )
-        await store.append_event(
-            RuntimeEvent(
-                event_id=new_id("evt_"),
-                session_id=config.session_id,
-                turn_id="turn_one",
-                seq=2,
-                type=RuntimeEventType.USER_MESSAGE,
-                payload={"text": "first"},
-            )
-        )
-        await store.append_event(
-            RuntimeEvent(
-                event_id=new_id("evt_"),
-                session_id=config.session_id,
-                turn_id="turn_one",
-                seq=3,
-                type=RuntimeEventType.ASSISTANT_MESSAGE,
-                payload={"text": "first answer"},
-            )
-        )
-        return config
-
-    config = asyncio.run(seed())
-    provider = MockProvider(
-        [
-            ModelEvent(
-                type=ModelEventType.MESSAGE_COMPLETED,
-                payload={"text": "resumed answer"},
-            ),
-            ModelEvent(type=ModelEventType.COMPLETED),
-        ]
-    )
-    monkeypatch.setattr(
-        cli_app,
-        "_build_provider_registry",
-        lambda _config: LLMProviderRegistry([provider]),
-    )
-
-    result = runner.invoke(
-        app,
-        ["resume", "--last", "--codecraft-home", str(config.codecraft_home)],
-        input="second\n/exit\n",
-    )
-
-    assert result.exit_code == 0
-    assert "session_id: ses_cli" in result.output
-    assert "resumed answer" in result.output
-    assert [message.content for message in provider.calls[0][0][1:]] == [
-        "first",
-        "first answer",
-        "second",
-    ]
-
-
-def test_resume_missing_session_prints_friendly_error(tmp_path):
-    result = runner.invoke(
-        app,
-        [
-            "resume",
-            "missing",
-            "--codecraft-home",
-            str(tmp_path / ".codecraft"),
-        ],
-    )
-
-    assert result.exit_code == 1
-    assert "No session found: missing" in result.output
-    assert "Traceback" not in result.output
+    assert "Tool Events" in result.output
+    assert "read_file" in result.output
+    assert "requested" in result.output
+    assert "failed" in result.output
+    assert "File does not exist." in result.output
+    assert "Errors" in result.output
+    assert "tool_error" in result.output
+    assert "runtime failed" in result.output
 
 
 def test_exec_mcp_startup_failure_prints_friendly_error(tmp_path):
@@ -591,7 +505,8 @@ def test_exec_command_runs_runtime_and_prints_answer(tmp_path, monkeypatch):
         ["sessions", "--codecraft-home", str(tmp_path / ".codecraft")],
     )
     assert sessions_result.exit_code == 0
-    assert "events=5" in sessions_result.output
+    assert "Recent Sessions" in sessions_result.output
+    assert "5" in sessions_result.output
 
 
 def test_exec_command_renders_markdown_assistant_message(tmp_path, monkeypatch):
@@ -833,58 +748,6 @@ def test_model_api_key_env_uses_provider_defaults_when_unconfigured():
     assert cli_app._model_api_key_env("qwen", "CUSTOM_API_KEY") == "CUSTOM_API_KEY"
 
 
-def test_chat_command_runs_multiple_turns_until_exit(tmp_path, monkeypatch):
-    seen_configs: list[SessionConfig] = []
-
-    def fake_runtime(config: SessionConfig) -> AgentRuntime:
-        seen_configs.append(config)
-        return AgentRuntime(
-            session_store=SessionStore(config.codecraft_home),
-            llm_providers=LLMProviderRegistry(
-                [
-                    MockProvider(
-                        [
-                            ModelEvent(
-                                type=ModelEventType.MESSAGE_COMPLETED,
-                                payload={"text": "first answer"},
-                            ),
-                            ModelEvent(type=ModelEventType.COMPLETED),
-                            ModelEvent(
-                                type=ModelEventType.MESSAGE_COMPLETED,
-                                payload={"text": "second answer"},
-                            ),
-                            ModelEvent(type=ModelEventType.COMPLETED),
-                        ]
-                    )
-                ]
-            ),
-            tool_registry=ToolRegistry(),
-        )
-
-    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
-
-    result = runner.invoke(
-        app,
-        [
-            "chat",
-            "--provider",
-            "mock",
-            "--model",
-            "mock-model",
-            "--codecraft-home",
-            str(tmp_path / ".codecraft"),
-        ],
-        input="first\nsecond\n/exit\n",
-    )
-
-    assert result.exit_code == 0
-    assert "session_id:" in result.output
-    assert "first answer" in result.output
-    assert "second answer" in result.output
-    assert seen_configs[0].source == SessionSource.CLI_CHAT
-    assert seen_configs[0].model_provider == "mock"
-
-
 def test_exec_command_prints_bash_approval_details(tmp_path, monkeypatch):
     def fake_runtime(config: SessionConfig) -> AgentRuntime:
         return AgentRuntime(
@@ -933,82 +796,9 @@ def test_exec_command_prints_bash_approval_details(tmp_path, monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "[tool] bash: python -c 'print(1)'" in result.output
-    assert "[approval] bash" in result.output
-    assert "command: python -c 'print(1)'" in result.output
+    assert "• bash python -c 'print(1)'" in result.output
+    assert "approval required" in result.output
+    assert "python -c 'print(1)'" in result.output
     assert "Approve?" in result.output
-    assert "[tool] bash failed" in result.output
-
-
-def test_default_command_submits_initial_task_and_stays_interactive(
-    tmp_path, monkeypatch
-):
-    provider = MockProvider(
-        [
-            ModelEvent(
-                type=ModelEventType.MESSAGE_COMPLETED,
-                payload={"text": "initial answer"},
-            ),
-            ModelEvent(type=ModelEventType.COMPLETED),
-        ]
-    )
-
-    def fake_runtime(config: SessionConfig) -> AgentRuntime:
-        return AgentRuntime(
-            session_store=SessionStore(config.codecraft_home),
-            llm_providers=LLMProviderRegistry([provider]),
-            tool_registry=ToolRegistry(),
-        )
-
-    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
-
-    result = runner.invoke(
-        app,
-        [
-            "--provider",
-            "mock",
-            "--model",
-            "mock-model",
-            "--codecraft-home",
-            str(tmp_path / ".codecraft"),
-            "explain repo",
-        ],
-        input="/exit\n",
-    )
-
-    assert result.exit_code == 0
-    assert "initial answer" in result.output
-    assert provider.calls[0][0][-1].content == "explain repo"
-
-
-def test_chat_slash_commands_are_handled_locally(tmp_path, monkeypatch):
-    provider = MockProvider([])
-
-    def fake_runtime(config: SessionConfig) -> AgentRuntime:
-        return AgentRuntime(
-            session_store=SessionStore(config.codecraft_home),
-            llm_providers=LLMProviderRegistry([provider]),
-            tool_registry=ToolRegistry([BashTool()]),
-        )
-
-    monkeypatch.setattr(cli_app, "_build_runtime", fake_runtime)
-
-    result = runner.invoke(
-        app,
-        [
-            "chat",
-            "--provider",
-            "mock",
-            "--model",
-            "mock-model",
-            "--codecraft-home",
-            str(tmp_path / ".codecraft"),
-        ],
-        input="/help\n/status\n/tools\n/exit\n",
-    )
-
-    assert result.exit_code == 0
-    assert "CodeCraft commands" in result.output
-    assert "session status" in result.output
-    assert "Registered Tools" in result.output
-    assert provider.calls == []
+    assert "approval rejected" in result.output
+    assert "✗ bash failed" in result.output

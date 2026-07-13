@@ -6,9 +6,9 @@ from typing import Annotated
 import typer
 
 from codecraft.approval import ApprovalPolicy
-from codecraft.cli.commands.common import build_shell_context, render_startup_error
+from codecraft.cli.commands.common import build_event_renderer, render_startup_error
 from codecraft.cli.options import CodecraftHomeOption
-from codecraft.cli.shell.runner import submit_user_message
+from codecraft.cli.runtime_runner import submit_user_message
 from codecraft.core.errors import CodecraftError
 from codecraft.schema.session import SessionSource
 
@@ -95,13 +95,8 @@ async def run_exec(
     runtime = cli_app._build_runtime(config)
     try:
         thread = await runtime.create_thread(config)
-        context, _ = build_shell_context(
-            runtime=runtime,
-            thread=thread,
-            config=config,
-            debug=debug,
-        )
-        return await submit_user_message(thread, context.renderer, task)
+        renderer = build_event_renderer(debug=debug)
+        return await submit_user_message(thread, renderer, task)
     except CodecraftError as exc:
         render_startup_error(exc)
         return 1

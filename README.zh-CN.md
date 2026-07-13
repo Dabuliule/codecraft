@@ -4,13 +4,13 @@
 
 CodeCraft 是一个运行在本地代码仓库里的 Coding Agent Runtime。它关注的不是“再包一层模型接口”，而是把 Agent 真正执行任务时需要的运行时能力拆清楚：配置加载、提示词/项目指令、模型 provider、工具执行、审批、session 事件日志、恢复会话和诊断。
 
-项目目前正在按 v1.0 runtime 方向重构。当前已经可以通过 Qwen、DeepSeek 或 OpenAI-compatible provider 运行真实的多轮 CLI 会话。默认本地执行使用应用层 guard；可选 Docker backend 会为 bash 进程增加 OS 级隔离。
+项目目前正在按 v1.0 runtime 方向重构。当前已经可以通过 Qwen、DeepSeek 或 OpenAI-compatible provider 运行真实的多轮 TUI 会话和可脚本化 CLI 任务。默认本地执行使用应用层 guard；可选 Docker backend 会为 bash 进程增加 OS 级隔离。
 
 许可证：Apache-2.0。
 
 ## CodeCraft 能做什么
 
-- 通过 CLI 执行单轮任务、多轮聊天和恢复会话。
+- 通过 `exec` 执行可脚本化任务，通过 TUI 进行多轮交互和恢复会话。
 - 从用户级、profile、项目级、显式配置文件和 CLI 参数加载配置。
 - 注入内置 runtime instructions，并读取 workspace 内的 `AGENTS.md` / `CODECRAFT.md`。
 - 调用 Qwen、DeepSeek 和 OpenAI 等 OpenAI-compatible provider。
@@ -56,7 +56,7 @@ pipx upgrade codecraft
 安装后运行：
 
 ```zsh
-codecraft chat
+codecraft tui
 ```
 
 从源码本地开发：
@@ -65,7 +65,7 @@ codecraft chat
 git clone https://github.com/Dabuliule/codecraft.git
 cd codecraft
 uv sync
-uv run codecraft chat
+uv run codecraft tui
 ```
 
 ## 当前 CLI
@@ -74,12 +74,6 @@ uv run codecraft chat
 
 ```zsh
 uv run codecraft exec "总结一下这个仓库"
-```
-
-启动多轮会话：
-
-```zsh
-uv run codecraft chat
 ```
 
 启动全屏终端界面：
@@ -100,18 +94,6 @@ uv run codecraft tui --resume <session_id>
 为了让长 session 的终端渲染保持流畅，恢复时只显示有限数量的历史消息；Runtime 仍会从事件日志重建全部可用模型上下文。
 
 通过 Runtime 面板中的 `Trace` 命令，可以直接在 TUI 中检查当前持久化 trace。Trace 界面复用标准报告模型，展示汇总指标、虚拟化事件表和结构化 payload。
-
-恢复最近一个有效会话：
-
-```zsh
-uv run codecraft resume --last
-```
-
-只查看最近有效会话摘要：
-
-```zsh
-uv run codecraft resume --last --summary
-```
 
 列出有效 session：
 
@@ -208,12 +190,12 @@ CodeCraft 推荐使用 `api_key_env`，不推荐把明文 API key 写进 TOML。
 常用 CLI 覆盖：
 
 ```zsh
-uv run codecraft chat --provider qwen --model qwen-plus
-uv run codecraft chat --provider deepseek --model deepseek-v4-flash
-uv run codecraft chat --config ./my-config.toml
-uv run codecraft chat --profile work
-uv run codecraft chat --approval-policy on_request
-uv run codecraft chat --network
+uv run codecraft tui --provider qwen --model qwen-plus
+uv run codecraft tui --provider deepseek --model deepseek-v4-flash
+uv run codecraft tui --config ./my-config.toml
+uv run codecraft tui --profile work
+uv run codecraft tui --approval-policy on_request
+uv run codecraft tui --network
 ```
 
 ## Provider
@@ -295,10 +277,13 @@ CodeCraft 会从当前工作目录开始向上查找，但不会越过 workspace
 CLI 会展示审批细节，尤其是 bash 命令：
 
 ```text
-[tool] bash: python -c 'print(1)'
-[approval] bash risk=prompt reason=unknown command requires approval
-command: python -c 'print(1)'
-Approve? [y/N]:
+• bash python -c 'print(1)'
+approval required
+tool     bash
+risk     prompt
+reason   unknown command requires approval
+command  python -c 'print(1)'
+Approve? [y/n/d]
 ```
 
 Command policy 会区分安全命令、需要审批的命令、拒绝命令和网络命令。`python --version` 和 `python -V` 是安全命令；任意 Python 代码执行需要审批。
@@ -410,7 +395,9 @@ Session 事件以 JSONL 存储：
 
 事件日志包含 session、turn、user、assistant、model tool call、tool start/finish、approval、token、error、finish 等事件。
 
-`resume --last` 会加载最近一个有效 session，从事件重建 conversation，然后继续对话，不会重新执行历史工具。
+事件与其中的 session 配置分别携带 schema 版本。缺失或未知版本会被明确拒绝，避免按不完整语义恢复。
+
+`tui --last` 会加载当前 workspace 最近一个有效 session，从事件重建 conversation，然后继续对话，不会重新执行历史工具。
 
 如果 session log 损坏，默认列表会跳过它。要查看损坏日志：
 
@@ -430,7 +417,7 @@ uv run codecraft inspect <session_id> --raw
 
 ```zsh
 uv sync
-uv run codecraft chat
+uv run codecraft tui
 ```
 
 质量检查：
@@ -464,7 +451,7 @@ type(scope): subject
 示例：
 
 ```text
-feat(cli): add resume summary option
+feat(tui): add session search
 fix(tool): handle empty apply_patch payload
 chore: update workflow permissions
 ```
@@ -489,7 +476,7 @@ chore: update workflow permissions
 高层流程：
 
 ```text
-CLI
+CLI / TUI
   -> ConfigLoader
   -> AgentRuntime
   -> AgentThread / Session / Turn

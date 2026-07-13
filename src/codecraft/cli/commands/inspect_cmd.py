@@ -10,7 +10,6 @@ from codecraft.cli.ui import make_console
 from codecraft.cli.ui.session_renderer import SessionRenderer, last_answer
 from codecraft.core.errors import SessionRestoreError
 from codecraft.core.session_store import SessionStore
-from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 
 
 def register_inspect_command(app: typer.Typer) -> None:
@@ -82,24 +81,16 @@ async def run_inspect(
     renderer = SessionRenderer(console)
     renderer.render_inspect_summary(session_id, loaded)
 
-    console.print(f"session_id: {session_id}", style="muted")
-    console.print(f"events: {len(loaded)}", style="muted")
-    if loaded:
-        console.print(f"last_event: {loaded[-1].type}", style="muted")
-
     answer = last_answer(loaded)
     if answer:
-        console.print(f"final_answer: {answer}", style="muted")
+        console.print(answer)
 
     if events:
         renderer.render_events(loaded)
-        print_event_compat_lines(console, loaded)
     if tools:
         renderer.render_tool_events(loaded)
-        print_tool_compat_lines(console, loaded)
     if errors:
         renderer.render_error_events(loaded)
-        print_error_compat_lines(console, loaded)
     return 0
 
 
@@ -112,96 +103,3 @@ def print_restore_error(console, session_id: str, exc: SessionRestoreError) -> N
         markup=False,
         soft_wrap=True,
     )
-
-
-def print_event_compat_lines(console, events: list[RuntimeEvent]) -> None:
-    for event in events:
-        console.print(
-            f"{event.seq} {event.type} turn={event.turn_id or '-'} payload={event.payload}",
-            style="muted",
-            soft_wrap=True,
-            markup=False,
-        )
-
-
-def print_tool_compat_lines(console, events: list[RuntimeEvent]) -> None:
-    for event in events:
-        if event.type == RuntimeEventType.MODEL_TOOL_CALL:
-            console.print(
-                f"{event.seq} model_tool_call {event.payload.get('name')} "
-                f"args={event.payload.get('arguments')}",
-                style="muted",
-                soft_wrap=True,
-                markup=False,
-            )
-        elif event.type == RuntimeEventType.TOOL_CALL_STARTED:
-            console.print(
-                f"{event.seq} {format_tool_started(event.payload)}",
-                style="muted",
-                soft_wrap=True,
-                markup=False,
-            )
-        elif event.type == RuntimeEventType.TOOL_CALL_FINISHED:
-            console.print(
-                f"{event.seq} {format_tool_finished(event.payload)}",
-                style="muted",
-                soft_wrap=True,
-                markup=False,
-            )
-
-
-def print_error_compat_lines(console, events: list[RuntimeEvent]) -> None:
-    for event in events:
-        if event.type == RuntimeEventType.ERROR:
-            console.print(
-                f"{event.seq} error turn={event.turn_id or '-'} payload={event.payload}",
-                style="muted",
-                soft_wrap=True,
-                markup=False,
-            )
-        elif event.type == RuntimeEventType.TURN_ABORTED:
-            console.print(
-                f"{event.seq} aborted turn={event.turn_id or '-'} payload={event.payload}",
-                style="muted",
-                soft_wrap=True,
-                markup=False,
-            )
-        elif event.type == RuntimeEventType.TOOL_CALL_FINISHED:
-            result = event.payload.get("result")
-            if isinstance(result, dict) and result.get("success") is False:
-                console.print(
-                    f"{event.seq} tool_error {event.payload.get('name')} payload={result}",
-                    style="muted",
-                    soft_wrap=True,
-                    markup=False,
-                )
-
-
-def format_tool_started(payload: dict) -> str:
-    name = payload.get("name")
-    arguments = payload.get("arguments")
-    if name == "bash" and isinstance(arguments, dict):
-        command = arguments.get("command")
-        if isinstance(command, str) and command:
-            return f"[tool] bash: {command}"
-    return f"[tool] {name}"
-
-
-def format_tool_finished(payload: dict) -> str:
-    name = payload.get("name")
-    result = payload.get("result")
-    duration_ms = payload.get("duration_ms")
-    if not isinstance(result, dict):
-        return f"[tool] {name} finished"
-
-    status = "ok" if result.get("success") is True else "failed"
-    content = preview(str(result.get("content") or result.get("error") or ""))
-    duration = f" ({duration_ms}ms)" if isinstance(duration_ms, int) else ""
-    return f"[tool] {name} {status}{duration}: {content}"
-
-
-def preview(value: str, *, max_chars: int = 160) -> str:
-    compact = " ".join(value.split())
-    if len(compact) <= max_chars:
-        return compact
-    return compact[: max_chars - 3] + "..."

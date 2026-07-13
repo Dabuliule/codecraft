@@ -11,7 +11,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Header, Input, Label, RichLog, Static
 
-from codecraft.cli.shell.runner import shutdown_thread
+from codecraft.cli.runtime_runner import shutdown_thread
 from codecraft.core.errors import CodecraftError
 from codecraft.core.ids import new_id
 from codecraft.core.runtime import AgentRuntime
