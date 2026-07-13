@@ -6,7 +6,9 @@ from codecraft.config.settings import (
     PathsSettings,
     RuntimeSettings,
     SandboxSettings,
+    TurnSettings,
 )
+from codecraft.mcp.config import MCPServerSettings, MCPSettings, MCPToolPolicySettings
 
 __all__ = [
     "ApprovalSettings",
@@ -14,7 +16,11 @@ __all__ = [
     "ConfigOverrides",
     "InstructionSettings",
     "ModelSettings",
+    "MCPServerSettings",
+    "MCPSettings",
+    "MCPToolPolicySettings",
     "PathsSettings",
     "RuntimeSettings",
     "SandboxSettings",
+    "TurnSettings",
 ]

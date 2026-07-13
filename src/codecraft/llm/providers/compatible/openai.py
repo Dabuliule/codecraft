@@ -33,7 +33,9 @@ class OpenAIProvider(OpenAICompatibleProvider):
             raise LLMConfigError("openai package is not installed") from exc
 
         kwargs: dict[str, Any] = {}
-        api_key = self.api_key or (os.getenv(self.api_key_env) if self.api_key_env else None)
+        api_key = self.api_key or (
+            os.getenv(self.api_key_env) if self.api_key_env else None
+        )
         if api_key:
             kwargs["api_key"] = api_key
         if self.base_url:

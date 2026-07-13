@@ -10,5 +10,14 @@ class ToolProvider(ABC):
     name: str
 
     @abstractmethod
-    def tools(self) -> Iterable[BaseTool]:
-        ...
+    def tools(self) -> Iterable[BaseTool]: ...
+
+
+class AsyncToolProvider(ABC):
+    name: str
+
+    @abstractmethod
+    async def start(self) -> Iterable[BaseTool]: ...
+
+    @abstractmethod
+    async def close(self) -> None: ...

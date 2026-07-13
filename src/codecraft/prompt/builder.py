@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from codecraft.core.conversation import Conversation
 from codecraft.core.turn_context import TurnContext
 from codecraft.llm.messages import ModelMessage, ModelRole
-from codecraft.prompt.base import BASE_INSTRUCTIONS
-from codecraft.prompt.instructions import InstructionLoader
+from codecraft.prompt.base_instructions import BASE_INSTRUCTIONS
 from codecraft.schema.session import SessionConfig
 
 
-@dataclass(frozen=True)
 class PromptBuilder:
-    instruction_loader: InstructionLoader = field(default_factory=InstructionLoader)
+    """组装发送给模型的 system prompt 和历史消息。"""
 
     def build(
         self,
@@ -21,16 +17,10 @@ class PromptBuilder:
         conversation: Conversation,
         context: TurnContext,
     ) -> list[ModelMessage]:
+        """按固定 section 顺序构造完整模型输入。"""
         sections = [
             ("base_instructions", config.base_instructions or BASE_INSTRUCTIONS),
-            (
-                "project_instructions",
-                config.project_instructions
-                or self.instruction_loader.load_project_instructions(
-                    cwd=context.cwd,
-                    workspace_roots=context.workspace_roots,
-                ),
-            ),
+            ("project_instructions", config.project_instructions),
             ("user_instructions", config.user_instructions),
             ("turn_context", self._turn_context(context)),
         ]

@@ -9,33 +9,31 @@ EventHandler = Callable[[RuntimeEvent], Awaitable[None]]
 
 
 class EventBus:
-    """
-    Minimal async event bus for runtime events.
+    """RuntimeEvent 的轻量异步事件总线。
 
-    Handlers are called in subscription order. Handler exceptions propagate to
-    the caller so orchestration code can fail fast instead of hiding side
-    effects that did not run.
+    handler 按订阅顺序执行；异常会继续抛给调用方，避免事件副作用失败后被静默
+    吞掉。
     """
 
     def __init__(self) -> None:
         self._handlers: list[EventHandler] = []
 
     def subscribe(
-            self,
-            handler: EventHandler,
+        self,
+        handler: EventHandler,
     ) -> None:
+        """注册一个异步事件处理器。"""
         self._handlers.append(handler)
 
     async def emit(
-            self,
-            event: RuntimeEvent,
+        self,
+        event: RuntimeEvent,
     ) -> None:
+        """按订阅顺序发送事件。"""
         for handler in list(self._handlers):
             result = handler(event)
 
             if not isawaitable(result):
-                raise TypeError(
-                    "EventBus handler must be an async callable"
-                )
+                raise TypeError("EventBus handler must be an async callable")
 
             await result

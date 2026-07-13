@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import difflib
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from codecraft.core.errors import WorkspaceAccessError
+from codecraft.retrieval.engine import ContextEngine
+from codecraft.retrieval.models import RetrievalRequest
 from codecraft.schema.tool import ToolEffect, ToolResult
-from codecraft.tool.base import BaseTool, ToolContext
+from codecraft.tool.base import BaseTool, ToolArguments, ToolContext
 from codecraft.tool.workspace import WorkspaceGuard
 
 
-class ReadFileArgs(BaseModel):
+class ReadFileArgs(ToolArguments):
     path: str
     encoding: str = "utf-8"
     max_chars: int = Field(default=80_000, ge=1)
@@ -49,9 +52,13 @@ class ReadFileTool(BaseTool):
             return ToolResult(
                 success=False,
                 content="File could not be decoded.",
-                error=str(exc),
+                error="file_decode_error",
                 suggestion="Try a different encoding.",
-                metadata={"path": str(path), "encoding": read_args.encoding},
+                metadata={
+                    "path": str(path),
+                    "encoding": read_args.encoding,
+                    "reason": str(exc),
+                },
             )
 
         truncated = len(content) > read_args.max_chars
@@ -73,7 +80,7 @@ class ReadFileTool(BaseTool):
         )
 
 
-class WriteFileArgs(BaseModel):
+class WriteFileArgs(ToolArguments):
     path: str
     content: str
     encoding: str = "utf-8"
@@ -111,7 +118,9 @@ class WriteFileTool(BaseTool):
                 )
             path.parent.mkdir(parents=True, exist_ok=True)
 
-        previous = path.read_text(encoding=write_args.encoding) if path.exists() else None
+        previous = (
+            path.read_text(encoding=write_args.encoding) if path.exists() else None
+        )
         path.write_text(write_args.content, encoding=write_args.encoding)
 
         status = "created" if previous is None else "modified"
@@ -150,7 +159,7 @@ class WriteFileTool(BaseTool):
         )
 
 
-class ListFilesArgs(BaseModel):
+class ListFilesArgs(ToolArguments):
     path: str = "."
     recursive: bool = False
     max_entries: int = Field(default=500, ge=1)
@@ -222,3 +231,107 @@ class ListFilesTool(BaseTool):
                 code="workspace_access_denied",
             ) from exc
         return f"{relative}{suffix}"
+
+
+class WorkspaceSearchArgs(ToolArguments):
+    query: str = Field(min_length=1)
+    path: str = "."
+    mode: Literal["both", "content", "path"] = "both"
+    case_sensitive: bool = False
+    strategy: Literal["auto", "scan", "lexical", "symbol"] = Field(
+        default="auto",
+        description=(
+            "auto to route by query shape, scan for exact path/text matching, "
+            "lexical for ranked indexed search, or symbol for indexed definitions"
+        ),
+    )
+    max_results: int = Field(default=100, ge=1, le=1000)
+    max_file_bytes: int = Field(default=1_000_000, ge=1)
+
+
+class WorkspaceSearchTool(BaseTool):
+    name = "workspace_search"
+    description = (
+        "Search workspace paths, text, or indexed symbols with scan, lexical, or "
+        "symbol retrieval, returning paths, line numbers, and snippets."
+    )
+    args_schema = WorkspaceSearchArgs
+    effects = {ToolEffect.READ_ONLY}
+
+    def __init__(self, context_engine: ContextEngine | None = None) -> None:
+        self.context_engine = context_engine or ContextEngine()
+
+    async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
+        search_args = WorkspaceSearchArgs.model_validate(args)
+        guard = WorkspaceGuard(context.context.workspace_roots)
+        root = guard.resolve_read_path(search_args.path, context.context.cwd)
+
+        if not root.exists():
+            return ToolResult(
+                success=False,
+                content="Search path does not exist.",
+                error="path_not_found",
+                metadata={"path": str(root)},
+            )
+
+        response = await self.context_engine.retrieve(
+            RetrievalRequest(
+                query=search_args.query,
+                root=root,
+                workspace_roots=tuple(guard.workspace_roots),
+                mode=search_args.mode,
+                case_sensitive=search_args.case_sensitive,
+                max_results=search_args.max_results,
+                max_file_bytes=search_args.max_file_bytes,
+            ),
+            retriever_name=search_args.strategy,
+            fallback_retriever="scan",
+        )
+        matches = [match.as_dict() for match in response.matches]
+        stats = response.stats
+
+        lines = [self._format_match(match) for match in matches]
+        content = "\n".join(lines) if lines else "No matches found."
+
+        return ToolResult(
+            success=True,
+            content=content,
+            data={
+                "query": search_args.query,
+                "path": str(root),
+                "matches": matches,
+                "match_count": len(matches),
+                "truncated": response.truncated,
+                "skipped": stats.skipped,
+                "candidate_file_count": stats.candidate_file_count,
+                "scanned_file_count": stats.scanned_file_count,
+                "read_file_count": stats.read_file_count,
+                "scanned_bytes": stats.scanned_bytes,
+                "returned_chars": len(content),
+                "retriever": response.retriever,
+                "fallback_from": response.fallback_from,
+                "route_reason": response.route_reason,
+                "attempted_retrievers": list(response.attempted_retrievers),
+            },
+            metadata={
+                "query": search_args.query,
+                "path": str(root),
+                "match_count": len(matches),
+                "truncated": response.truncated,
+                "candidate_file_count": stats.candidate_file_count,
+                "scanned_file_count": stats.scanned_file_count,
+                "read_file_count": stats.read_file_count,
+                "scanned_bytes": stats.scanned_bytes,
+                "returned_chars": len(content),
+                "retriever": response.retriever,
+                "fallback_from": response.fallback_from,
+                "route_reason": response.route_reason,
+                "attempted_retrievers": list(response.attempted_retrievers),
+            },
+        )
+
+    @staticmethod
+    def _format_match(match: dict[str, object]) -> str:
+        if match["type"] == "path":
+            return f"{match['path']} [path]"
+        return f"{match['path']}:{match['line']}: {match['snippet']}"

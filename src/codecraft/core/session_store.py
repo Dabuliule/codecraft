@@ -1,20 +1,37 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 from codecraft.core.errors import SessionError, SessionRestoreError
-from codecraft.schema.event import RuntimeEvent, RuntimeEventType
-from codecraft.schema.session import SessionConfig, SessionSnapshot, SessionSummary
+from codecraft.schema.event import (
+    RUNTIME_EVENT_SCHEMA_VERSION,
+    RuntimeEvent,
+    RuntimeEventType,
+)
+from codecraft.schema.session import (
+    SESSION_CONFIG_SCHEMA_VERSION,
+    SessionConfig,
+    SessionSnapshot,
+    SessionSummary,
+)
 
 
 class SessionStore:
+    """基于 JSONL 文件的 session event 存储。
+
+    每个 session 对应一个按日期分目录的 `.jsonl` 文件。恢复会话时不保存额外
+    快照，而是重新读取事件日志并校验 seq 连续性。
+    """
+
     def __init__(self, codecraft_home: Path) -> None:
         self.codecraft_home = codecraft_home.expanduser().resolve()
         self.sessions_dir = self.codecraft_home / "sessions"
         self._paths: dict[str, Path] = {}
 
     async def create_session(self, config: SessionConfig) -> Path:
+        """创建当前 session 的事件日志文件。"""
         created_at = config.created_at
         path = (
             self.sessions_dir
@@ -29,6 +46,7 @@ class SessionStore:
         return path
 
     async def append_event(self, event: RuntimeEvent) -> None:
+        """追加单个事件到 session 日志。"""
         path = self._path_for_session(event.session_id)
         try:
             with path.open("a", encoding="utf-8") as handle:
@@ -49,6 +67,7 @@ class SessionStore:
             ) from exc
 
     async def load_events(self, session_id: str) -> list[RuntimeEvent]:
+        """读取并校验一个 session 的全部事件。"""
         path = self._path_for_session(session_id)
         events: list[RuntimeEvent] = []
 
@@ -59,11 +78,45 @@ class SessionStore:
                     if not stripped:
                         continue
                     try:
-                        events.append(RuntimeEvent.model_validate_json(stripped))
+                        data = json.loads(stripped)
                     except Exception as exc:
                         raise SessionRestoreError(
                             "failed to parse session event",
                             code="session_event_parse_failed",
+                            metadata={
+                                "session_id": session_id,
+                                "path": str(path),
+                                "line": line_number,
+                            },
+                        ) from exc
+                    if not isinstance(data, dict):
+                        raise SessionRestoreError(
+                            "session event must be a JSON object",
+                            code="session_event_shape_invalid",
+                            metadata={
+                                "session_id": session_id,
+                                "path": str(path),
+                                "line": line_number,
+                            },
+                        )
+                    version = data.get("schema_version")
+                    if version != RUNTIME_EVENT_SCHEMA_VERSION:
+                        raise SessionRestoreError(
+                            "session event schema version is not supported",
+                            code="session_event_schema_unsupported",
+                            metadata={
+                                "session_id": session_id,
+                                "path": str(path),
+                                "line": line_number,
+                                "version": version,
+                            },
+                        )
+                    try:
+                        events.append(RuntimeEvent.model_validate(data))
+                    except Exception as exc:
+                        raise SessionRestoreError(
+                            "failed to validate session event",
+                            code="session_event_validation_failed",
                             metadata={
                                 "session_id": session_id,
                                 "path": str(path),
@@ -99,6 +152,7 @@ class SessionStore:
         *,
         include_invalid: bool = False,
     ) -> list[SessionSummary]:
+        """列出 session 摘要，可按 cwd 过滤。"""
         summaries: list[SessionSummary] = []
         cwd_resolved = cwd.expanduser().resolve() if cwd else None
 
@@ -110,7 +164,6 @@ class SessionStore:
                     summaries.append(
                         SessionSummary(
                             session_id=path.stem,
-                            thread_id="",
                             path=path,
                             valid=False,
                             error_code=exc.code,
@@ -124,7 +177,6 @@ class SessionStore:
                 summaries.append(
                     SessionSummary(
                         session_id=path.stem,
-                        thread_id="",
                         path=path,
                     )
                 )
@@ -133,7 +185,24 @@ class SessionStore:
             first = events[0]
             last = events[-1]
             config = first.payload.get("config")
-            if not isinstance(config, dict):
+            if isinstance(config, dict):
+                try:
+                    self._validate_config_version(config, first.session_id)
+                except SessionRestoreError as exc:
+                    if include_invalid and cwd_resolved is None:
+                        summaries.append(
+                            SessionSummary(
+                                session_id=path.stem,
+                                path=path,
+                                valid=False,
+                                error_code=exc.code,
+                                error_message=exc.message,
+                                event_count=len(events),
+                                last_event_at=last.timestamp,
+                            )
+                        )
+                    continue
+            else:
                 config = {}
             session_cwd = self._optional_path(config.get("cwd"))
 
@@ -143,7 +212,6 @@ class SessionStore:
             summaries.append(
                 SessionSummary(
                     session_id=first.session_id,
-                    thread_id=str(config.get("thread_id", "")),
                     path=path,
                     cwd=session_cwd,
                     source=config.get("source"),
@@ -174,6 +242,7 @@ class SessionStore:
         return await self.resume(summaries[0].session_id)
 
     async def resume(self, session_id: str) -> SessionSnapshot:
+        """从事件日志恢复 session 配置和历史事件。"""
         events = await self.load_events(session_id)
         if not events:
             raise SessionRestoreError(
@@ -197,13 +266,25 @@ class SessionStore:
                 code="session_config_missing",
                 metadata={"session_id": session_id},
             )
+        self._validate_config_version(config_data, session_id)
 
         return SessionSnapshot(
             config=SessionConfig.model_validate(config_data),
             events=events,
         )
 
+    @staticmethod
+    def _validate_config_version(config_data: dict, session_id: str) -> None:
+        version = config_data.get("schema_version")
+        if version != SESSION_CONFIG_SCHEMA_VERSION:
+            raise SessionRestoreError(
+                "session config schema version is not supported",
+                code="session_config_schema_unsupported",
+                metadata={"session_id": session_id, "version": version},
+            )
+
     def _path_for_session(self, session_id: str) -> Path:
+        """定位 session 日志路径，并缓存 glob 的结果。"""
         if session_id in self._paths:
             return self._paths[session_id]
 
@@ -241,6 +322,7 @@ class SessionStore:
 
     @staticmethod
     def _validate_seq(session_id: str, events: list[RuntimeEvent]) -> None:
+        """确保事件属于同一个 session，且 seq 从 1 开始连续递增。"""
         for expected, event in enumerate(events, start=1):
             if event.session_id != session_id:
                 raise SessionRestoreError(

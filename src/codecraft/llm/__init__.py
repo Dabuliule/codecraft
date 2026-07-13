@@ -1,7 +1,13 @@
-from codecraft.llm.base import LLMConfigError, LLMProvider, LLMProviderError
+from codecraft.llm.base import (
+    LLMConfigError,
+    LLMProtocolError,
+    LLMProvider,
+    LLMProviderError,
+)
 from codecraft.llm.events import ModelEvent, ModelEventType
 from codecraft.llm.messages import ModelMessage, ModelMessageType, ModelRole
 from codecraft.llm.providers import (
+    DeepSeekProvider,
     MockProvider,
     OpenAICompatibleProvider,
     OpenAIProvider,
@@ -14,6 +20,8 @@ __all__ = [
     "LLMProvider",
     "LLMProviderRegistry",
     "LLMProviderError",
+    "LLMProtocolError",
+    "DeepSeekProvider",
     "ModelEvent",
     "ModelEventType",
     "ModelMessage",

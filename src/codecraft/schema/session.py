@@ -3,50 +3,74 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+import re
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from codecraft.approval.policy import ApprovalPolicy
-from codecraft.sandbox.policy import SandboxMode
+from codecraft.mcp.config import MCPServerSettings, MCPSettings
+from codecraft.sandbox import DockerSandboxConfig, SandboxBackendType, SandboxMode
 from codecraft.schema.event import RuntimeEvent
+
+SESSION_CONFIG_SCHEMA_VERSION = 1
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class SessionSource(StrEnum):
-    CLI_CHAT = "cli_chat"
     CLI_EXEC = "cli_exec"
-    RESUME = "resume"
+    CLI_EVAL = "cli_eval"
+    CLI_TUI = "cli_tui"
     TEST = "test"
 
 
+class EvalSessionContext(BaseModel):
+    run_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    attempt: int = Field(ge=1)
+
+
 class SessionConfig(BaseModel):
-    session_id: str
-    thread_id: str
+    """启动或恢复 session 所需的完整运行配置。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = SESSION_CONFIG_SCHEMA_VERSION
+    session_id: str = Field(min_length=1)
     source: SessionSource
 
     cwd: Path
     workspace_roots: list[Path]
     codecraft_home: Path
 
-    model: str
-    model_provider: str
+    model: str = Field(min_length=1)
+    model_provider: str = Field(min_length=1)
     model_api_key_env: str | None = None
     model_base_url: str | None = None
 
-    approval_policy: str
-    sandbox_mode: str
+    approval_policy: ApprovalPolicy
+    sandbox_mode: SandboxMode
     network_access: bool = False
+    sandbox_backend: SandboxBackendType = SandboxBackendType.AUTO
+    sandbox_env_allowlist: list[str] = Field(default_factory=list)
+    docker_sandbox: DockerSandboxConfig = Field(default_factory=DockerSandboxConfig)
+    mcp_servers: dict[str, MCPServerSettings] = Field(default_factory=dict)
 
     base_instructions: str | None = None
     project_instructions: str | None = None
     user_instructions: str | None = None
 
-    max_turn_steps: int = 30
-    max_tool_output_chars: int = 80_000
-    max_conversation_items: int = 200
+    max_tool_calls: int = Field(default=30, ge=1, le=1000)
+    max_tool_output_chars: int = Field(default=80_000, ge=1, le=10_000_000)
+    turn_timeout_seconds: int = Field(default=1800, ge=1, le=7200)
+    tool_timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    approval_timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    max_context_chars: int = Field(default=400_000, ge=1000, le=20_000_000)
+    context_keep_recent_items: int = Field(default=12, ge=1, le=100)
+    max_parallel_read_tools: int = Field(default=4, ge=1, le=32)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    evaluation: EvalSessionContext | None = None
 
     @field_validator("cwd")
     @classmethod
@@ -72,29 +96,44 @@ class SessionConfig(BaseModel):
         if missing:
             raise ValueError(f"workspace_roots must be directories: {missing}")
 
-        return roots
+        return list(dict.fromkeys(roots))
+
+    @field_validator("model_api_key_env")
+    @classmethod
+    def validate_model_api_key_env(cls, value: str | None) -> str | None:
+        if value is not None and not _ENV_NAME.fullmatch(value):
+            raise ValueError("model_api_key_env must be an environment variable name")
+        return value
+
+    @field_validator("sandbox_env_allowlist")
+    @classmethod
+    def validate_sandbox_env_names(cls, values: list[str]) -> list[str]:
+        invalid = [value for value in values if not _ENV_NAME.fullmatch(value)]
+        if invalid:
+            raise ValueError(f"invalid environment variable names: {invalid}")
+        return list(dict.fromkeys(values))
+
+    @field_validator("mcp_servers")
+    @classmethod
+    def validate_mcp_servers(
+        cls, values: dict[str, MCPServerSettings]
+    ) -> dict[str, MCPServerSettings]:
+        return MCPSettings(servers=values).servers
 
     @model_validator(mode="after")
-    def validate_runtime_names(self) -> SessionConfig:
-        if not self.model_provider:
-            raise ValueError("model_provider must not be empty")
-
-        try:
-            ApprovalPolicy(self.approval_policy)
-        except ValueError as exc:
-            raise ValueError("approval_policy must be a known value") from exc
-
-        try:
-            SandboxMode(self.sandbox_mode)
-        except ValueError as exc:
-            raise ValueError("sandbox_mode must be a known value") from exc
-
+    def validate_workspace_boundary(self) -> SessionConfig:
+        if not any(
+            self.cwd == root or root in self.cwd.parents
+            for root in self.workspace_roots
+        ):
+            raise ValueError("cwd must be inside a workspace root")
         return self
 
 
 class SessionSummary(BaseModel):
+    """用于列表页/命令输出的轻量 session 信息。"""
+
     session_id: str
-    thread_id: str
     path: Path
     valid: bool = True
     error_code: str | None = None
@@ -107,5 +146,7 @@ class SessionSummary(BaseModel):
 
 
 class SessionSnapshot(BaseModel):
+    """恢复 session 时读取到的配置和事件日志。"""
+
     config: SessionConfig
     events: list[RuntimeEvent]

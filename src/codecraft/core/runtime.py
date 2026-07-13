@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from codecraft.approval.manager import ApprovalManager
@@ -12,9 +13,12 @@ from codecraft.llm.registry import LLMProviderRegistry
 from codecraft.schema.event import RuntimeEventType
 from codecraft.schema.session import SessionConfig, SessionSummary
 from codecraft.tool.registry import ToolRegistry
+from codecraft.tool.observer import ToolResultObserver
 
 
 class AgentRuntime:
+    """装配 session store、LLM provider 和 tool registry 的运行时入口。"""
+
     def __init__(
         self,
         *,
@@ -23,14 +27,18 @@ class AgentRuntime:
         tool_registry: ToolRegistry,
         approval_manager: ApprovalManager | None = None,
         event_bus: EventBus | None = None,
+        tool_result_observers: Sequence[ToolResultObserver] | None = None,
     ) -> None:
         self.session_store = session_store
         self.llm_providers = llm_providers
         self.tool_registry = tool_registry
         self.approval_manager = approval_manager or ApprovalManager()
         self.event_bus = event_bus
+        self.tool_result_observers = tuple(tool_result_observers or ())
 
     async def create_thread(self, config: SessionConfig) -> AgentThread:
+        """创建新 session，并返回可消费事件的 AgentThread。"""
+        await self.tool_registry.start()
         await self.session_store.create_session(config)
         session = Session(
             config=config,
@@ -39,6 +47,7 @@ class AgentRuntime:
             tool_registry=self.tool_registry,
             approval_manager=self.approval_manager,
             event_bus=self.event_bus,
+            tool_result_observers=self.tool_result_observers,
         )
         thread = AgentThread(session)
         await session.emit(
@@ -48,6 +57,8 @@ class AgentRuntime:
         return thread
 
     async def resume_thread(self, session_id: str) -> AgentThread:
+        """根据 session 日志恢复 thread，并重建模型 conversation。"""
+        await self.tool_registry.start()
         snapshot = await self.session_store.resume(session_id)
         conversation = reconstruct_conversation(snapshot.events)
 
@@ -58,6 +69,7 @@ class AgentRuntime:
             tool_registry=self.tool_registry,
             approval_manager=self.approval_manager,
             event_bus=self.event_bus,
+            tool_result_observers=self.tool_result_observers,
             conversation=conversation,
             seq=snapshot.events[-1].seq if snapshot.events else 0,
         )
@@ -71,3 +83,6 @@ class AgentRuntime:
 
     async def list_sessions(self, cwd: Path | None = None) -> list[SessionSummary]:
         return await self.session_store.list_sessions(cwd=cwd)
+
+    async def close(self) -> None:
+        await self.tool_registry.close()

@@ -12,12 +12,20 @@ from codecraft.schema.tool import ToolSpec
 
 
 class OpenAICompatibleProvider(LLMProvider):
+    """OpenAI 风格 API 的 provider 基类。
+
+    子类只需要提供 client 和少量兼容差异；这里负责把内部 ModelMessage /
+    ToolSpec 转成 Responses API 或 Chat Completions API 的格式，并统一产出
+    ModelEvent。
+    """
+
     async def stream(
         self,
         messages: list[ModelMessage],
         tools: list[ToolSpec],
         context: TurnContext,
     ) -> AsyncIterator[ModelEvent]:
+        """调用 Responses API，并把返回结果转换成内部事件流。"""
         client = self._client()
         try:
             response = await client.responses.create(
@@ -59,7 +67,38 @@ class OpenAICompatibleProvider(LLMProvider):
 
     @staticmethod
     def _messages_to_chat(messages: list[ModelMessage]) -> list[dict[str, Any]]:
-        return [_message_to_chat_item(message) for message in messages]
+        items: list[dict[str, Any]] = []
+        pending_calls: list[ModelMessage] = []
+
+        def flush_calls() -> None:
+            if not pending_calls:
+                return
+            content = None
+            if (
+                items
+                and items[-1].get("role") == "assistant"
+                and "tool_calls" not in items[-1]
+            ):
+                content = items.pop().get("content")
+            items.append(
+                {
+                    "role": "assistant",
+                    "content": content,
+                    "tool_calls": [
+                        _message_to_chat_tool_call(message) for message in pending_calls
+                    ],
+                }
+            )
+            pending_calls.clear()
+
+        for message in messages:
+            if message.type == ModelMessageType.FUNCTION_CALL:
+                pending_calls.append(message)
+                continue
+            flush_calls()
+            items.append(_message_to_chat_item(message))
+        flush_calls()
+        return items
 
     @staticmethod
     def _tools_to_chat(tools: list[ToolSpec]) -> list[dict[str, Any]]:
@@ -77,6 +116,7 @@ class OpenAICompatibleProvider(LLMProvider):
         ]
 
     async def _events_from_chat_stream(self, stream: Any) -> AsyncIterator[ModelEvent]:
+        """解析 Chat Completions 风格的 streaming chunks。"""
         tool_call_parts: dict[int, dict[str, Any]] = {}
         latest_usage: dict[str, Any] = {}
 
@@ -95,6 +135,7 @@ class OpenAICompatibleProvider(LLMProvider):
                     )
 
                 for raw_tool_call in _get(delta, "tool_calls", []) or []:
+                    # tool call arguments 可能被拆成多个 chunk，需要按 index 拼回完整 JSON。
                     index = int(_get(raw_tool_call, "index", 0) or 0)
                     part = tool_call_parts.setdefault(
                         index,
@@ -111,6 +152,9 @@ class OpenAICompatibleProvider(LLMProvider):
                     if isinstance(arguments, str) and arguments:
                         part["arguments"].append(arguments)
 
+        if latest_usage:
+            yield ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=latest_usage)
+
         for index in sorted(tool_call_parts):
             part = tool_call_parts[index]
             yield ModelEvent(
@@ -122,12 +166,10 @@ class OpenAICompatibleProvider(LLMProvider):
                 },
             )
 
-        if latest_usage:
-            yield ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=latest_usage)
-
         yield ModelEvent(type=ModelEventType.COMPLETED)
 
     def _events_from_chat_response(self, response: Any) -> list[ModelEvent]:
+        """解析非 streaming 的 Chat Completions response。"""
         events: list[ModelEvent] = []
         usage = self._chat_usage(response)
 
@@ -141,6 +183,10 @@ class OpenAICompatibleProvider(LLMProvider):
                         payload={"text": content},
                     )
                 )
+        if usage:
+            events.append(ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=usage))
+        for choice in _get(response, "choices", []) or []:
+            message = _get(choice, "message", {}) or {}
             for tool_call in _chat_tool_calls(message):
                 events.append(
                     ModelEvent(
@@ -148,13 +194,11 @@ class OpenAICompatibleProvider(LLMProvider):
                         payload=tool_call,
                     )
                 )
-
-        if usage:
-            events.append(ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=usage))
         events.append(ModelEvent(type=ModelEventType.COMPLETED))
         return events
 
     def _events_from_response(self, response: Any) -> list[ModelEvent]:
+        """解析非 streaming 的 Responses API response。"""
         events: list[ModelEvent] = []
         text = self._response_text(response)
         if text:
@@ -162,14 +206,6 @@ class OpenAICompatibleProvider(LLMProvider):
                 ModelEvent(
                     type=ModelEventType.MESSAGE_COMPLETED,
                     payload={"text": text},
-                )
-            )
-
-        for tool_call in self._tool_calls(response):
-            events.append(
-                ModelEvent(
-                    type=ModelEventType.TOOL_CALL,
-                    payload=tool_call,
                 )
             )
 
@@ -182,12 +218,22 @@ class OpenAICompatibleProvider(LLMProvider):
                 )
             )
 
+        for tool_call in self._tool_calls(response):
+            events.append(
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload=tool_call,
+                )
+            )
+
         events.append(ModelEvent(type=ModelEventType.COMPLETED))
         return events
 
     async def _events_from_stream(self, stream: Any) -> AsyncIterator[ModelEvent]:
+        """解析 Responses API 风格的 streaming events。"""
         completed = False
         emitted_delta = False
+        pending_tool_calls: list[dict[str, Any]] = []
 
         async for raw_event in stream:
             event_type = str(_get(raw_event, "type", ""))
@@ -219,8 +265,7 @@ class OpenAICompatibleProvider(LLMProvider):
                         type=ModelEventType.MESSAGE_COMPLETED,
                         payload={"text": text},
                     )
-                for tool_call in self._tool_calls({"output": [item]}):
-                    yield ModelEvent(type=ModelEventType.TOOL_CALL, payload=tool_call)
+                pending_tool_calls.extend(self._tool_calls({"output": [item]}))
                 continue
 
             if event_type in {
@@ -232,6 +277,11 @@ class OpenAICompatibleProvider(LLMProvider):
                 usage = self._usage(response)
                 if usage:
                     yield ModelEvent(type=ModelEventType.TOKEN_COUNT, payload=usage)
+                if not pending_tool_calls:
+                    pending_tool_calls.extend(self._tool_calls(response))
+                for tool_call in pending_tool_calls:
+                    yield ModelEvent(type=ModelEventType.TOOL_CALL, payload=tool_call)
+                pending_tool_calls.clear()
                 yield ModelEvent(type=ModelEventType.COMPLETED)
                 completed = True
                 continue
@@ -249,6 +299,8 @@ class OpenAICompatibleProvider(LLMProvider):
                 )
 
         if not completed:
+            for tool_call in pending_tool_calls:
+                yield ModelEvent(type=ModelEventType.TOOL_CALL, payload=tool_call)
             yield ModelEvent(type=ModelEventType.COMPLETED)
 
     @staticmethod
@@ -333,12 +385,14 @@ class OpenAICompatibleProvider(LLMProvider):
 
 
 def _get(value: Any, key: str, default: Any = None) -> Any:
+    """同时支持 dict 和 SDK object 的属性读取。"""
     if isinstance(value, dict):
         return value.get(key, default)
     return getattr(value, key, default)
 
 
 def _message_to_input_item(message: ModelMessage) -> dict[str, Any]:
+    """把内部消息转换成 Responses API input item。"""
     if message.type == ModelMessageType.FUNCTION_CALL:
         return {
             "type": "function_call",
@@ -361,20 +415,12 @@ def _message_to_input_item(message: ModelMessage) -> dict[str, Any]:
 
 
 def _message_to_chat_item(message: ModelMessage) -> dict[str, Any]:
+    """把内部消息转换成 Chat Completions message。"""
     if message.type == ModelMessageType.FUNCTION_CALL:
         return {
             "role": "assistant",
             "content": None,
-            "tool_calls": [
-                {
-                    "id": message.tool_call_id or "",
-                    "type": "function",
-                    "function": {
-                        "name": message.name or "",
-                        "arguments": _arguments_to_json(message),
-                    },
-                }
-            ],
+            "tool_calls": [_message_to_chat_tool_call(message)],
         }
 
     if message.type == ModelMessageType.FUNCTION_CALL_OUTPUT:
@@ -387,6 +433,17 @@ def _message_to_chat_item(message: ModelMessage) -> dict[str, Any]:
     return {
         "role": message.role.value,
         "content": message.content,
+    }
+
+
+def _message_to_chat_tool_call(message: ModelMessage) -> dict[str, Any]:
+    return {
+        "id": message.tool_call_id or "",
+        "type": "function",
+        "function": {
+            "name": message.name or "",
+            "arguments": _arguments_to_json(message),
+        },
     }
 
 
@@ -405,6 +462,7 @@ def _chat_tool_calls(message: Any) -> list[dict[str, Any]]:
 
 
 def _arguments_to_json(message: ModelMessage) -> str:
+    """为 function call 生成稳定的 JSON arguments 字符串。"""
     if message.arguments is not None:
         return json.dumps(
             message.arguments,
@@ -419,11 +477,14 @@ def _arguments_to_json(message: ModelMessage) -> str:
         return message.content
 
     if isinstance(parsed, dict):
-        return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        return json.dumps(
+            parsed, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
     return message.content
 
 
 def _parse_arguments(value: Any) -> dict[str, Any]:
+    """宽容解析 provider 返回的 tool arguments。"""
     if isinstance(value, dict):
         return value
 

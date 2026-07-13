@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from pydantic import BaseModel
 
 from codecraft.core.errors import WorkspaceAccessError
-from codecraft.schema.tool import ToolEffect, ToolResult
-from codecraft.tool.base import BaseTool, ToolContext
+from codecraft.schema.event import RuntimeEventType
+from codecraft.schema.tool import ToolEffect, ToolResult, ToolRuntimeEvent
+from codecraft.tool.base import BaseTool, ToolArguments, ToolContext
 from codecraft.tool.workspace import WorkspaceGuard
 
 
-class ApplyPatchArgs(BaseModel):
+class ApplyPatchArgs(ToolArguments):
     patch: str
 
 
@@ -21,6 +23,12 @@ class PatchFile:
 
 
 class ApplyPatchTool(BaseTool):
+    """应用已有文件的 unified diff。
+
+    当前实现只支持修改已存在文件，不支持新增/删除文件。patch 的路径仍会
+    经过 WorkspaceGuard，避免 diff header 把写入目标带出 workspace。
+    """
+
     name = "apply_patch"
     description = "Apply a unified diff patch to existing files inside the workspace."
     args_schema = ApplyPatchArgs
@@ -28,6 +36,7 @@ class ApplyPatchTool(BaseTool):
     requires_approval = True
 
     async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
+        """解析 patch、逐文件应用 hunk，并返回变更文件列表。"""
         patch_args = ApplyPatchArgs.model_validate(args)
         guard = WorkspaceGuard(context.context.workspace_roots)
 
@@ -37,8 +46,9 @@ class ApplyPatchTool(BaseTool):
             return ToolResult(
                 success=False,
                 content="Patch could not be parsed.",
-                error=str(exc),
+                error="invalid_patch",
                 suggestion="Provide a standard unified diff with ---/+++/@@ headers.",
+                metadata={"reason": str(exc)},
             )
 
         changed_files: list[str] = []
@@ -75,8 +85,8 @@ class ApplyPatchTool(BaseTool):
                 return ToolResult(
                     success=False,
                     content="Patch could not be applied.",
-                    error=str(exc),
-                    metadata={"path": str(path)},
+                    error="patch_conflict",
+                    metadata={"path": str(path), "reason": str(exc)},
                 )
 
             if before != after:
@@ -97,11 +107,27 @@ class ApplyPatchTool(BaseTool):
                 "changed_files": changed_files,
                 "modified": len(changed_files),
             },
+            runtime_events=[
+                ToolRuntimeEvent(
+                    type=RuntimeEventType.PATCH_APPLIED,
+                    payload={
+                        "changed_files": changed_files,
+                        "modified": len(changed_files),
+                        "added": 0,
+                        "deleted": 0,
+                    },
+                )
+            ],
         )
 
     @staticmethod
     def _parse_patch(patch: str) -> list[PatchFile]:
-        lines = patch.splitlines(keepends=True)
+        """从 unified diff 中提取文件路径和 hunk。"""
+        # The tool argument is a transport string, so its final record may omit the
+        # transport newline. Unified diff uses an explicit marker when file content
+        # itself has no trailing newline.
+        normalized_patch = patch if patch.endswith("\n") else f"{patch}\n"
+        lines = normalized_patch.splitlines(keepends=True)
         files: list[PatchFile] = []
         index = 0
 
@@ -160,6 +186,7 @@ class ApplyPatchTool(BaseTool):
 
     @staticmethod
     def _apply_hunks(content: str, hunks: list[list[str]]) -> str:
+        """按 hunk header 的旧文件位置应用增删行。"""
         source = content.splitlines(keepends=True)
         result: list[str] = []
         cursor = 0
@@ -170,12 +197,11 @@ class ApplyPatchTool(BaseTool):
             if target_index < cursor:
                 raise ValueError("overlapping hunks")
 
+            # 先复制 hunk 之前未触碰的原文，再根据前缀处理上下文/删除/新增行。
             result.extend(source[cursor:target_index])
             cursor = target_index
 
-            for line in hunk[1:]:
-                prefix = line[:1]
-                body = line[1:]
+            for prefix, body in ApplyPatchTool._hunk_records(hunk[1:]):
                 if prefix == " ":
                     if cursor >= len(source) or source[cursor] != body:
                         raise ValueError("patch context does not match")
@@ -187,11 +213,29 @@ class ApplyPatchTool(BaseTool):
                     cursor += 1
                 elif prefix == "+":
                     result.append(body)
-                elif prefix == "\\":
-                    continue
 
         result.extend(source[cursor:])
         return "".join(result)
+
+    @staticmethod
+    def _hunk_records(lines: list[str]) -> Iterator[tuple[str, str]]:
+        index = 0
+        while index < len(lines):
+            line = lines[index]
+            prefix = line[:1]
+            if prefix == "\\":
+                raise ValueError("newline marker has no preceding patch line")
+
+            body = line[1:]
+            if index + 1 < len(lines) and lines[index + 1].startswith("\\"):
+                marker = lines[index + 1].rstrip("\r\n")
+                if marker != "\\ No newline at end of file":
+                    raise ValueError(f"unsupported patch marker: {marker}")
+                body = body.removesuffix("\n").removesuffix("\r")
+                index += 1
+
+            yield prefix, body
+            index += 1
 
     @staticmethod
     def _old_start_from_header(header: str) -> int:

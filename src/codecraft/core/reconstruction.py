@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from codecraft.core.conversation import Conversation
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
+from codecraft.schema.tool import ToolResult
 
 
 def reconstruct_conversation(events: list[RuntimeEvent]) -> Conversation:
+    """从 RuntimeEvent 日志重建可继续发送给模型的 conversation。
+
+    恢复会话时不会直接序列化 Conversation，而是根据公开事件反推上下文。
+    这样事件日志既是审计记录，也是恢复状态的唯一来源。
+    """
     conversation = Conversation()
 
     for event in events:
@@ -28,13 +34,13 @@ def reconstruct_conversation(events: list[RuntimeEvent]) -> Conversation:
             result = event.payload.get("result")
             content = ""
             if isinstance(result, dict):
-                content = str(result.get("content", ""))
+                content = ToolResult.model_validate(result).model_content()
             conversation.append_tool_result(call_id, name, content)
 
         elif event.type == RuntimeEventType.CONTEXT_COMPACTED:
-            summary = event.payload.get("summary")
-            if isinstance(summary, str) and summary:
-                conversation = Conversation()
-                conversation.append_summary(summary)
+            snapshot = event.payload.get("conversation")
+            if not isinstance(snapshot, dict):
+                raise ValueError("context_compacted event is missing its conversation")
+            conversation = Conversation.model_validate(snapshot)
 
     return conversation
