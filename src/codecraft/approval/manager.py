@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from codecraft.approval.policy import ApprovalPolicy
 from codecraft.core.ids import new_id
 from codecraft.core.turn_context import TurnContext
-from codecraft.sandbox.command_policy import CommandPolicy, CommandRisk
+from codecraft.sandbox.command_policy import CommandDecision, CommandPolicy, CommandRisk
 from codecraft.schema.tool import ToolCall, ToolEffect
 from codecraft.tool.base import BaseTool
 
@@ -17,6 +17,7 @@ class ApprovalEvaluation(BaseModel):
     requires_approval: bool
     reason: str
     risk: str
+    command_decision: CommandDecision | None = None
 
 
 class ApprovalRequest(BaseModel):
@@ -73,11 +74,9 @@ class ApprovalManager:
     def __init__(
         self,
         *,
-        policy: ApprovalPolicy = ApprovalPolicy.NEVER,
         reviewer: ApprovalReviewer | None = None,
         command_policy: CommandPolicy | None = None,
     ) -> None:
-        self.policy = policy
         self.reviewer = reviewer or AutoApprovalReviewer()
         self.command_policy = command_policy or CommandPolicy()
 
@@ -89,33 +88,38 @@ class ApprovalManager:
         context: TurnContext,
     ) -> ApprovalEvaluation:
         """评估一次 tool call 是否需要 approval。"""
-        if self.policy == ApprovalPolicy.NEVER:
+        if call.name == "bash":
+            # shell command 的风险和 tool effect 不完全等价，需要交给 CommandPolicy。
+            command = str(getattr(args, "command", ""))
+            decision = self.command_policy.classify(
+                command,
+                network_access=context.network_access,
+            )
+            if (
+                context.approval_policy == ApprovalPolicy.NEVER
+                or decision.risk == CommandRisk.DENY
+            ):
+                return ApprovalEvaluation(
+                    requires_approval=False,
+                    reason=decision.reason,
+                    risk=decision.risk,
+                    command_decision=decision,
+                )
+            return ApprovalEvaluation(
+                requires_approval=decision.requires_approval,
+                reason=decision.reason,
+                risk=decision.risk,
+                command_decision=decision,
+            )
+
+        if context.approval_policy == ApprovalPolicy.NEVER:
             return ApprovalEvaluation(
                 requires_approval=False,
                 reason="approval disabled by policy",
                 risk="safe",
             )
 
-        if call.name == "bash":
-            # shell command 的风险和 tool effect 不完全等价，需要交给 CommandPolicy。
-            command = str(call.arguments.get("command", ""))
-            decision = self.command_policy.classify(
-                command,
-                network_access=context.network_access,
-            )
-            if decision.risk == CommandRisk.DENY:
-                return ApprovalEvaluation(
-                    requires_approval=False,
-                    reason=decision.reason,
-                    risk=decision.risk,
-                )
-            return ApprovalEvaluation(
-                requires_approval=decision.requires_approval,
-                reason=decision.reason,
-                risk=decision.risk,
-            )
-
-        if self.policy == ApprovalPolicy.UNTRUSTED:
+        if context.approval_policy == ApprovalPolicy.UNTRUSTED:
             write_effects = {
                 ToolEffect.WORKSPACE_WRITE,
                 ToolEffect.PROCESS_EXEC,
@@ -129,7 +133,10 @@ class ApprovalManager:
                     risk="prompt",
                 )
 
-        if self.policy == ApprovalPolicy.ON_REQUEST and tool.requires_approval:
+        if (
+            context.approval_policy == ApprovalPolicy.ON_REQUEST
+            and tool.requires_approval
+        ):
             return ApprovalEvaluation(
                 requires_approval=True,
                 reason=f"{tool.name} requires approval",
@@ -144,7 +151,10 @@ class ApprovalManager:
 
     async def request(self, request: ApprovalRequest) -> ApprovalDecision:
         """把审批请求交给 reviewer，并等待结果。"""
-        return await self.reviewer.review(request)
+        decision = await self.reviewer.review(request)
+        if decision.approval_id != request.approval_id:
+            raise RuntimeError("approval decision does not match its request")
+        return decision
 
     @staticmethod
     def build_request(

@@ -138,7 +138,6 @@ def build_runtime(
         llm_providers=llm_providers or build_provider_registry(config),
         tool_registry=tool_registry or build_tool_registry(config),
         approval_manager=ApprovalManager(
-            policy=config.approval_policy,
             reviewer=ThreadApprovalReviewer(),
         ),
         tool_result_observers=[WorkspaceIndexObserver(index)],

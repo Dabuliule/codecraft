@@ -17,6 +17,7 @@ from codecraft.sandbox import (
     DockerSandboxBackend,
     DockerSandboxConfig,
     ProcessSandboxBackend,
+    CommandPolicy,
     SandboxBackend,
     SandboxBackendError,
     SandboxBackendType,
@@ -69,6 +70,7 @@ def _tool_context(tmp_path) -> ToolContext:
             name="bash",
             arguments={"command": "python --version"},
         ),
+        command_decision=CommandPolicy().classify("python --version"),
     )
 
 

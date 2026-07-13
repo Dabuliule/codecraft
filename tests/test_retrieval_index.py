@@ -177,7 +177,7 @@ def test_tool_runner_refreshes_index_after_write_and_patch(tmp_path):
         index.sync(workspace)
         tool_runner = ToolRunner(
             ToolRegistry([WriteFileTool(), ApplyPatchTool()]),
-            approval_manager=ApprovalManager(policy=ApprovalPolicy.NEVER),
+            approval_manager=ApprovalManager(),
             observers=[WorkspaceIndexObserver(index)],
         )
         context = _turn_context(workspace)
@@ -247,7 +247,7 @@ def test_tool_runner_records_observer_failure_without_failing_write(tmp_path):
     async def run_test() -> None:
         tool_runner = ToolRunner(
             ToolRegistry([WriteFileTool()]),
-            approval_manager=ApprovalManager(policy=ApprovalPolicy.NEVER),
+            approval_manager=ApprovalManager(),
             observers=[BrokenObserver()],
         )
         events = [
@@ -270,7 +270,8 @@ def test_tool_runner_records_observer_failure_without_failing_write(tmp_path):
         assert (tmp_path / "result.txt").read_text(encoding="utf-8") == "written\n"
         assert result["metadata"]["post_actions"]["broken"] == {
             "status": "failed",
-            "error": "RuntimeError: observer unavailable",
+            "error": "observer_error",
+            "exception_type": "RuntimeError",
         }
 
     asyncio.run(run_test())

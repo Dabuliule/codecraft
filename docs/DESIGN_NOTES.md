@@ -91,14 +91,14 @@ Current effect categories:
 - `network`
 - `external`
 
-The practical rule is: add a new tool by giving it a Pydantic args schema, accurate effects, and a `ToolResult` contract. Do not add special execution branches in CLI or `Session`.
+The practical rule is: add a new tool by giving it a strict Pydantic args schema, accurate effects, and a `ToolResult` contract. A tool may attach typed runtime events to its result; `ToolRunner` forwards them generically and does not branch on tool names. Do not add special execution branches in CLI, `Session`, or the generic runner.
 
 ## Sandbox Is Layered
 
 CodeCraft separates capability governance from process isolation. A bash call passes through:
 
 ```text
-SandboxPolicy -> ApprovalManager -> CommandPolicy -> SandboxBackend
+SandboxPolicy -> ApprovalManager(CommandPolicy) -> SandboxBackend
 ```
 
 The policy layers enforce:
@@ -146,7 +146,7 @@ Tools describe capabilities; approval decides whether the current call may run. 
 - policy can change without editing individual tools;
 - rejected calls still produce structured tool-finished events.
 
-`ApprovalManager` is intentionally not a tool executor. It evaluates and requests approval; `ToolRunner` owns the execution sequence.
+`ApprovalManager` is intentionally not a tool executor. It reads the active policy from `TurnContext`, classifies validated Bash arguments once, and requests approval when needed; `ToolRunner` owns the execution sequence and passes the resulting command decision to the tool.
 
 ## Provider Compatibility Is A Transport Detail
 

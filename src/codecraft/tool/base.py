@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from codecraft.core.turn_context import TurnContext
+from codecraft.sandbox.command_policy import CommandDecision
 from codecraft.schema.tool import ToolCall, ToolEffect, ToolResult, ToolSpec
+
+
+class ToolArguments(BaseModel):
+    """内置工具参数的严格 schema 基类。"""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ToolContext(BaseModel):
@@ -14,6 +21,7 @@ class ToolContext(BaseModel):
     context: TurnContext
     call: ToolCall
     approved: bool = False
+    command_decision: CommandDecision | None = None
 
 
 class BaseTool(ABC):

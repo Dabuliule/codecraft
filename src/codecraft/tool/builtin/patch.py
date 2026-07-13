@@ -6,12 +6,13 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 
 from codecraft.core.errors import WorkspaceAccessError
-from codecraft.schema.tool import ToolEffect, ToolResult
-from codecraft.tool.base import BaseTool, ToolContext
+from codecraft.schema.event import RuntimeEventType
+from codecraft.schema.tool import ToolEffect, ToolResult, ToolRuntimeEvent
+from codecraft.tool.base import BaseTool, ToolArguments, ToolContext
 from codecraft.tool.workspace import WorkspaceGuard
 
 
-class ApplyPatchArgs(BaseModel):
+class ApplyPatchArgs(ToolArguments):
     patch: str
 
 
@@ -45,8 +46,9 @@ class ApplyPatchTool(BaseTool):
             return ToolResult(
                 success=False,
                 content="Patch could not be parsed.",
-                error=str(exc),
+                error="invalid_patch",
                 suggestion="Provide a standard unified diff with ---/+++/@@ headers.",
+                metadata={"reason": str(exc)},
             )
 
         changed_files: list[str] = []
@@ -83,8 +85,8 @@ class ApplyPatchTool(BaseTool):
                 return ToolResult(
                     success=False,
                     content="Patch could not be applied.",
-                    error=str(exc),
-                    metadata={"path": str(path)},
+                    error="patch_conflict",
+                    metadata={"path": str(path), "reason": str(exc)},
                 )
 
             if before != after:
@@ -105,6 +107,17 @@ class ApplyPatchTool(BaseTool):
                 "changed_files": changed_files,
                 "modified": len(changed_files),
             },
+            runtime_events=[
+                ToolRuntimeEvent(
+                    type=RuntimeEventType.PATCH_APPLIED,
+                    payload={
+                        "changed_files": changed_files,
+                        "modified": len(changed_files),
+                        "added": 0,
+                        "deleted": 0,
+                    },
+                )
+            ],
         )
 
     @staticmethod

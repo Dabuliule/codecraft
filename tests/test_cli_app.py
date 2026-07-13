@@ -6,7 +6,6 @@ import json
 from typer.testing import CliRunner
 
 from codecraft.approval.manager import ApprovalManager
-from codecraft.approval.policy import ApprovalPolicy
 from codecraft.approval.thread_reviewer import ThreadApprovalReviewer
 from codecraft.cli import app as cli_app
 from codecraft.cli.app import app
@@ -783,7 +782,6 @@ def test_exec_command_prints_bash_approval_details(tmp_path, monkeypatch):
             ),
             tool_registry=ToolRegistry([BashTool()]),
             approval_manager=ApprovalManager(
-                policy=ApprovalPolicy(config.approval_policy),
                 reviewer=ThreadApprovalReviewer(),
             ),
         )

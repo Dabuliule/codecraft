@@ -166,7 +166,7 @@ Each tool declares:
 - `effects`
 - `requires_approval`
 
-Tools return `ToolResult`; expected tool failures should be expressed as failed `ToolResult` values instead of crashing the process.
+Built-in argument models inherit from a strict `ToolArguments` base and reject unknown fields. MCP arguments remain governed by each remote JSON Schema, including its `additionalProperties` policy. Tools return `ToolResult`; expected tool failures use stable error codes instead of crashing the process or exposing raw exception text.
 
 ### `ToolRegistry`
 
@@ -186,7 +186,7 @@ The registry also owns lifecycle-managed `AsyncToolProvider` instances. `start()
 6. call `tool.arun()`;
 7. catch known and unknown errors into `ToolResult`;
 8. emit `tool_call_finished`;
-9. emit `patch_applied` for successful `apply_patch`.
+9. emit any typed runtime events declared by the tool result.
 
 This keeps side-effect governance in one place.
 
@@ -203,7 +203,7 @@ This keeps side-effect governance in one place.
 
 `WorkspaceGuard` prevents filesystem path escape for workspace tools and bash cwd.
 
-`ToolRunner` applies `max_tool_output_chars` to every model-facing `ToolResult.content` after observers run and before the result is persisted or appended to conversation. Individual tools may impose stricter structured-data limits.
+`ToolRunner` applies `max_tool_output_chars` to every model-facing `ToolResult.content` after observers run and before the result is persisted or appended to conversation. `ToolResult.model_content()` adds stable failure codes, recovery suggestions, and an explicit truncation marker to the text returned to the model; reconstruction uses the same method. Individual tools may impose stricter structured-data limits.
 
 ## Approval And Sandbox
 
@@ -226,6 +226,10 @@ CodeCraft uses layered safeguards rather than treating one mechanism as the comp
 - `never`
 - `on_request`
 - `untrusted`
+
+The active policy has one source: `TurnContext.approval_policy`, copied from the persisted `SessionConfig`. `ApprovalManager` carries only the reviewer and command classifier. Bash commands are classified once from validated arguments; the resulting `CommandDecision` is passed through `ToolContext` to `BashTool`, so approval and execution cannot drift between separate classifiers.
+
+Persisted runtime payloads recursively redact values under common credential field names. Configuration keys that name environment variables remain visible, while actual API keys, tokens, passwords, cookies, and secrets in nested tool arguments are replaced before they reach the event log or UI event stream.
 
 The default `auto` selection uses `SeatbeltSandboxBackend` on macOS and `BubblewrapSandboxBackend` on Linux. Both enforce workspace writes and disabled networking at the OS boundary for the full bash process tree. Linux fails closed when `bwrap` is unavailable. `ProcessSandboxBackend` is an explicit no-isolation escape hatch, not a sandbox. All host-process backends receive a sanitized environment and a private temporary home; additional variables require `sandbox.env_allowlist`.
 

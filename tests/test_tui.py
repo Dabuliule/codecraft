@@ -196,7 +196,6 @@ def test_tui_approval_modal_controls_side_effect(tmp_path):
             llm_providers=LLMProviderRegistry([provider]),
             tool_registry=ToolRegistry([WriteFileTool()]),
             approval_manager=ApprovalManager(
-                policy=ApprovalPolicy.ON_REQUEST,
                 reviewer=ThreadApprovalReviewer(),
             ),
         )

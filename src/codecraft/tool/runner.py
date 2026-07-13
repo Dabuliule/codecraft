@@ -133,14 +133,30 @@ class ToolRunner:
                     return
                 approved = True
             result = await tool.arun(
-                args, ToolContext(context=context, call=call, approved=approved)
+                args,
+                ToolContext(
+                    context=context,
+                    call=call,
+                    approved=approved,
+                    command_decision=evaluation.command_decision,
+                ),
             )
         except ValidationError as exc:
             result = ToolResult(
                 success=False,
                 content="Tool argument validation failed.",
-                error=str(exc),
+                error="invalid_tool_arguments",
                 suggestion="Check the tool schema and retry with valid arguments.",
+                metadata={
+                    "validation_errors": [
+                        {
+                            "location": ".".join(str(part) for part in error["loc"]),
+                            "message": error["msg"],
+                            "type": error["type"],
+                        }
+                        for error in exc.errors(include_url=False, include_input=False)
+                    ]
+                },
             )
         except CodecraftError as exc:
             result = ToolResult(
@@ -154,8 +170,9 @@ class ToolRunner:
             result = ToolResult(
                 success=False,
                 content="Tool execution failed.",
-                error=str(exc),
+                error="tool_execution_error",
                 suggestion="Check the tool arguments, workspace permissions, or runtime environment.",
+                metadata={"exception_type": type(exc).__name__},
             )
 
         if result.success and self.observers:
@@ -175,18 +192,10 @@ class ToolRunner:
             finished_payload,
         )
 
-        if call.name == "apply_patch" and result.success:
+        for runtime_event in result.runtime_events:
             yield ToolRunnerEvent(
-                RuntimeEventType.PATCH_APPLIED,
-                {
-                    "call_id": call.call_id,
-                    "changed_files": result.data.get("changed_files", [])
-                    if result.data
-                    else [],
-                    "modified": result.data.get("modified", 0) if result.data else 0,
-                    "added": result.data.get("added", 0) if result.data else 0,
-                    "deleted": result.data.get("deleted", 0) if result.data else 0,
-                },
+                runtime_event.type,
+                {"call_id": call.call_id, **runtime_event.payload},
             )
 
     async def _run_observers(
@@ -202,7 +211,8 @@ class ToolRunner:
             except Exception as exc:
                 details = {
                     "status": "failed",
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": "observer_error",
+                    "exception_type": type(exc).__name__,
                 }
             if details is not None:
                 actions[observer.name] = details

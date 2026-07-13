@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from codecraft.core.conversation import Conversation
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
+from codecraft.schema.tool import ToolResult
 
 
 def reconstruct_conversation(events: list[RuntimeEvent]) -> Conversation:
@@ -33,7 +34,7 @@ def reconstruct_conversation(events: list[RuntimeEvent]) -> Conversation:
             result = event.payload.get("result")
             content = ""
             if isinstance(result, dict):
-                content = str(result.get("content", ""))
+                content = ToolResult.model_validate(result).model_content()
             conversation.append_tool_result(call_id, name, content)
 
         elif event.type == RuntimeEventType.CONTEXT_COMPACTED:

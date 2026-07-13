@@ -282,7 +282,7 @@ class Turn:
         self.session.conversation.append_tool_result(
             call.call_id,
             call.name,
-            result.content,
+            result.model_content(),
         )
         return result
 

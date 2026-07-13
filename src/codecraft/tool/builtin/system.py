@@ -11,13 +11,13 @@ from codecraft.sandbox import (
     SandboxExecutionRequest,
     SandboxExecutionResult,
 )
-from codecraft.sandbox.command_policy import CommandPolicy, CommandRisk
+from codecraft.sandbox.command_policy import CommandRisk
 from codecraft.schema.tool import ToolEffect, ToolResult
-from codecraft.tool.base import BaseTool, ToolContext
+from codecraft.tool.base import BaseTool, ToolArguments, ToolContext
 from codecraft.tool.workspace import WorkspaceGuard
 
 
-class BashArgs(BaseModel):
+class BashArgs(ToolArguments):
     command: str
     cwd: str | None = None
     timeout_seconds: int = Field(default=30, ge=1, le=300)
@@ -38,10 +38,8 @@ class BashTool(BaseTool):
 
     def __init__(
         self,
-        command_policy: CommandPolicy | None = None,
         sandbox_backend: SandboxBackend | None = None,
     ) -> None:
-        self.command_policy = command_policy or CommandPolicy()
         self.sandbox_backend = sandbox_backend or ProcessSandboxBackend()
 
     async def arun(self, args: BaseModel, context: ToolContext) -> ToolResult:
@@ -49,10 +47,13 @@ class BashTool(BaseTool):
         bash_args = BashArgs.model_validate(args)
         guard = WorkspaceGuard(context.context.workspace_roots)
         cwd = self._resolve_cwd(bash_args.cwd, context, guard)
-        decision = self.command_policy.classify(
-            bash_args.command,
-            network_access=context.context.network_access,
-        )
+        decision = context.command_decision
+        if decision is None:
+            return ToolResult(
+                success=False,
+                content="Command policy was not evaluated.",
+                error="command_policy_missing",
+            )
 
         if decision.risk == CommandRisk.DENY:
             return ToolResult(

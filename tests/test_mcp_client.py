@@ -230,7 +230,7 @@ def test_mcp_stdio_provider_discovers_and_executes_through_tool_runner(tmp_path)
 
             runner = ToolRunner(
                 registry,
-                approval_manager=ApprovalManager(policy=ApprovalPolicy.NEVER),
+                approval_manager=ApprovalManager(),
             )
             events = [
                 event

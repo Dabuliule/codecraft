@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict
 
 from codecraft.schema.tool import ToolEffect
 
@@ -20,10 +20,11 @@ class SandboxPolicy(BaseModel):
     这是比 approval 更底层的限制：如果 sandbox 不允许，用户批准也不会执行。
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     mode: SandboxMode
     workspace_roots: list[Path]
     network_access: bool = False
-    writable_roots: list[Path] = Field(default_factory=list)
 
     def evaluate_effects(self, effects: set[ToolEffect]) -> "SandboxEvaluation":
         """检查 tool 声明的 effect 是否被当前 sandbox mode 覆盖。"""

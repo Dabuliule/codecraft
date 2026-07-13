@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,4 +33,3 @@ class TurnContext(BaseModel):
     max_tool_output_chars: int
 
     created_at: datetime
-    metadata: dict[str, Any] = Field(default_factory=dict)

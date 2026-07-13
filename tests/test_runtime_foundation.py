@@ -121,6 +121,26 @@ def test_runtime_event_sanitizes_invalid_unicode_payload():
     assert decoded.payload["nested"]["?"] == ["ok?"]
 
 
+def test_runtime_event_redacts_sensitive_fields_without_hiding_env_names():
+    event = RuntimeEvent(
+        event_id="evt_secret",
+        session_id="ses_test",
+        seq=1,
+        type=RuntimeEventType.MODEL_TOOL_CALL,
+        payload={
+            "arguments": {
+                "api_key": "secret-value",
+                "nested": {"access_token": "token-value"},
+            },
+            "model_api_key_env": "DASHSCOPE_API_KEY",
+        },
+    )
+
+    assert event.payload["arguments"]["api_key"] == "[REDACTED]"
+    assert event.payload["arguments"]["nested"]["access_token"] == "[REDACTED]"
+    assert event.payload["model_api_key_env"] == "DASHSCOPE_API_KEY"
+
+
 def test_runtime_event_requires_positive_seq():
     with pytest.raises(ValueError):
         RuntimeEvent(
@@ -478,6 +498,95 @@ def test_read_file_and_list_files_tools(tmp_path):
         assert limited_result["content"] == "hello"
         assert limited_result["metadata"]["content_truncated"] is True
         assert limited_result["metadata"]["original_content_chars"] == 12
+        assert (
+            "output truncated from 12 characters"
+            in ToolResult.model_validate(limited_result).model_content()
+        )
+
+    asyncio.run(run_test())
+
+
+def test_tool_runner_rejects_unknown_arguments_with_stable_error(tmp_path):
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            turn_id="turn_strict_args",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_tool_calls=config.max_tool_calls,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        events = [
+            event
+            async for event in ToolRunner(ToolRegistry([ReadFileTool()])).run(
+                ToolCall(
+                    call_id="call_strict",
+                    name="read_file",
+                    arguments={"path": "README.md", "unexpected": True},
+                ),
+                context,
+            )
+        ]
+
+        result = events[-1].payload["result"]
+        assert result["error"] == "invalid_tool_arguments"
+        assert result["metadata"]["validation_errors"][0]["location"] == "unexpected"
+
+    asyncio.run(run_test())
+
+
+def test_bash_command_risk_is_classified_once_by_tool_runner(tmp_path):
+    class CountingPolicy(CommandPolicy):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def classify(self, command: str, *, network_access: bool = False):
+            self.calls += 1
+            return super().classify(command, network_access=network_access)
+
+    async def run_test() -> None:
+        config = make_config(tmp_path)
+        context = TurnContext(
+            session_id=config.session_id,
+            turn_id="turn_command_policy",
+            cwd=config.cwd,
+            workspace_roots=config.workspace_roots,
+            model=config.model,
+            model_provider=config.model_provider,
+            approval_policy=config.approval_policy,
+            sandbox_mode=config.sandbox_mode,
+            network_access=config.network_access,
+            available_tools=[],
+            max_tool_calls=config.max_tool_calls,
+            max_tool_output_chars=config.max_tool_output_chars,
+            created_at=config.created_at,
+        )
+        policy = CountingPolicy()
+        events = [
+            event
+            async for event in ToolRunner(
+                ToolRegistry([BashTool()]),
+                approval_manager=ApprovalManager(command_policy=policy),
+            ).run(
+                ToolCall(
+                    call_id="call_pwd",
+                    name="bash",
+                    arguments={"command": "pwd"},
+                ),
+                context,
+            )
+        ]
+
+        assert policy.calls == 1
+        assert events[-1].payload["result"]["success"] is True
 
     asyncio.run(run_test())
 
@@ -817,15 +926,27 @@ def test_bash_tool_runs_safe_command_and_blocks_prompt_or_denied(tmp_path):
 
         safe = await tool.arun(
             tool.args_schema.model_validate(safe_call.arguments),
-            ToolContext(context=context, call=safe_call),
+            ToolContext(
+                context=context,
+                call=safe_call,
+                command_decision=CommandPolicy().classify("pwd"),
+            ),
         )
         prompt = await tool.arun(
             tool.args_schema.model_validate(prompt_call.arguments),
-            ToolContext(context=context, call=prompt_call),
+            ToolContext(
+                context=context,
+                call=prompt_call,
+                command_decision=CommandPolicy().classify("rm file.txt"),
+            ),
         )
         denied = await tool.arun(
             tool.args_schema.model_validate(denied_call.arguments),
-            ToolContext(context=context, call=denied_call),
+            ToolContext(
+                context=context,
+                call=denied_call,
+                command_decision=CommandPolicy().classify("sudo true"),
+            ),
         )
 
         assert safe.success is True
@@ -879,7 +1000,6 @@ def test_tool_runner_denies_workspace_write_in_read_only_sandbox(tmp_path):
         runner = ToolRunner(
             ToolRegistry([WriteFileTool()]),
             approval_manager=ApprovalManager(
-                policy=ApprovalPolicy.ON_REQUEST,
                 reviewer=reviewer,
             ),
         )
@@ -931,7 +1051,7 @@ def test_tool_runner_denies_bash_in_read_only_sandbox(tmp_path):
         )
         runner = ToolRunner(
             ToolRegistry([BashTool()]),
-            approval_manager=ApprovalManager(policy=ApprovalPolicy.ON_REQUEST),
+            approval_manager=ApprovalManager(),
         )
 
         events = [
@@ -2420,6 +2540,7 @@ def test_runtime_records_failed_unknown_tool(tmp_path):
         ][0]
         assert finished.payload["result"]["success"] is False
         assert finished.payload["result"]["error"] == "tool_not_found"
+        assert "[tool_error: tool_not_found]" in provider.calls[1][0][-1].content
         assert snapshot.events[-1].type == RuntimeEventType.TURN_FINISHED
 
     asyncio.run(run_test())
@@ -2603,13 +2724,14 @@ def test_tool_runner_emits_approval_events_and_runs_approved_prompt_command(tmp_
             ]
         )
         reviewer = AutoApprovalReviewer(approved=True, reason="test approved")
-        config = make_config(tmp_path)
+        config = make_config(tmp_path).model_copy(
+            update={"approval_policy": ApprovalPolicy.ON_REQUEST}
+        )
         runtime = AgentRuntime(
             session_store=SessionStore(config.codecraft_home),
             llm_providers=LLMProviderRegistry([provider]),
             tool_registry=ToolRegistry([BashTool()]),
             approval_manager=ApprovalManager(
-                policy=ApprovalPolicy.ON_REQUEST,
                 reviewer=reviewer,
             ),
         )
@@ -2658,13 +2780,14 @@ def test_tool_runner_denies_rejected_workspace_write(tmp_path):
             ]
         )
         reviewer = AutoApprovalReviewer(approved=False, reason="test denied")
-        config = make_config(tmp_path)
+        config = make_config(tmp_path).model_copy(
+            update={"approval_policy": ApprovalPolicy.ON_REQUEST}
+        )
         runtime = AgentRuntime(
             session_store=SessionStore(config.codecraft_home),
             llm_providers=LLMProviderRegistry([provider]),
             tool_registry=ToolRegistry([WriteFileTool()]),
             approval_manager=ApprovalManager(
-                policy=ApprovalPolicy.ON_REQUEST,
                 reviewer=reviewer,
             ),
         )
@@ -2703,13 +2826,14 @@ def test_thread_approval_decision_allows_pending_tool_call(tmp_path):
                 ModelEvent(type=ModelEventType.COMPLETED),
             ]
         )
-        config = make_config(tmp_path)
+        config = make_config(tmp_path).model_copy(
+            update={"approval_policy": ApprovalPolicy.ON_REQUEST}
+        )
         runtime = AgentRuntime(
             session_store=SessionStore(config.codecraft_home),
             llm_providers=LLMProviderRegistry([provider]),
             tool_registry=ToolRegistry([WriteFileTool()]),
             approval_manager=ApprovalManager(
-                policy=ApprovalPolicy.ON_REQUEST,
                 reviewer=reviewer,
             ),
         )
@@ -2767,13 +2891,14 @@ def test_thread_approval_decision_denies_pending_tool_call(tmp_path):
                 ModelEvent(type=ModelEventType.COMPLETED),
             ]
         )
-        config = make_config(tmp_path)
+        config = make_config(tmp_path).model_copy(
+            update={"approval_policy": ApprovalPolicy.ON_REQUEST}
+        )
         runtime = AgentRuntime(
             session_store=SessionStore(config.codecraft_home),
             llm_providers=LLMProviderRegistry([provider]),
             tool_registry=ToolRegistry([WriteFileTool()]),
             approval_manager=ApprovalManager(
-                policy=ApprovalPolicy.ON_REQUEST,
                 reviewer=reviewer,
             ),
         )

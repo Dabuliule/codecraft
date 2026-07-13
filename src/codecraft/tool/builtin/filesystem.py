@@ -10,11 +10,11 @@ from codecraft.core.errors import WorkspaceAccessError
 from codecraft.retrieval.engine import ContextEngine
 from codecraft.retrieval.models import RetrievalRequest
 from codecraft.schema.tool import ToolEffect, ToolResult
-from codecraft.tool.base import BaseTool, ToolContext
+from codecraft.tool.base import BaseTool, ToolArguments, ToolContext
 from codecraft.tool.workspace import WorkspaceGuard
 
 
-class ReadFileArgs(BaseModel):
+class ReadFileArgs(ToolArguments):
     path: str
     encoding: str = "utf-8"
     max_chars: int = Field(default=80_000, ge=1)
@@ -52,9 +52,13 @@ class ReadFileTool(BaseTool):
             return ToolResult(
                 success=False,
                 content="File could not be decoded.",
-                error=str(exc),
+                error="file_decode_error",
                 suggestion="Try a different encoding.",
-                metadata={"path": str(path), "encoding": read_args.encoding},
+                metadata={
+                    "path": str(path),
+                    "encoding": read_args.encoding,
+                    "reason": str(exc),
+                },
             )
 
         truncated = len(content) > read_args.max_chars
@@ -76,7 +80,7 @@ class ReadFileTool(BaseTool):
         )
 
 
-class WriteFileArgs(BaseModel):
+class WriteFileArgs(ToolArguments):
     path: str
     content: str
     encoding: str = "utf-8"
@@ -155,7 +159,7 @@ class WriteFileTool(BaseTool):
         )
 
 
-class ListFilesArgs(BaseModel):
+class ListFilesArgs(ToolArguments):
     path: str = "."
     recursive: bool = False
     max_entries: int = Field(default=500, ge=1)
@@ -229,7 +233,7 @@ class ListFilesTool(BaseTool):
         return f"{relative}{suffix}"
 
 
-class WorkspaceSearchArgs(BaseModel):
+class WorkspaceSearchArgs(ToolArguments):
     query: str = Field(min_length=1)
     path: str = "."
     mode: Literal["both", "content", "path"] = "both"

@@ -107,7 +107,7 @@ def test_codecraft_mcp_client_and_server_interoperate_over_stdio(tmp_path):
                 event
                 async for event in ToolRunner(
                     registry,
-                    approval_manager=ApprovalManager(policy=ApprovalPolicy.NEVER),
+                    approval_manager=ApprovalManager(),
                 ).run(
                     ToolCall(
                         call_id="call_search",
@@ -126,7 +126,7 @@ def test_codecraft_mcp_client_and_server_interoperate_over_stdio(tmp_path):
                 event
                 async for event in ToolRunner(
                     registry,
-                    approval_manager=ApprovalManager(policy=ApprovalPolicy.NEVER),
+                    approval_manager=ApprovalManager(),
                 ).run(
                     ToolCall(
                         call_id="call_escape",

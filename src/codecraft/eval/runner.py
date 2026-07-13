@@ -142,7 +142,7 @@ async def _run_task(
         session_store=SessionStore(config.codecraft_home),
         llm_providers=llm_providers,
         tool_registry=_eval_tool_registry(),
-        approval_manager=ApprovalManager(policy=ApprovalPolicy.NEVER),
+        approval_manager=ApprovalManager(),
     )
     started = monotonic()
     events: list[RuntimeEvent] = []

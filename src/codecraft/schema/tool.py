@@ -3,7 +3,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from codecraft.schema.event import RuntimeEventType
 
 
 class ToolEffect(StrEnum):
@@ -35,6 +37,20 @@ class ToolCall(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolRuntimeEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: RuntimeEventType
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("type")
+    @classmethod
+    def validate_tool_event_type(cls, value: RuntimeEventType) -> RuntimeEventType:
+        if value != RuntimeEventType.PATCH_APPLIED:
+            raise ValueError("tool results cannot emit runtime lifecycle events")
+        return value
+
+
 class ToolResult(BaseModel):
     """tool 执行完成后回传给模型和 UI 的结果。"""
 
@@ -44,6 +60,7 @@ class ToolResult(BaseModel):
     error: str | None = None
     suggestion: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    runtime_events: list[ToolRuntimeEvent] = Field(default_factory=list, exclude=True)
 
     @model_validator(mode="after")
     def validate_error_shape(self) -> ToolResult:
@@ -55,3 +72,17 @@ class ToolResult(BaseModel):
             raise ValueError("failed tool results must include error")
 
         return self
+
+    def model_content(self) -> str:
+        """返回包含失败和截断语义的模型可见文本。"""
+        details = [self.content]
+        if self.error is not None:
+            details.append(f"[tool_error: {self.error}]")
+        if self.suggestion:
+            details.append(f"[suggestion: {self.suggestion}]")
+        if self.metadata.get("content_truncated") is True:
+            original_chars = self.metadata.get("original_content_chars", "unknown")
+            details.append(
+                f"[output truncated from {original_chars} characters; request a narrower result]"
+            )
+        return "\n".join(part for part in details if part)

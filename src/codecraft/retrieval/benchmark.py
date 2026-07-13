@@ -193,7 +193,6 @@ def _tool_context(workspace: Path, call: ToolCall) -> Any:
         max_tool_calls=1,
         max_tool_output_chars=80_000,
         created_at=now,
-        metadata={"retrieval_eval": True},
     )
     return ToolContext(context=context, call=call)
 
