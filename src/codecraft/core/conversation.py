@@ -227,7 +227,9 @@ class Conversation(BaseModel):
 
         overflow = compacted.context_chars() - max_chars
         if overflow > 0:
-            shortened = summary_text[: max(0, len(summary_text) - overflow - 1)].rstrip()
+            shortened = summary_text[
+                : max(0, len(summary_text) - overflow - 1)
+            ].rstrip()
             compacted.items[0].content = shortened
 
         if not compacted.items[0].content or compacted.context_chars() > max_chars:
