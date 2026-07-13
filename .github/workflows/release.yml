@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -37,18 +39,36 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked --all-groups
 
+      - name: Read release metadata
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(uv run python -c 'import tomllib; from pathlib import Path; print(tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"])')"
+          prerelease="$(VERSION="${version}" uv run python -c 'import os; from packaging.version import Version; print(str(Version(os.environ["VERSION"]).is_prerelease).lower())')"
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
+
       - name: Validate release tag
         if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
 
-          version="$(uv run python -c 'import tomllib; from pathlib import Path; print(tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"])')"
+          version="${{ steps.release.outputs.version }}"
           tag="${GITHUB_REF_NAME}"
 
           if [ "${tag}" != "v${version}" ]; then
             echo "Release tag ${tag} does not match pyproject.toml version ${version}."
             echo "Create tag v${version}, or update pyproject.toml before releasing."
+            exit 1
+          fi
+
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "Release tag ${tag} must point to a commit contained in origin/main."
             exit 1
           fi
 
@@ -81,6 +101,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --title "${GITHUB_REF_NAME}" \
+          set -euo pipefail
+
+          release_args=(
+            --verify-tag
+            --title "${GITHUB_REF_NAME}"
             --generate-notes
+          )
+          if [ "${{ steps.release.outputs.prerelease }}" = "true" ]; then
+            release_args+=(--prerelease)
+          fi
+
+          gh release create "${GITHUB_REF_NAME}" dist/* "${release_args[@]}"
