@@ -42,6 +42,10 @@ network_access = true
 
 [instructions]
 user = "Always answer in Chinese."
+
+[turn]
+max_tool_calls = 12
+max_tool_output_chars = 4096
 """,
         encoding="utf-8",
     )
@@ -65,6 +69,8 @@ policy = "untrusted"
     assert settings.approval.policy == "untrusted"
     assert settings.sandbox.network_access is True
     assert settings.instructions.user == "Always answer in Chinese."
+    assert settings.turn.max_tool_calls == 12
+    assert settings.turn.max_tool_output_chars == 4096
 
 
 def test_config_loader_uses_builtin_defaults_when_files_are_missing(tmp_path):
@@ -77,3 +83,5 @@ def test_config_loader_uses_builtin_defaults_when_files_are_missing(tmp_path):
     assert settings.sandbox.mode == "workspace_write"
     assert settings.sandbox.network_access is False
     assert settings.instructions.user is None
+    assert settings.turn.max_tool_calls == 30
+    assert settings.turn.max_tool_output_chars == 80_000

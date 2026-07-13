@@ -61,7 +61,6 @@ from codecraft.prompt import BASE_INSTRUCTIONS, InstructionLoader
 def make_config(tmp_path) -> SessionConfig:
     return SessionConfig(
         session_id="ses_test",
-        thread_id="thr_test",
         source=SessionSource.TEST,
         cwd=tmp_path,
         workspace_roots=[tmp_path],
@@ -404,7 +403,6 @@ def test_read_file_and_list_files_tools(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -414,7 +412,7 @@ def test_read_file_and_list_files_tools(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -447,6 +445,18 @@ def test_read_file_and_list_files_tools(tmp_path):
         assert list_result.success is True
         assert list_result.content == "note.txt"
 
+        limited_events = [
+            event
+            async for event in ToolRunner(ToolRegistry([read_tool])).run(
+                read_call,
+                context.model_copy(update={"max_tool_output_chars": 5}),
+            )
+        ]
+        limited_result = limited_events[-1].payload["result"]
+        assert limited_result["content"] == "hello"
+        assert limited_result["metadata"]["content_truncated"] is True
+        assert limited_result["metadata"]["original_content_chars"] == 12
+
     asyncio.run(run_test())
 
 
@@ -464,7 +474,6 @@ def test_workspace_search_finds_paths_and_content_while_skipping_noise(tmp_path)
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -474,7 +483,7 @@ def test_workspace_search_finds_paths_and_content_while_skipping_noise(tmp_path)
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -510,7 +519,6 @@ def test_workspace_search_rejects_path_escape(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -520,7 +528,7 @@ def test_workspace_search_rejects_path_escape(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -545,7 +553,6 @@ def test_write_file_tool_creates_and_updates_workspace_file(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -555,7 +562,7 @@ def test_write_file_tool_creates_and_updates_workspace_file(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -602,7 +609,6 @@ def test_write_file_tool_rejects_missing_parent_by_default(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -612,7 +618,7 @@ def test_write_file_tool_rejects_missing_parent_by_default(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -642,7 +648,6 @@ def test_apply_patch_tool_modifies_workspace_file(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -652,7 +657,7 @@ def test_apply_patch_tool_modifies_workspace_file(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -716,7 +721,6 @@ def test_apply_patch_tool_rejects_workspace_escape(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -726,7 +730,7 @@ def test_apply_patch_tool_rejects_workspace_escape(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -759,7 +763,6 @@ def test_bash_tool_runs_safe_command_and_blocks_prompt_or_denied(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -769,7 +772,7 @@ def test_bash_tool_runs_safe_command_and_blocks_prompt_or_denied(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -837,7 +840,6 @@ def test_tool_runner_denies_workspace_write_in_read_only_sandbox(tmp_path):
         config = make_config(tmp_path).model_copy(update={"sandbox_mode": "read_only"})
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -847,7 +849,7 @@ def test_tool_runner_denies_workspace_write_in_read_only_sandbox(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -892,7 +894,6 @@ def test_tool_runner_denies_bash_in_read_only_sandbox(tmp_path):
         config = make_config(tmp_path).model_copy(update={"sandbox_mode": "read_only"})
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -902,7 +903,7 @@ def test_tool_runner_denies_bash_in_read_only_sandbox(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -959,11 +960,36 @@ def test_session_config_requires_known_policy_names(tmp_path):
         SessionConfig.model_validate({**config_data, "sandbox_mode": "half_trusted"})
 
 
+def test_session_config_rejects_stale_fields_invalid_boundaries_and_budgets(tmp_path):
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    config_data = make_config(workspace).model_dump(mode="python")
+
+    with pytest.raises(ValueError, match="thread_id"):
+        SessionConfig.model_validate({**config_data, "thread_id": "thr_stale"})
+    with pytest.raises(ValueError, match="inside a workspace root"):
+        SessionConfig.model_validate({**config_data, "cwd": outside})
+    with pytest.raises(ValueError, match="max_tool_calls"):
+        SessionConfig.model_validate({**config_data, "max_tool_calls": 0})
+    with pytest.raises(ValueError, match="max_tool_output_chars"):
+        SessionConfig.model_validate({**config_data, "max_tool_output_chars": 0})
+    with pytest.raises(ValueError, match="model_api_key_env"):
+        SessionConfig.model_validate({**config_data, "model_api_key_env": "BAD-NAME"})
+    with pytest.raises(ValueError, match="MCP server names"):
+        SessionConfig.model_validate(
+            {
+                **config_data,
+                "mcp_servers": {"bad server": {"command": "python"}},
+            }
+        )
+
+
 def test_turn_context_is_immutable(tmp_path):
     config = make_config(tmp_path)
     context = TurnContext(
         session_id=config.session_id,
-        thread_id=config.thread_id,
         turn_id="turn_test",
         cwd=config.cwd,
         workspace_roots=config.workspace_roots,
@@ -980,7 +1006,7 @@ def test_turn_context_is_immutable(tmp_path):
                 effects={ToolEffect.READ_ONLY},
             )
         ],
-        max_steps=config.max_turn_steps,
+        max_tool_calls=config.max_tool_calls,
         max_tool_output_chars=config.max_tool_output_chars,
         created_at=config.created_at,
     )
@@ -1008,7 +1034,6 @@ def test_llm_provider_stream_contract(tmp_path):
     config = make_config(tmp_path)
     context = TurnContext(
         session_id=config.session_id,
-        thread_id=config.thread_id,
         turn_id="turn_test",
         cwd=config.cwd,
         workspace_roots=config.workspace_roots,
@@ -1018,7 +1043,7 @@ def test_llm_provider_stream_contract(tmp_path):
         sandbox_mode=config.sandbox_mode,
         network_access=config.network_access,
         available_tools=[],
-        max_steps=config.max_turn_steps,
+        max_tool_calls=config.max_tool_calls,
         max_tool_output_chars=config.max_tool_output_chars,
         created_at=config.created_at,
     )
@@ -1078,7 +1103,6 @@ def test_openai_provider_converts_response_to_model_events(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -1094,7 +1118,7 @@ def test_openai_provider_converts_response_to_model_events(tmp_path):
                     input_schema={"type": "object"},
                 )
             ],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -1184,7 +1208,6 @@ def test_openai_provider_streams_response_deltas_and_tool_calls(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -1194,7 +1217,7 @@ def test_openai_provider_streams_response_deltas_and_tool_calls(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -1245,7 +1268,6 @@ def test_openai_provider_serializes_tool_history_as_response_items(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -1255,7 +1277,7 @@ def test_openai_provider_serializes_tool_history_as_response_items(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -1365,7 +1387,6 @@ def test_qwen_provider_streams_chat_completion_deltas(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -1375,7 +1396,7 @@ def test_qwen_provider_streams_chat_completion_deltas(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -1482,7 +1503,6 @@ def test_qwen_provider_streams_chat_completion_tool_calls(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -1498,7 +1518,7 @@ def test_qwen_provider_streams_chat_completion_tool_calls(tmp_path):
                     input_schema={"type": "object"},
                 )
             ],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -1627,7 +1647,6 @@ def test_deepseek_provider_streams_chat_completion_deltas(tmp_path):
         config = make_config(tmp_path)
         context = TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id="turn_test",
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -1637,7 +1656,7 @@ def test_deepseek_provider_streams_chat_completion_deltas(tmp_path):
             sandbox_mode=config.sandbox_mode,
             network_access=config.network_access,
             available_tools=[],
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=config.created_at,
         )
@@ -2110,7 +2129,16 @@ def test_runtime_injects_system_instructions_before_conversation(tmp_path):
             ]
         )
         config = make_config(tmp_path).model_copy(
-            update={"user_instructions": "User rule: answer briefly."}
+            update={
+                "project_instructions": InstructionLoader().load_project_instructions(
+                    cwd=tmp_path,
+                    workspace_roots=[tmp_path],
+                ),
+                "user_instructions": "User rule: answer briefly.",
+            }
+        )
+        (tmp_path / "AGENTS.md").write_text(
+            "Changed after session creation.", encoding="utf-8"
         )
         runtime = AgentRuntime(
             session_store=SessionStore(config.codecraft_home),
@@ -2126,6 +2154,7 @@ def test_runtime_injects_system_instructions_before_conversation(tmp_path):
         assert messages[0].role == ModelRole.SYSTEM
         assert "<base_instructions>" in messages[0].content
         assert "Project rule: inspect files first." in messages[0].content
+        assert "Changed after session creation." not in messages[0].content
         assert "User rule: answer briefly." in messages[0].content
         assert "approval_policy: never" in messages[0].content
         assert messages[1].role == ModelRole.USER
@@ -2201,7 +2230,7 @@ def test_runtime_resume_uses_context_compaction_summary(tmp_path):
     asyncio.run(run_test())
 
 
-def test_runtime_executes_read_file_tool_call_and_continues_turn(tmp_path):
+def test_runtime_allows_final_answer_after_reaching_tool_call_limit(tmp_path):
     async def run_test() -> None:
         (tmp_path / "note.txt").write_text("tool loop works", encoding="utf-8")
         provider = MockProvider(
@@ -2221,7 +2250,7 @@ def test_runtime_executes_read_file_tool_call_and_continues_turn(tmp_path):
                 ModelEvent(type=ModelEventType.COMPLETED),
             ]
         )
-        config = make_config(tmp_path)
+        config = make_config(tmp_path).model_copy(update={"max_tool_calls": 1})
         runtime = AgentRuntime(
             session_store=SessionStore(config.codecraft_home),
             llm_providers=LLMProviderRegistry([provider]),
@@ -2246,7 +2275,7 @@ def test_runtime_executes_read_file_tool_call_and_continues_turn(tmp_path):
         finished = snapshot.events[5]
         assert finished.payload["result"]["success"] is True
         assert finished.payload["result"]["content"] == "tool loop works"
-        assert snapshot.events[-1].payload["steps"] == 1
+        assert snapshot.events[-1].payload["tool_calls"] == 1
         messages = provider.calls[1][0]
         assert [message.content for message in messages[1:]] == [
             "read note",

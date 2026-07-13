@@ -52,6 +52,11 @@ class InstructionSettings(BaseModel):
     user: str | None = None
 
 
+class TurnSettings(BaseModel):
+    max_tool_calls: int = Field(default=30, ge=1, le=1000)
+    max_tool_output_chars: int = Field(default=80_000, ge=1, le=10_000_000)
+
+
 class RuntimeSettings(BaseModel):
     model: ModelSettings = Field(default_factory=ModelSettings)
     approval: ApprovalSettings = Field(default_factory=ApprovalSettings)
@@ -59,3 +64,4 @@ class RuntimeSettings(BaseModel):
     mcp: MCPSettings = Field(default_factory=MCPSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     instructions: InstructionSettings = Field(default_factory=InstructionSettings)
+    turn: TurnSettings = Field(default_factory=TurnSettings)

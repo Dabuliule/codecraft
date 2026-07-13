@@ -178,6 +178,10 @@ env_allowlist = []
 
 [instructions]
 user = "回答尽量简洁。"
+
+[turn]
+max_tool_calls = 30
+max_tool_output_chars = 80000
 ```
 
 API key 建议放在环境变量里：
@@ -248,7 +252,7 @@ AGENTS.md
 CODECRAFT.md
 ```
 
-CodeCraft 会从当前工作目录开始向上查找，但不会越过 workspace root。离当前目录越近的指令文件优先级越高。
+CodeCraft 会从当前工作目录开始向上查找，但不会越过 workspace root。离当前目录越近的指令文件优先级越高。解析后的内容会在创建 Session 时写入 `SessionConfig`，因此恢复会话和后续 Turn 使用同一份指令快照。
 
 工具 schema 不写进 prompt，而是通过 provider 的 `tools` 参数以结构化 schema 传给模型。
 

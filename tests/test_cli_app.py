@@ -25,7 +25,6 @@ runner = CliRunner()
 def make_config(tmp_path) -> SessionConfig:
     return SessionConfig(
         session_id="ses_cli",
-        thread_id="thr_cli",
         source=SessionSource.TEST,
         cwd=tmp_path,
         workspace_roots=[tmp_path],
@@ -672,6 +671,10 @@ base_url = "https://example.test/v1"
 
 [instructions]
 user = "Be terse."
+
+[turn]
+max_tool_calls = 7
+max_tool_output_chars = 2048
 """,
         encoding="utf-8",
     )
@@ -718,6 +721,8 @@ user = "Be terse."
     assert seen_configs[0].model_api_key_env == "MOCK_API_KEY"
     assert seen_configs[0].model_base_url == "https://example.test/v1"
     assert seen_configs[0].user_instructions == "Be terse."
+    assert seen_configs[0].max_tool_calls == 7
+    assert seen_configs[0].max_tool_output_chars == 2048
 
 
 def test_provider_registry_receives_session_model_connection_config(tmp_path):

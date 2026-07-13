@@ -49,7 +49,6 @@ def _request(tmp_path, **updates) -> SandboxExecutionRequest:
 def _tool_context(tmp_path) -> ToolContext:
     turn = TurnContext(
         session_id="ses_sandbox",
-        thread_id="thr_sandbox",
         turn_id="turn_sandbox",
         cwd=tmp_path,
         workspace_roots=[tmp_path],
@@ -59,7 +58,7 @@ def _tool_context(tmp_path) -> ToolContext:
         sandbox_mode=SandboxMode.WORKSPACE_WRITE,
         network_access=False,
         available_tools=[],
-        max_steps=1,
+        max_tool_calls=1,
         max_tool_output_chars=80_000,
         created_at=datetime.now(UTC),
     )

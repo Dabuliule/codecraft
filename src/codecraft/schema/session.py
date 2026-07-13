@@ -4,12 +4,12 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 import re
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from codecraft.approval.policy import ApprovalPolicy
-from codecraft.mcp.config import MCPServerSettings
+from codecraft.mcp.config import MCPServerSettings, MCPSettings
 from codecraft.sandbox import DockerSandboxConfig, SandboxBackendType, SandboxMode
 from codecraft.schema.event import RuntimeEvent
 
@@ -24,20 +24,27 @@ class SessionSource(StrEnum):
     TEST = "test"
 
 
+class EvalSessionContext(BaseModel):
+    run_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    attempt: int = Field(ge=1)
+
+
 class SessionConfig(BaseModel):
     """启动或恢复 session 所需的完整运行配置。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     schema_version: Literal[1] = SESSION_CONFIG_SCHEMA_VERSION
-    session_id: str
-    thread_id: str
+    session_id: str = Field(min_length=1)
     source: SessionSource
 
     cwd: Path
     workspace_roots: list[Path]
     codecraft_home: Path
 
-    model: str
-    model_provider: str
+    model: str = Field(min_length=1)
+    model_provider: str = Field(min_length=1)
     model_api_key_env: str | None = None
     model_base_url: str | None = None
 
@@ -53,11 +60,11 @@ class SessionConfig(BaseModel):
     project_instructions: str | None = None
     user_instructions: str | None = None
 
-    max_turn_steps: int = 30
-    max_tool_output_chars: int = 80_000
+    max_tool_calls: int = Field(default=30, ge=1, le=1000)
+    max_tool_output_chars: int = Field(default=80_000, ge=1, le=10_000_000)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    evaluation: EvalSessionContext | None = None
 
     @field_validator("cwd")
     @classmethod
@@ -83,7 +90,14 @@ class SessionConfig(BaseModel):
         if missing:
             raise ValueError(f"workspace_roots must be directories: {missing}")
 
-        return roots
+        return list(dict.fromkeys(roots))
+
+    @field_validator("model_api_key_env")
+    @classmethod
+    def validate_model_api_key_env(cls, value: str | None) -> str | None:
+        if value is not None and not _ENV_NAME.fullmatch(value):
+            raise ValueError("model_api_key_env must be an environment variable name")
+        return value
 
     @field_validator("sandbox_env_allowlist")
     @classmethod
@@ -93,11 +107,20 @@ class SessionConfig(BaseModel):
             raise ValueError(f"invalid environment variable names: {invalid}")
         return list(dict.fromkeys(values))
 
-    @model_validator(mode="after")
-    def validate_runtime_names(self) -> SessionConfig:
-        if not self.model_provider:
-            raise ValueError("model_provider must not be empty")
+    @field_validator("mcp_servers")
+    @classmethod
+    def validate_mcp_servers(
+        cls, values: dict[str, MCPServerSettings]
+    ) -> dict[str, MCPServerSettings]:
+        return MCPSettings(servers=values).servers
 
+    @model_validator(mode="after")
+    def validate_workspace_boundary(self) -> SessionConfig:
+        if not any(
+            self.cwd == root or root in self.cwd.parents
+            for root in self.workspace_roots
+        ):
+            raise ValueError("cwd must be inside a workspace root")
         return self
 
 
@@ -105,7 +128,6 @@ class SessionSummary(BaseModel):
     """用于列表页/命令输出的轻量 session 信息。"""
 
     session_id: str
-    thread_id: str
     path: Path
     valid: bool = True
     error_code: str | None = None

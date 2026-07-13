@@ -51,7 +51,6 @@ class Session:
         seq: int = 0,
     ) -> None:
         self.session_id = config.session_id
-        self.thread_id = config.thread_id
         self.config = config
         self.conversation = conversation or Conversation()
         self.input_queue: asyncio.Queue[SessionInput] = asyncio.Queue()
@@ -218,7 +217,7 @@ class Session:
                     "reason": error_payload["code"],
                     "message": error_payload["message"],
                     "metadata": error_payload.get("metadata", {}),
-                    "steps": turn.step_count,
+                    "tool_calls": turn.tool_call_count,
                 },
                 turn_id=turn.turn_id,
             )

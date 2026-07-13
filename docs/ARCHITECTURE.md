@@ -68,7 +68,7 @@ It creates and resumes `AgentThread` instances. It does not render CLI output, c
 - `read_snapshot()`
 - pending approval inspection for interactive reviewers
 
-The thread captures events from the session `EventBus` and hands them to consumers without exposing internal session mutation.
+The thread captures events from the session `EventBus` and hands them to consumers without exposing internal session mutation. It is an in-memory handle, not a second persisted identity; `session_id` is the sole identifier for the conversation and its event log.
 
 ### `Session`
 
@@ -100,7 +100,7 @@ The session also owns the active turn task. `interrupt()` and `close()` cancel t
 
 The turn is also responsible for reconstructing the assistant message from streaming deltas when the provider does not emit a final completed message.
 
-A provider response may contain multiple tool calls. `Turn` preserves the complete ordered batch, executes each call through `ToolRunner`, appends every result, and only then requests the next model response. A turn step is one executed tool call, so limits remain meaningful for both single-call and batched responses.
+A provider response may contain multiple tool calls. `Turn` preserves the complete ordered batch, executes each call through `ToolRunner`, appends every result, and only then requests the next model response. `max_tool_calls` counts executed calls, rejects an over-budget batch before any part of it runs, and still permits a final model response after the exact limit is reached.
 
 ### `SessionStore`
 
@@ -201,6 +201,8 @@ This keeps side-effect governance in one place.
 
 `WorkspaceGuard` prevents filesystem path escape for workspace tools and bash cwd.
 
+`ToolRunner` applies `max_tool_output_chars` to every model-facing `ToolResult.content` after observers run and before the result is persisted or appended to conversation. Individual tools may impose stricter structured-data limits.
+
 ## Approval And Sandbox
 
 CodeCraft uses layered safeguards rather than treating one mechanism as the complete sandbox:
@@ -260,7 +262,7 @@ user_instructions
 turn_context
 ```
 
-Project instructions come from `AGENTS.md` and `CODECRAFT.md`, searched upward from the cwd without crossing the workspace root. Tool schemas are not written into the prompt; providers receive them as structured `tools`.
+Project instructions come from `AGENTS.md` and `CODECRAFT.md`, searched upward from the cwd without crossing the workspace root. Bootstrap resolves them once into `SessionConfig`; `PromptBuilder` performs no filesystem I/O, so resumed sessions retain the original instruction snapshot. Tool schemas are not written into the prompt; providers receive them as structured `tools`.
 
 ## CLI Layer
 
@@ -286,7 +288,7 @@ The TUI package separates coordination (`app`), modal screens (`screens`), reusa
 
 An async Textual worker reads thread events and projects them into stable UI state: streamed assistant content updates one message block, tool calls append to a bounded activity log, token events update runtime status, and approval requests suspend the worker on a typed `ModalScreen` result before submitting an approval decision. Shutdown rejects pending approvals and closes the thread and runtime through the existing lifecycle.
 
-Before creating a new thread, the startup worker queries valid sessions for the current working directory. A `DataTable` modal returns either a session id or a new-session decision. Resume loads the stored `SessionConfig`, rebuilds the runtime from that configuration, reconstructs the model conversation through the normal runtime path, and projects persisted messages, tool results, and token counts back into the UI. The visual projection caps restored message and tool rows for terminal performance; this does not truncate runtime conversation reconstruction.
+Before creating a new session, the startup worker queries valid sessions for the current working directory. A `DataTable` modal returns either a session id or a new-session decision. Resume loads the stored `SessionConfig`, rebuilds the runtime from that configuration, reconstructs the model conversation through the normal runtime path, and projects persisted messages, tool results, and token counts back into the UI. The visual projection caps restored message and tool rows for terminal performance; this does not truncate runtime conversation reconstruction.
 
 The embedded trace screen loads the current persisted events and passes them through the same `build_trace_report()` model used by JSON and HTML export. Metrics, summarized event rows, and raw payload inspection therefore share one interpretation of the event log. Event rows use Textual's virtualized `DataTable`; opening the screen captures a snapshot and does not pause the runtime event consumer.
 

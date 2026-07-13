@@ -30,7 +30,6 @@ runner = CliRunner()
 def _turn_context(workspace) -> TurnContext:
     return TurnContext(
         session_id="ses_index",
-        thread_id="thr_index",
         turn_id="turn_index",
         cwd=workspace,
         workspace_roots=[workspace],
@@ -40,7 +39,7 @@ def _turn_context(workspace) -> TurnContext:
         sandbox_mode="workspace_write",
         network_access=False,
         available_tools=[],
-        max_steps=5,
+        max_tool_calls=5,
         max_tool_output_chars=80_000,
         created_at=datetime.now(UTC),
     )

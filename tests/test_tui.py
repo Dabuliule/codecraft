@@ -33,7 +33,6 @@ runner = CliRunner()
 def _config(tmp_path, *, approval_policy=ApprovalPolicy.NEVER) -> SessionConfig:
     return SessionConfig(
         session_id="ses_tui",
-        thread_id="thr_tui",
         source=SessionSource.CLI_TUI,
         cwd=tmp_path,
         workspace_roots=[tmp_path],
@@ -291,11 +290,9 @@ def test_tui_trace_screen_inspects_persisted_events(tmp_path):
 
 def test_tui_browses_resumes_and_continues_session(tmp_path):
     async def run_test():
-        startup_config = _config(tmp_path).model_copy(
-            update={"session_id": "ses_new", "thread_id": "thr_new"}
-        )
+        startup_config = _config(tmp_path).model_copy(update={"session_id": "ses_new"})
         stored_config = _config(tmp_path).model_copy(
-            update={"session_id": "ses_stored", "thread_id": "thr_stored"}
+            update={"session_id": "ses_stored"}
         )
         await _seed_session(stored_config)
 

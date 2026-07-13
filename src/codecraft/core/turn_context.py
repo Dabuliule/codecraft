@@ -12,10 +12,9 @@ from codecraft.schema.tool import ToolSpec
 
 
 class TurnContext(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     session_id: str
-    thread_id: str
     turn_id: str
 
     cwd: Path
@@ -31,7 +30,7 @@ class TurnContext(BaseModel):
 
     available_tools: list[ToolSpec]
 
-    max_steps: int
+    max_tool_calls: int
     max_tool_output_chars: int
 
     created_at: datetime

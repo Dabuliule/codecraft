@@ -17,6 +17,7 @@ from codecraft.llm import (
     QwenProvider,
 )
 from codecraft.mcp.client import MCPStdioProvider
+from codecraft.prompt import BASE_INSTRUCTIONS, InstructionLoader
 from codecraft.retrieval import (
     ContextEngine,
     LexicalRetriever,
@@ -93,12 +94,13 @@ def load_session_config(
             codecraft_home=codecraft_home,
         ),
     )
+    cwd = Path.cwd().resolve()
+    workspace_roots = [cwd]
     return SessionConfig(
         session_id=new_id("ses_"),
-        thread_id=new_id("thr_"),
         source=source,
-        cwd=Path.cwd(),
-        workspace_roots=[Path.cwd()],
+        cwd=cwd,
+        workspace_roots=workspace_roots,
         codecraft_home=settings.paths.codecraft_home,
         model=settings.model.name,
         model_provider=settings.model.provider,
@@ -113,7 +115,14 @@ def load_session_config(
         sandbox_env_allowlist=settings.sandbox.env_allowlist,
         docker_sandbox=settings.sandbox.docker,
         mcp_servers=settings.mcp.servers,
+        base_instructions=BASE_INSTRUCTIONS,
+        project_instructions=InstructionLoader().load_project_instructions(
+            cwd=cwd,
+            workspace_roots=workspace_roots,
+        ),
         user_instructions=settings.instructions.user,
+        max_tool_calls=settings.turn.max_tool_calls,
+        max_tool_output_chars=settings.turn.max_tool_output_chars,
     )
 
 

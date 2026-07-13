@@ -164,7 +164,6 @@ class SessionStore:
                     summaries.append(
                         SessionSummary(
                             session_id=path.stem,
-                            thread_id="",
                             path=path,
                             valid=False,
                             error_code=exc.code,
@@ -178,7 +177,6 @@ class SessionStore:
                 summaries.append(
                     SessionSummary(
                         session_id=path.stem,
-                        thread_id="",
                         path=path,
                     )
                 )
@@ -195,7 +193,6 @@ class SessionStore:
                         summaries.append(
                             SessionSummary(
                                 session_id=path.stem,
-                                thread_id="",
                                 path=path,
                                 valid=False,
                                 error_code=exc.code,
@@ -215,7 +212,6 @@ class SessionStore:
             summaries.append(
                 SessionSummary(
                     session_id=first.session_id,
-                    thread_id=str(config.get("thread_id", "")),
                     path=path,
                     cwd=session_cwd,
                     source=config.get("source"),

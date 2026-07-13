@@ -257,6 +257,17 @@ def test_eval_command_runs_task_and_writes_reports(tmp_path, monkeypatch):
         assert task_result["token_usage"]["total_tokens"] == 36
         assert all(check["passed"] for check in task_result["checks"])
         assert (output_dir / task_result["trace_json"]).is_file()
+    session_configs = [
+        json.loads(path.read_text(encoding="utf-8").splitlines()[0])["payload"][
+            "config"
+        ]
+        for path in (output_dir / ".codecraft" / "sessions").rglob("*.jsonl")
+    ]
+    assert {
+        (config["evaluation"]["task_id"], config["evaluation"]["attempt"])
+        for config in session_configs
+    } == {("create-welcome-file", 1), ("create-welcome-file", 2)}
+    assert all("metadata" not in config for config in session_configs)
     assert "CodeCraft Eval" in html_path.read_text(encoding="utf-8")
 
     repeated = runner.invoke(

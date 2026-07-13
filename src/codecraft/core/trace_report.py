@@ -22,7 +22,6 @@ def build_trace_report(session_id: str, events: list[RuntimeEvent]) -> dict[str,
         "schema_version": TRACE_SCHEMA_VERSION,
         "session": {
             "session_id": session_id,
-            "thread_id": str(config.get("thread_id") or ""),
             "source": config.get("source"),
             "cwd": config.get("cwd"),
             "model": config.get("model"),
@@ -154,7 +153,6 @@ def render_trace_html(report: dict[str, Any]) -> str:
 def _render_session_panel(session: dict[str, Any]) -> str:
     rows = [
         ("Session", session.get("session_id")),
-        ("Thread", session.get("thread_id") or "-"),
         ("Source", session.get("source") or "-"),
         ("Model", _join_model(session)),
         ("Started", session.get("started_at") or "-"),

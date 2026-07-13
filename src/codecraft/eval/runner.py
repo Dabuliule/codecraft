@@ -25,10 +25,11 @@ from codecraft.eval.suite import (
     seed_workspace,
 )
 from codecraft.llm import LLMProviderRegistry
+from codecraft.prompt import InstructionLoader
 from codecraft.sandbox import SandboxMode
 from codecraft.schema.event import RuntimeEvent, RuntimeEventType
 from codecraft.schema.input import SessionInput
-from codecraft.schema.session import SessionConfig, SessionSource
+from codecraft.schema.session import EvalSessionContext, SessionConfig, SessionSource
 from codecraft.tool import (
     ApplyPatchTool,
     ListFilesTool,
@@ -113,10 +114,10 @@ async def _run_task(
     workspace = output_dir / "workspaces" / task.task_id / f"attempt-{attempt:02d}"
     seed_workspace(task, workspace)
     session_id = new_id("ses_eval_")
-    config = base_config.model_copy(
-        update={
+    config = SessionConfig.model_validate(
+        {
+            **base_config.model_dump(mode="python"),
             "session_id": session_id,
-            "thread_id": new_id("thr_eval_"),
             "source": SessionSource.CLI_EVAL,
             "cwd": workspace,
             "workspace_roots": [workspace],
@@ -124,14 +125,17 @@ async def _run_task(
             "approval_policy": ApprovalPolicy.NEVER,
             "sandbox_mode": SandboxMode.WORKSPACE_WRITE,
             "network_access": False,
-            "project_instructions": None,
+            "project_instructions": InstructionLoader().load_project_instructions(
+                cwd=workspace,
+                workspace_roots=[workspace],
+            ),
             "user_instructions": None,
-            "metadata": {
-                **base_config.metadata,
-                "eval_run_id": run_id,
-                "eval_task_id": task.task_id,
-                "eval_attempt": attempt,
-            },
+            "created_at": datetime.now(UTC),
+            "evaluation": EvalSessionContext(
+                run_id=run_id,
+                task_id=task.task_id,
+                attempt=attempt,
+            ),
         }
     )
     runtime = AgentRuntime(

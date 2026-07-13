@@ -32,7 +32,6 @@ from codecraft.tool.runner import ToolRunner
 def _turn_context(tmp_path, *, sandbox_mode=SandboxMode.READ_ONLY) -> TurnContext:
     return TurnContext(
         session_id="ses_mcp",
-        thread_id="thr_mcp",
         turn_id="turn_mcp",
         cwd=tmp_path,
         workspace_roots=[tmp_path],
@@ -42,7 +41,7 @@ def _turn_context(tmp_path, *, sandbox_mode=SandboxMode.READ_ONLY) -> TurnContex
         sandbox_mode=sandbox_mode,
         network_access=False,
         available_tools=[],
-        max_steps=1,
+        max_tool_calls=1,
         max_tool_output_chars=80_000,
         created_at=datetime.now(UTC),
     )

@@ -181,7 +181,6 @@ def _tool_context(workspace: Path, call: ToolCall) -> Any:
     now = datetime.now(UTC)
     context = TurnContext(
         session_id=new_id("ses_retrieval_"),
-        thread_id=new_id("thr_retrieval_"),
         turn_id=new_id("turn_retrieval_"),
         cwd=workspace,
         workspace_roots=[workspace],
@@ -191,7 +190,7 @@ def _tool_context(workspace: Path, call: ToolCall) -> Any:
         sandbox_mode=SandboxMode.READ_ONLY,
         network_access=False,
         available_tools=[],
-        max_steps=1,
+        max_tool_calls=1,
         max_tool_output_chars=80_000,
         created_at=now,
         metadata={"retrieval_eval": True},

@@ -41,7 +41,7 @@ class Turn:
         self.session = session
         self.context = self._build_context()
         self.status = TurnStatus.CREATED
-        self.step_count = 0
+        self.tool_call_count = 0
         self.prompt_builder = PromptBuilder()
 
     async def run(self, user_input: SessionInput) -> None:
@@ -68,12 +68,6 @@ class Turn:
         answer = ""
 
         while True:
-            if self.step_count >= self.context.max_steps:
-                await self.abort(
-                    "max_steps_exceeded", "Turn exceeded max tool/model steps."
-                )
-                return
-
             tool_calls: list[dict] = []
             assistant_parts: list[str] = []
             completed_message: str | None = None
@@ -136,15 +130,15 @@ class Turn:
                     assistant_parts,
                     completed_message,
                 )
+                if self.tool_call_count + len(tool_calls) > self.context.max_tool_calls:
+                    await self.abort(
+                        "max_tool_calls_exceeded",
+                        "Turn requested more tool calls than the configured limit.",
+                    )
+                    return
                 for payload in tool_calls:
-                    if self.step_count >= self.context.max_steps:
-                        await self.abort(
-                            "max_steps_exceeded",
-                            "Turn exceeded max tool/model steps.",
-                        )
-                        return
                     await self._run_tool_call(payload)
-                    self.step_count += 1
+                    self.tool_call_count += 1
                 continue
 
             if completed_message is None:
@@ -168,7 +162,7 @@ class Turn:
             {
                 "status": "success",
                 "answer": answer or "",
-                "steps": self.step_count,
+                "tool_calls": self.tool_call_count,
                 "duration_ms": int((monotonic() - started_at) * 1000),
             },
             turn_id=self.turn_id,
@@ -248,7 +242,6 @@ class Turn:
         config = self.session.config
         return TurnContext(
             session_id=config.session_id,
-            thread_id=config.thread_id,
             turn_id=self.turn_id,
             cwd=config.cwd,
             workspace_roots=config.workspace_roots,
@@ -259,7 +252,7 @@ class Turn:
             network_access=config.network_access,
             sandbox_env_allowlist=config.sandbox_env_allowlist,
             available_tools=self.session.tool_registry.specs(),
-            max_steps=config.max_turn_steps,
+            max_tool_calls=config.max_tool_calls,
             max_tool_output_chars=config.max_tool_output_chars,
             created_at=datetime.now(UTC),
         )
@@ -271,7 +264,7 @@ class Turn:
             {
                 "reason": reason,
                 "message": message,
-                "steps": self.step_count,
+                "tool_calls": self.tool_call_count,
             },
             turn_id=self.turn_id,
         )

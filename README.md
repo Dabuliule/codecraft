@@ -222,6 +222,10 @@ env_allowlist = []
 
 [instructions]
 user = "Answer concisely."
+
+[turn]
+max_tool_calls = 30
+max_tool_output_chars = 80000
 ```
 
 Then set the API key through the environment:
@@ -292,7 +296,7 @@ AGENTS.md
 CODECRAFT.md
 ```
 
-CodeCraft searches upward from the current working directory within the workspace root. Nearby instruction files have higher priority.
+CodeCraft searches upward from the current working directory within the workspace root. Nearby instruction files have higher priority. The resolved content is stored in `SessionConfig` when the session is created, so resume and later turns use the same instruction snapshot.
 
 Tool schemas are not embedded in the prompt. They are passed through the provider `tools` parameter as structured schemas.
 

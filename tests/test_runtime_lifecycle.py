@@ -25,7 +25,6 @@ from codecraft.tool import ReadFileTool, ToolRegistry
 def make_config(tmp_path) -> SessionConfig:
     return SessionConfig(
         session_id="ses_lifecycle",
-        thread_id="thr_lifecycle",
         source=SessionSource.TEST,
         cwd=tmp_path,
         workspace_roots=[tmp_path],
@@ -240,7 +239,52 @@ def test_runtime_executes_all_tool_calls_from_one_model_response(tmp_path):
             "one",
             "two",
         ]
-        assert snapshot.events[-1].payload["steps"] == 2
+        assert snapshot.events[-1].payload["tool_calls"] == 2
         assert len(provider.calls) == 2
+
+    asyncio.run(run_test())
+
+
+def test_runtime_rejects_over_budget_tool_batch_without_partial_execution(tmp_path):
+    async def run_test() -> None:
+        (tmp_path / "one.txt").write_text("one", encoding="utf-8")
+        provider = MockProvider(
+            [
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_one",
+                        "name": "read_file",
+                        "arguments": {"path": "one.txt"},
+                    },
+                ),
+                ModelEvent(
+                    type=ModelEventType.TOOL_CALL,
+                    payload={
+                        "call_id": "call_two",
+                        "name": "read_file",
+                        "arguments": {"path": "one.txt"},
+                    },
+                ),
+                ModelEvent(type=ModelEventType.COMPLETED),
+            ]
+        )
+        config = make_config(tmp_path).model_copy(update={"max_tool_calls": 1})
+        runtime = AgentRuntime(
+            session_store=SessionStore(config.codecraft_home),
+            llm_providers=LLMProviderRegistry([provider]),
+            tool_registry=ToolRegistry([ReadFileTool()]),
+        )
+        thread = await runtime.create_thread(config)
+        await thread.submit(SessionInput.user_message("inp_test", "read twice"))
+        await thread.wait_until_idle()
+        snapshot = await thread.read_snapshot()
+
+        assert not any(
+            event.type == RuntimeEventType.MODEL_TOOL_CALL for event in snapshot.events
+        )
+        assert snapshot.events[-1].type == RuntimeEventType.TURN_ABORTED
+        assert snapshot.events[-1].payload["reason"] == "max_tool_calls_exceeded"
+        assert snapshot.events[-1].payload["tool_calls"] == 0
 
     asyncio.run(run_test())

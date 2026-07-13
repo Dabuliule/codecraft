@@ -163,6 +163,7 @@ class ToolRunner:
             if post_actions:
                 result.metadata["post_actions"] = post_actions
 
+        result = self._limit_output(result, context.max_tool_output_chars)
         finished_payload = {
             "call_id": call.call_id,
             "name": call.name,
@@ -213,4 +214,19 @@ class ToolRunner:
             mode=context.sandbox_mode,
             workspace_roots=context.workspace_roots,
             network_access=context.network_access,
+        )
+
+    @staticmethod
+    def _limit_output(result: ToolResult, max_chars: int) -> ToolResult:
+        if len(result.content) <= max_chars:
+            return result
+        return result.model_copy(
+            update={
+                "content": result.content[:max_chars],
+                "metadata": {
+                    **result.metadata,
+                    "content_truncated": True,
+                    "original_content_chars": len(result.content),
+                },
+            }
         )

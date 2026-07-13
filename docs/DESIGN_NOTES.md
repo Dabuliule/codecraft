@@ -12,7 +12,7 @@ Turn -> ToolRunner -> SandboxPolicy -> ApprovalManager -> BaseTool
 
 This gives the runtime one place to enforce:
 
-- max turn steps;
+- maximum tool calls per turn;
 - event emission;
 - argument validation;
 - workspace and sandbox rules;
