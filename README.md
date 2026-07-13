@@ -91,6 +91,17 @@ uv run codecraft tui
 
 The TUI keeps conversation, runtime status, token usage, and tool activity visible at the same time. Assistant Markdown updates in place while streaming, risky tool calls open an approval modal, and the input remains locked until the active turn finishes. It consumes the same `RuntimeEvent` stream as the CLI and does not implement a separate agent loop.
 
+When the current repository has previous sessions, startup opens a session browser. Select one to restore its persisted configuration and conversation, or start a new session. Direct resume is also available:
+
+```zsh
+uv run codecraft tui --last
+uv run codecraft tui --resume <session_id>
+```
+
+The restored visual history is bounded to keep long-running terminal sessions responsive; the runtime still reconstructs the full available model context from the event log.
+
+Use the `Trace` command in the runtime panel to inspect the current persisted trace without leaving the TUI. The trace screen reuses the normal report model for aggregate metrics, a virtualized event table, and structured payload inspection.
+
 Resume the latest valid session:
 
 ```zsh
@@ -509,10 +520,9 @@ Current test coverage includes runtime events, session store, resume, config loa
 - The MCP client supports stdio tools only; Streamable HTTP, resources, prompts, and dynamic tool-list notifications are not consumed yet.
 - The CodeCraft MCP server exposes repository search and two read-only resources, not general agent execution.
 - Configured stdio MCP servers run as trusted host processes; automatic Docker isolation for MCP servers is not implemented.
-- The TUI currently presents one active session; session browsing, resume selection, and trace panels remain follow-up work.
+- The TUI runs one active session at a time.
 - No automatic pruning of invalid sessions yet.
 - No web/GitHub/cloud tools in v1.0 scope.
-- `resume --last` resumes the latest valid session; targeted interactive resume by explicit session id is not implemented yet.
 - Full automatic context compaction is v1.1 scope.
 
 ## Runtime Shape

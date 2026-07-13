@@ -41,8 +41,22 @@ def register_tui_command(app: typer.Typer) -> None:
             bool | None,
             typer.Option("--network/--no-network", help="Allow network commands."),
         ] = None,
+        resume: Annotated[
+            str | None,
+            typer.Option("--resume", help="Resume a session by id."),
+        ] = None,
+        last: Annotated[
+            bool,
+            typer.Option(
+                "--last",
+                help="Resume the latest session for the current working directory.",
+            ),
+        ] = False,
     ) -> None:
         from codecraft.cli import app as cli_app
+
+        if resume is not None and last:
+            raise typer.BadParameter("Use either --resume or --last, not both.")
 
         session_config = cli_app._load_session_config(
             source=SessionSource.CLI_TUI,
@@ -57,4 +71,7 @@ def register_tui_command(app: typer.Typer) -> None:
         CodeCraftTUI(
             session_config,
             cli_app._build_runtime(session_config),
+            runtime_factory=cli_app._build_runtime,
+            resume_session_id=resume,
+            resume_last=last,
         ).run()

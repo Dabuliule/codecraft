@@ -272,11 +272,15 @@ CLI responsibilities are config loading, runtime construction, input submission,
 
 ## TUI Layer
 
-`CodeCraftTUI` is a Textual presentation layer over `AgentRuntime` and `AgentThread`. It creates a normal session, submits `SessionInput`, and consumes the same persisted `RuntimeEvent` stream as the line-oriented CLI. It does not call model providers or tools directly.
+`CodeCraftTUI` is a Textual presentation layer over `AgentRuntime` and `AgentThread`. It creates or resumes a normal session, submits `SessionInput`, and consumes the same persisted `RuntimeEvent` stream as the line-oriented CLI. It does not call model providers or tools directly.
 
 An async Textual worker reads thread events and projects them into stable UI state: streamed assistant content updates one message block, tool calls append to a bounded activity log, token events update runtime status, and approval requests suspend the worker on a typed `ModalScreen` result before submitting an approval decision. Shutdown rejects pending approvals and closes the thread and runtime through the existing lifecycle.
 
-The current screen is intentionally single-session. Headless Textual pilot tests exercise streaming, approval-controlled file writes, token accounting, command configuration, and non-overlapping layout at an 80x24 terminal size.
+Before creating a new thread, the startup worker queries valid sessions for the current working directory. A `DataTable` modal returns either a session id or a new-session decision. Resume loads the stored `SessionConfig`, rebuilds the runtime from that configuration, reconstructs the model conversation through the normal runtime path, and projects persisted messages, tool results, and token counts back into the UI. The visual projection caps restored message and tool rows for terminal performance; this does not truncate runtime conversation reconstruction.
+
+The embedded trace screen loads the current persisted events and passes them through the same `build_trace_report()` model used by JSON and HTML export. Metrics, summarized event rows, and raw payload inspection therefore share one interpretation of the event log. Event rows use Textual's virtualized `DataTable`; opening the screen captures a snapshot and does not pause the runtime event consumer.
+
+The current screen runs one active session at a time. Headless Textual pilot tests exercise streaming, approval-controlled file writes, session browsing and continuation, token accounting, command configuration, and non-overlapping layout at an 80x24 terminal size.
 
 ## Evaluation Suite
 
@@ -346,9 +350,8 @@ cost baseline rather than assumed to be improvements.
 - The MCP client consumes stdio tools only; Streamable HTTP, resources, prompts, and list-changed notifications remain follow-up work.
 - The MCP server is intentionally repository-context-only rather than a remote agent-execution API.
 - Stdio MCP server processes are not automatically containerized.
-- The TUI does not yet include session selection, resume browsing, or an embedded trace viewer.
+- The TUI runs one active session at a time.
 - No Web/GitHub/cloud tools in v1.0 scope.
-- `resume --last` resumes the latest valid session; explicit interactive resume by session id is not implemented.
 - Context compaction is represented in event/reconstruction paths, but full automatic compaction is v1.1 work.
 - There is no automatic pruning or repair for invalid session logs yet.
 - Agent file writes refresh an existing index automatically. External edits are

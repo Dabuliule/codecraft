@@ -118,6 +118,10 @@ The Textual interface is another consumer of `RuntimeEvent`, not a parallel runt
 
 Streaming UI state is local and disposable: assistant deltas update the current visual message block, while the persisted assistant event remains the recovery source. This keeps rendering concerns out of `Session` and lets headless pilot tests verify interaction without changing core execution semantics.
 
+Session selection also stays above the runtime boundary. The TUI lists summaries through `AgentRuntime`, then rebuilds a selected session from its persisted `SessionConfig`; it does not merge current command-line configuration into old state. Restored UI history is bounded independently from conversation reconstruction, so rendering cost does not redefine model context.
+
+Trace inspection is a snapshot over persisted events, not a second telemetry model. The TUI consumes `build_trace_report()` just like JSON/HTML export, while a virtualized table keeps inspection cost proportional to visible rows. The live event consumer continues behind the modal; reopening Trace obtains a fresh snapshot.
+
 ## Approval Is Independent From Tool Code
 
 Tools describe capabilities; approval decides whether the current call may run. Keeping those separate matters because:

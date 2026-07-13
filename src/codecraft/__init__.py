@@ -91,7 +91,13 @@ from codecraft.tool import (
     WriteFileTool,
 )
 from codecraft.tool.runner import ToolRunner
-from codecraft.tui import ApprovalScreen, CodeCraftTUI, MessageBlock
+from codecraft.tui import (
+    ApprovalScreen,
+    CodeCraftTUI,
+    MessageBlock,
+    SessionBrowserScreen,
+    TraceScreen,
+)
 
 __all__ = [
     "ApprovalDeniedError",
@@ -149,6 +155,7 @@ __all__ = [
     "RepositorySearchResult",
     "SandboxSettings",
     "SessionConfig",
+    "SessionBrowserScreen",
     "SessionInput",
     "SessionInputType",
     "SessionError",
@@ -167,6 +174,7 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "ToolRunner",
+    "TraceScreen",
     "ToolSpec",
     "ThreadApprovalReviewer",
     "TurnContext",

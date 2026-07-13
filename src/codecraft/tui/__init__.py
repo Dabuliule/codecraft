@@ -1,3 +1,15 @@
-from codecraft.tui.app import ApprovalScreen, CodeCraftTUI, MessageBlock
+from codecraft.tui.app import (
+    ApprovalScreen,
+    CodeCraftTUI,
+    MessageBlock,
+    SessionBrowserScreen,
+    TraceScreen,
+)
 
-__all__ = ["ApprovalScreen", "CodeCraftTUI", "MessageBlock"]
+__all__ = [
+    "ApprovalScreen",
+    "CodeCraftTUI",
+    "MessageBlock",
+    "SessionBrowserScreen",
+    "TraceScreen",
+]

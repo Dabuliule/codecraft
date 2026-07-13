@@ -90,6 +90,17 @@ uv run codecraft tui
 
 TUI 会同时显示对话、runtime 状态、Token 用量和工具活动。Assistant Markdown 在流式输出时原位更新，高风险工具调用会打开审批弹窗，当前 turn 结束前输入框保持锁定。它消费与 CLI 相同的 `RuntimeEvent`，没有实现第二套 Agent loop。
 
+当前仓库存在历史 session 时，TUI 启动后会打开 session 浏览器，可以选择恢复原有配置和对话，也可以新建 session。还可以直接恢复：
+
+```zsh
+uv run codecraft tui --last
+uv run codecraft tui --resume <session_id>
+```
+
+为了让长 session 的终端渲染保持流畅，恢复时只显示有限数量的历史消息；Runtime 仍会从事件日志重建全部可用模型上下文。
+
+通过 Runtime 面板中的 `Trace` 命令，可以直接在 TUI 中检查当前持久化 trace。Trace 界面复用标准报告模型，展示汇总指标、虚拟化事件表和结构化 payload。
+
 恢复最近一个有效会话：
 
 ```zsh
@@ -468,10 +479,9 @@ chore: update workflow permissions
 - MCP client 只消费 stdio tools；尚未消费 Streamable HTTP、resources、prompts 和动态 tool-list notification。
 - CodeCraft MCP server 只暴露仓库搜索和两个只读 resources，不暴露通用 Agent 执行。
 - 配置的 stdio MCP server 作为受信任宿主进程运行；尚未自动放进 Docker 隔离。
-- TUI 当前只展示一个活动 session；session 浏览、resume 选择和 trace 面板属于后续工作。
+- TUI 同一时间只运行一个活动 session。
 - 还没有自动清理 invalid session。
 - v1.0 暂不做 Web/GitHub/cloud 工具。
-- `resume --last` 只能恢复最近有效 session；还没有按指定 session id 进入交互式 resume。
 - 完整自动 context compact 属于 v1.1 范围。
 
 ## Runtime 结构
