@@ -47,9 +47,28 @@ jobs:
 
           version="$(uv run python -c 'import tomllib; from pathlib import Path; print(tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"])')"
           prerelease="$(VERSION="${version}" uv run python -c 'import os; from packaging.version import Version; print(str(Version(os.environ["VERSION"]).is_prerelease).lower())')"
+          notes_file="docs/releases/v${version}.md"
+          notes_file_zh="docs/releases/v${version}.zh-CN.md"
 
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
+          echo "notes_file=${notes_file}" >> "${GITHUB_OUTPUT}"
+          echo "notes_file_zh=${notes_file_zh}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for notes_file in \
+            "${{ steps.release.outputs.notes_file }}" \
+            "${{ steps.release.outputs.notes_file_zh }}"
+          do
+            if [ ! -s "${notes_file}" ]; then
+              echo "Release notes are required at ${notes_file}."
+              exit 1
+            fi
+          done
 
       - name: Validate release tag
         if: github.event_name == 'push'
@@ -106,7 +125,7 @@ jobs:
           release_args=(
             --verify-tag
             --title "${GITHUB_REF_NAME}"
-            --generate-notes
+            --notes-file "${{ steps.release.outputs.notes_file }}"
           )
           if [ "${{ steps.release.outputs.prerelease }}" = "true" ]; then
             release_args+=(--prerelease)

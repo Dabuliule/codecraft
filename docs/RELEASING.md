@@ -1,5 +1,7 @@
 # Releasing CodeCraft
 
+[简体中文](RELEASING.zh-CN.md)
+
 CodeCraft uses PEP 440 package versions and matching Git tags. Alpha releases use
 versions such as `0.1.0a3` and tags such as `v0.1.0a3`.
 
@@ -7,7 +9,11 @@ versions such as `0.1.0a3` and tags such as `v0.1.0a3`.
 
 1. Start from a clean `develop` branch rebased onto the latest `main`.
 2. Update `project.version` in `pyproject.toml` and run `uv lock`.
-3. Run the local release gates:
+3. Add the user-facing changes to `CHANGELOG.md` and `CHANGELOG.zh-CN.md`, then
+   create the bilingual release notes at `docs/releases/vX.Y.Z.md` and
+   `docs/releases/vX.Y.Z.zh-CN.md`. The English version is the canonical GitHub
+   Release body and must link to the Chinese version.
+4. Run the local release gates:
 
    ```zsh
    uv run ruff format --check .
@@ -17,9 +23,9 @@ versions such as `0.1.0a3` and tags such as `v0.1.0a3`.
    uvx twine check dist/*
    ```
 
-4. Commit the preparation as `chore(release): prepare vX.Y.Z` and push
+5. Commit the preparation as `chore(release): prepare vX.Y.Z` and push
    `develop`.
-5. Wait for the `develop` CI run to pass.
+6. Wait for the `develop` CI run to pass.
 
 ## Publish
 
@@ -37,6 +43,7 @@ versions such as `0.1.0a3` and tags such as `v0.1.0a3`.
    PEP 440 pre-release versions must appear as GitHub Pre-releases.
 6. Rebase `develop` onto the released `main` and push it.
 
-The Release workflow rejects mismatched version/tag pairs and tags whose commits
-are not contained in `origin/main`. GitHub release notes are generated from the
-commits since the previous release.
+The Release workflow rejects mismatched version/tag pairs, missing or empty
+English or Chinese release notes, and tags whose commits are not contained in
+`origin/main`. The English versioned document is the canonical GitHub Release
+body; the bilingual changelogs remain the concise cross-version history.
