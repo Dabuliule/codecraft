@@ -8,6 +8,8 @@ The project is currently being rebuilt toward a v1.0 runtime. It runs real multi
 
 License: Apache-2.0.
 
+See [CHANGELOG.md](CHANGELOG.md) for release history and upgrade notes.
+
 ## What It Does
 
 - Runs scriptable tasks with `exec` and multi-turn sessions through the TUI.
